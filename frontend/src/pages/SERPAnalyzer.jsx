@@ -450,6 +450,10 @@ function buildSERPNotice(result, forceRefresh) {
   }
 
   if (sync?.tracked) {
+    if ((sync.activeWebsites || 0) > 0 && (sync.eligibleWebsites || 0) === 0) {
+      return `This keyword is in Rank Tracker, but no active tracked websites are set to ${sync.country || 'the selected'} country.`;
+    }
+
     return 'This keyword is in Rank Tracker, but there are no active websites available to update.';
   }
 

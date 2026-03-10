@@ -4,6 +4,7 @@ import {
 } from 'recharts';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorAlert from '../components/ErrorAlert';
+import { SERP_COUNTRIES } from '../constants/serpCountries';
 import {
   createTrackedWebsite,
   deleteTrackedKeyword,
@@ -30,6 +31,7 @@ export default function RankTracker() {
   const [newKeyword, setNewKeyword] = useState('');
   const [websiteName, setWebsiteName] = useState('');
   const [websiteDomain, setWebsiteDomain] = useState('');
+  const [websiteCountry, setWebsiteCountry] = useState('US');
   const [scheduleTime, setScheduleTime] = useState('06:00');
   const [scheduleInfo, setScheduleInfo] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -316,16 +318,18 @@ export default function RankTracker() {
       const website = await createTrackedWebsite({
         name: websiteName,
         domain: websiteDomain,
+        country: websiteCountry,
       });
 
       setWebsiteName('');
       setWebsiteDomain('');
+      setWebsiteCountry(website.country || 'US');
       setWebsites((current) => {
         const next = [website, ...current.filter((item) => item.id !== website.id)];
         return sortWebsites(next);
       });
       setSelectedWebsiteId(website.id);
-      setRestoreNotice(`Added ${website.domain} to rank tracking.`);
+      setRestoreNotice(`Added ${website.domain} to rank tracking for ${getCountryName(website.country)}.`);
     } catch (err) {
       setError(err.response?.data?.error || err.message);
     } finally {
@@ -374,6 +378,29 @@ export default function RankTracker() {
         updated.is_active
           ? `${updated.domain} is active and will be tracked.`
           : `${updated.domain} is paused and will stop tracking until re-enabled.`
+      );
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+    } finally {
+      setWebsiteBusyId(null);
+    }
+  }
+
+  async function handleChangeWebsiteCountry(website, country) {
+    setWebsiteBusyId(website.id);
+    setError(null);
+
+    try {
+      const updated = await updateTrackedWebsite(website.id, {
+        country,
+      });
+
+      setWebsites((current) => sortWebsites(
+        current.map((item) => (item.id === updated.id ? updated : item))
+      ));
+
+      setRestoreNotice(
+        `${updated.domain} will now track rankings in ${getCountryName(updated.country)}.`
       );
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -433,7 +460,7 @@ export default function RankTracker() {
     <div>
       <h2 className="text-2xl font-bold text-gray-900 mb-1">Rank Tracker</h2>
       <p className="text-sm text-gray-500 mb-6">
-        Add one or more websites, pause or resume tracking with the slider, and monitor keyword positions per site.
+        Add one or more websites, choose the tracking country for each one, pause or resume tracking with the slider, and monitor keyword positions per site.
       </p>
 
       <div className="mb-8 bg-white rounded-lg border border-gray-200 p-6 space-y-4">
@@ -472,7 +499,7 @@ export default function RankTracker() {
           </div>
         </form>
 
-        <form onSubmit={handleAddWebsite} className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_1.2fr_auto]">
+        <form onSubmit={handleAddWebsite} className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_1.2fr_220px_auto]">
           <input
             type="text"
             value={websiteName}
@@ -487,6 +514,17 @@ export default function RankTracker() {
             placeholder="example.com"
             className="px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
+          <select
+            value={websiteCountry}
+            onChange={(event) => setWebsiteCountry(event.target.value)}
+            className="px-4 py-2.5 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            {SERP_COUNTRIES.map((option) => (
+              <option key={option.code} value={option.code}>
+                {option.name}
+              </option>
+            ))}
+          </select>
           <button
             type="submit"
             disabled={websiteSubmitting || !websiteDomain.trim()}
@@ -533,10 +571,28 @@ export default function RankTracker() {
                       <div className="text-sm text-gray-500">{website.domain}</div>
                       <div className="mt-1 text-xs text-gray-500">
                         {website.is_active ? 'Tracking enabled' : 'Tracking paused'}
+                        {` · ${getCountryName(website.country)}`}
                       </div>
                     </button>
 
                     <div className="flex items-center gap-3">
+                      <select
+                        value={website.country || 'US'}
+                        onChange={(event) => {
+                          event.stopPropagation();
+                          handleChangeWebsiteCountry(website, event.target.value);
+                        }}
+                        disabled={isBusy}
+                        className="px-3 py-2 border border-gray-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-60"
+                        title="Tracking country"
+                      >
+                        {SERP_COUNTRIES.map((option) => (
+                          <option key={option.code} value={option.code}>
+                            {option.name}
+                          </option>
+                        ))}
+                      </select>
+
                       <button
                         type="button"
                         role="switch"
@@ -654,13 +710,14 @@ export default function RankTracker() {
             ) : selectedId ? (
               chartData.length > 0 ? (
                 <>
-                  <h3 className="font-semibold text-gray-900 mb-1">
-                    Ranking History — {keywords.find((item) => item.id === selectedId)?.keyword}
-                  </h3>
-                  <p className="text-sm text-gray-500 mb-4">
-                    Website: {selectedWebsite.domain}
-                    {!selectedWebsite.is_active ? ' · Tracking paused' : ''}
-                  </p>
+              <h3 className="font-semibold text-gray-900 mb-1">
+                Ranking History — {keywords.find((item) => item.id === selectedId)?.keyword}
+              </h3>
+              <p className="text-sm text-gray-500 mb-4">
+                Website: {selectedWebsite.domain}
+                {` · Country: ${getCountryName(selectedWebsite.country)}`}
+                {!selectedWebsite.is_active ? ' · Tracking paused' : ''}
+              </p>
                   <ResponsiveContainer width="100%" height={350}>
                     <LineChart data={chartData}>
                       <CartesianGrid strokeDasharray="3 3" />
@@ -707,6 +764,10 @@ function sortWebsites(websites) {
 
     return new Date(right.updated_at || right.created_at) - new Date(left.updated_at || left.created_at);
   });
+}
+
+function getCountryName(countryCode) {
+  return SERP_COUNTRIES.find((item) => item.code === String(countryCode || 'US').toUpperCase())?.name || 'United States';
 }
 
 function formatSavedAt(value) {

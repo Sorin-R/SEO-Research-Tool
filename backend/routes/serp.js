@@ -141,7 +141,7 @@ router.get('/rankings/:keywordId', async (req, res) => {
  * Body: { keywordId, keyword, targetDomain }
  */
 router.post('/track', async (req, res) => {
-  const { keywordId, keyword, websiteId, targetDomain } = req.body;
+  const { keywordId, keyword, websiteId, targetDomain, country } = req.body;
 
   if (!keywordId || !keyword) {
     return res.status(400).json({
@@ -151,6 +151,7 @@ router.post('/track', async (req, res) => {
 
   try {
     let resolvedTargetDomain = targetDomain;
+    let resolvedCountry = normalizeCountryCode(country);
 
     if (!resolvedTargetDomain && websiteId) {
       const website = await websiteService.getWebsiteById(websiteId);
@@ -160,6 +161,7 @@ router.post('/track', async (req, res) => {
       }
 
       resolvedTargetDomain = website.domain;
+      resolvedCountry = normalizeCountryCode(website.country);
     }
 
     if (!resolvedTargetDomain) {
@@ -168,7 +170,13 @@ router.post('/track', async (req, res) => {
       });
     }
 
-    const result = await serpService.trackRanking(keywordId, keyword, resolvedTargetDomain, websiteId || null);
+    const result = await serpService.trackRanking(
+      keywordId,
+      keyword,
+      resolvedTargetDomain,
+      websiteId || null,
+      resolvedCountry
+    );
     res.json(result);
   } catch (err) {
     console.error('[Route /serp/track] Error:', err.message);
@@ -187,14 +195,14 @@ router.get('/websites', async (_req, res) => {
 });
 
 router.post('/websites', async (req, res) => {
-  const { name, domain } = req.body || {};
+  const { name, domain, country } = req.body || {};
 
   if (!domain || !String(domain).trim()) {
     return res.status(400).json({ error: 'Website domain is required.' });
   }
 
   try {
-    const website = await websiteService.createWebsite({ name, domain, isActive: true });
+    const website = await websiteService.createWebsite({ name, domain, country, isActive: true });
     res.status(201).json(website);
   } catch (err) {
     console.error('[Route /serp/websites POST] Error:', err.message);
@@ -203,12 +211,13 @@ router.post('/websites', async (req, res) => {
 });
 
 router.patch('/websites/:id', async (req, res) => {
-  const { name, domain, isActive } = req.body || {};
+  const { name, domain, country, isActive } = req.body || {};
 
   try {
     const website = await websiteService.updateWebsite(req.params.id, {
       name,
       domain,
+      country,
       isActive,
     });
     res.json(website);

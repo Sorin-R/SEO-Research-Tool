@@ -30,7 +30,13 @@ async function runRankTrackerJob(source = 'Cron') {
   for (const website of websites) {
     for (const keyword of keywords) {
       try {
-        const result = await serpService.trackRanking(keyword.id, keyword.keyword, website.domain, website.id);
+        const result = await serpService.trackRanking(
+          keyword.id,
+          keyword.keyword,
+          website.domain,
+          website.id,
+          website.country || 'US'
+        );
         updated += 1;
         if (result.position != null) {
           matched += 1;

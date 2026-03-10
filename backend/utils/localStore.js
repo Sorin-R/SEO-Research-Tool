@@ -1,5 +1,6 @@
 const fs = require('fs/promises');
 const path = require('path');
+const { normalizeCountryCode } = require('./searchCountry');
 
 const storePath = path.join(__dirname, '../data/runtime-store.json');
 
@@ -158,21 +159,24 @@ async function saveWebsite(website) {
   const state = await readState();
   const timestamp = nowIso();
   const domain = String(website.domain || '').trim().toLowerCase();
+  const country = normalizeCountryCode(website.country);
   const existing = state.websites.find((item) => item.domain === domain);
 
   if (existing) {
     existing.name = website.name || existing.name;
     existing.domain = domain;
+    existing.country = country;
     existing.is_active = website.is_active != null ? !!website.is_active : existing.is_active;
     existing.updated_at = timestamp;
     await writeState(state);
-    return existing;
+    return { ...existing, country: normalizeCountryCode(existing.country) };
   }
 
   const nextWebsite = {
     id: nextId(state.websites),
     name: website.name || domain,
     domain,
+    country,
     is_active: website.is_active != null ? !!website.is_active : true,
     created_at: timestamp,
     updated_at: timestamp,
@@ -180,12 +184,15 @@ async function saveWebsite(website) {
 
   state.websites.push(nextWebsite);
   await writeState(state);
-  return nextWebsite;
+  return { ...nextWebsite, country: normalizeCountryCode(nextWebsite.country) };
 }
 
 async function getWebsites() {
   const state = await readState();
-  return [...state.websites].sort((left, right) => {
+  return [...state.websites].map((item) => ({
+    ...item,
+    country: normalizeCountryCode(item.country),
+  })).sort((left, right) => {
     if (Boolean(left.is_active) !== Boolean(right.is_active)) {
       return left.is_active ? -1 : 1;
     }
@@ -201,7 +208,8 @@ async function getActiveWebsites() {
 
 async function getWebsiteById(id) {
   const state = await readState();
-  return state.websites.find((item) => String(item.id) === String(id)) || null;
+  const website = state.websites.find((item) => String(item.id) === String(id));
+  return website ? { ...website, country: normalizeCountryCode(website.country) } : null;
 }
 
 async function updateWebsite(id, updates = {}) {
@@ -219,13 +227,18 @@ async function updateWebsite(id, updates = {}) {
 
   website.name = updates.name != null ? updates.name : website.name;
   website.domain = nextDomain;
+  if (updates.country != null) {
+    website.country = normalizeCountryCode(updates.country);
+  } else if (!website.country) {
+    website.country = 'US';
+  }
   if (updates.is_active != null) {
     website.is_active = !!updates.is_active;
   }
   website.updated_at = timestamp;
 
   await writeState(state);
-  return website;
+  return { ...website, country: normalizeCountryCode(website.country) };
 }
 
 async function deleteWebsite(id) {

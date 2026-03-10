@@ -270,9 +270,13 @@ async function getTrackedKeywordByText(keyword) {
 
 async function getActiveTrackedWebsites() {
   try {
-    return await db.query(
+    const rows = await db.query(
       'SELECT * FROM websites WHERE is_active = 1 ORDER BY updated_at DESC, created_at DESC'
     );
+    return rows.map((row) => ({
+      ...row,
+      country: normalizeCountryCode(row.country),
+    }));
   } catch (err) {
     console.warn('[SERPService] DB unavailable, using local store for getActiveTrackedWebsites:', err.message);
     return localStore.getActiveWebsites();
@@ -289,8 +293,10 @@ async function getActiveTrackedWebsites() {
  * @param {string} targetDomain - The user's domain to track position for
  * @returns {Promise<Object>} Ranking record
  */
-async function trackRanking(keywordId, keyword, targetDomain, websiteId = null) {
-  const analysis = await analyzeSERP(keyword, 10);
+async function trackRanking(keywordId, keyword, targetDomain, websiteId = null, country = 'US') {
+  const analysis = await analyzeSERP(keyword, 10, {
+    country: normalizeCountryCode(country),
+  });
   return trackRankingFromResults(keywordId, keyword, targetDomain, websiteId, analysis.results);
 }
 
@@ -424,6 +430,7 @@ async function deleteSERPAnalysisHistoryItem(id) {
 }
 
 async function syncTrackedRankingsFromResults(keyword, results, country = 'US') {
+  const normalizedCountry = normalizeCountryCode(country);
   const trackedKeyword = await getTrackedKeywordByText(keyword);
 
   if (!trackedKeyword) {
@@ -431,11 +438,14 @@ async function syncTrackedRankingsFromResults(keyword, results, country = 'US') 
       tracked: false,
       updated: 0,
       matched: 0,
-      country,
+      country: normalizedCountry,
     };
   }
 
-  const websites = await getActiveTrackedWebsites();
+  const activeWebsites = await getActiveTrackedWebsites();
+  const websites = activeWebsites.filter(
+    (website) => normalizeCountryCode(website.country) === normalizedCountry
+  );
 
   if (websites.length === 0) {
     return {
@@ -443,7 +453,9 @@ async function syncTrackedRankingsFromResults(keyword, results, country = 'US') 
       keywordId: trackedKeyword.id,
       updated: 0,
       matched: 0,
-      country,
+      country: normalizedCountry,
+      activeWebsites: activeWebsites.length,
+      eligibleWebsites: 0,
       websites: [],
     };
   }
@@ -471,7 +483,9 @@ async function syncTrackedRankingsFromResults(keyword, results, country = 'US') 
     keywordId: trackedKeyword.id,
     updated: updates.length,
     matched: updates.filter((item) => item.position != null).length,
-    country,
+    country: normalizedCountry,
+    activeWebsites: activeWebsites.length,
+    eligibleWebsites: websites.length,
     websites: updates,
   };
 }

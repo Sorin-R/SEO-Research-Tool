@@ -5,6 +5,7 @@ const schemaStatements = [
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     domain VARCHAR(255) NOT NULL,
+    country CHAR(2) NOT NULL DEFAULT 'US',
     is_active TINYINT(1) DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -126,6 +127,7 @@ async function ensureSchema() {
     await pool.query(statement);
   }
 
+  await ensureWebsitesCountrySchema();
   await ensureRankingsWebsiteSchema();
 
   console.log('[DB] Schema verified.');
@@ -197,6 +199,14 @@ async function ensureRankingsWebsiteSchema() {
       'ALTER TABLE rankings ADD CONSTRAINT fk_rankings_website FOREIGN KEY (website_id) REFERENCES websites(id) ON DELETE CASCADE'
     );
   }
+}
+
+async function ensureWebsitesCountrySchema() {
+  if (!(await hasColumn('websites', 'country'))) {
+    await pool.query(`ALTER TABLE websites ADD COLUMN country CHAR(2) NOT NULL DEFAULT 'US' AFTER domain`);
+  }
+
+  await pool.query(`UPDATE websites SET country = 'US' WHERE country IS NULL OR country = ''`);
 }
 
 module.exports = { pool, query, testConnection, ensureSchema };

@@ -1,5 +1,6 @@
 const db = require('../database');
 const localStore = require('../utils/localStore');
+const { normalizeCountryCode } = require('../utils/searchCountry');
 
 function createServiceError(message, statusCode = 400) {
   const error = new Error(message);
@@ -40,10 +41,21 @@ function normalizeName(name, domain) {
   return trimmed || domain;
 }
 
+function sanitizeWebsiteRecord(record) {
+  if (!record) {
+    return null;
+  }
+
+  return {
+    ...record,
+    country: normalizeCountryCode(record.country),
+  };
+}
+
 async function getWebsiteById(id) {
   try {
     const rows = await db.query('SELECT * FROM websites WHERE id = ? LIMIT 1', [id]);
-    return rows[0] || null;
+    return sanitizeWebsiteRecord(rows[0] || null);
   } catch (err) {
     console.warn('[WebsiteService] DB unavailable, using local store for getWebsiteById:', err.message);
     return localStore.getWebsiteById(id);
@@ -52,9 +64,10 @@ async function getWebsiteById(id) {
 
 async function getWebsites() {
   try {
-    return await db.query(
+    const rows = await db.query(
       'SELECT * FROM websites ORDER BY is_active DESC, updated_at DESC, created_at DESC'
     );
+    return rows.map(sanitizeWebsiteRecord);
   } catch (err) {
     console.warn('[WebsiteService] DB unavailable, using local store for getWebsites:', err.message);
     return localStore.getWebsites();
@@ -63,24 +76,26 @@ async function getWebsites() {
 
 async function getActiveWebsites() {
   try {
-    return await db.query(
+    const rows = await db.query(
       'SELECT * FROM websites WHERE is_active = 1 ORDER BY updated_at DESC, created_at DESC'
     );
+    return rows.map(sanitizeWebsiteRecord);
   } catch (err) {
     console.warn('[WebsiteService] DB unavailable, using local store for getActiveWebsites:', err.message);
     return localStore.getActiveWebsites();
   }
 }
 
-async function createWebsite({ name, domain, isActive = true }) {
+async function createWebsite({ name, domain, country = 'US', isActive = true }) {
   const normalizedDomain = normalizeDomain(domain);
   const normalizedName = normalizeName(name, normalizedDomain);
+  const normalizedCountry = normalizeCountryCode(country);
 
   try {
     const result = await db.query(
-      `INSERT INTO websites (name, domain, is_active)
-       VALUES (?, ?, ?)`,
-      [normalizedName, normalizedDomain, isActive ? 1 : 0]
+      `INSERT INTO websites (name, domain, country, is_active)
+       VALUES (?, ?, ?, ?)`,
+      [normalizedName, normalizedDomain, normalizedCountry, isActive ? 1 : 0]
     );
 
     return getWebsiteById(result.insertId);
@@ -93,6 +108,7 @@ async function createWebsite({ name, domain, isActive = true }) {
     return localStore.saveWebsite({
       name: normalizedName,
       domain: normalizedDomain,
+      country: normalizedCountry,
       is_active: !!isActive,
     });
   }
@@ -111,6 +127,9 @@ async function updateWebsite(id, updates = {}) {
   const normalizedName = updates.name != null
     ? normalizeName(updates.name, normalizedDomain)
     : existing.name;
+  const normalizedCountry = updates.country != null
+    ? normalizeCountryCode(updates.country)
+    : normalizeCountryCode(existing.country);
   const isActive = typeof updates.isActive === 'boolean'
     ? updates.isActive
     : Boolean(existing.is_active);
@@ -118,9 +137,9 @@ async function updateWebsite(id, updates = {}) {
   try {
     await db.query(
       `UPDATE websites
-       SET name = ?, domain = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
+       SET name = ?, domain = ?, country = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [normalizedName, normalizedDomain, isActive ? 1 : 0, id]
+      [normalizedName, normalizedDomain, normalizedCountry, isActive ? 1 : 0, id]
     );
 
     return getWebsiteById(id);
@@ -133,6 +152,7 @@ async function updateWebsite(id, updates = {}) {
     return localStore.updateWebsite(id, {
       name: normalizedName,
       domain: normalizedDomain,
+      country: normalizedCountry,
       is_active: !!isActive,
     });
   }
@@ -163,6 +183,7 @@ async function ensureLegacyDefaultWebsite() {
     return await createWebsite({
       name: fallbackDomain.trim(),
       domain: fallbackDomain.trim(),
+      country: process.env.TARGET_COUNTRY || 'US',
       isActive: true,
     });
   } catch (error) {

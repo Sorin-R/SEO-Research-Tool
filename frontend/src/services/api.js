@@ -112,12 +112,13 @@ export async function getRankingHistory(keywordId, days = 30, websiteId = null) 
   return data;
 }
 
-export async function manualTrackRank(keywordId, keyword, targetDomain, websiteId = null) {
+export async function manualTrackRank(keywordId, keyword, targetDomain, websiteId = null, country = null) {
   const { data } = await api.post('/serp/track', {
     keywordId,
     keyword,
     targetDomain,
     websiteId,
+    country,
   });
   return data;
 }
@@ -127,10 +128,11 @@ export async function getTrackedWebsites() {
   return data;
 }
 
-export async function createTrackedWebsite({ name, domain }) {
+export async function createTrackedWebsite({ name, domain, country }) {
   const { data } = await api.post('/serp/websites', {
     name,
     domain,
+    country,
   });
   return data;
 }

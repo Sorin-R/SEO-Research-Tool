@@ -140,6 +140,22 @@ function downloadCsv(filename, rows) {
   URL.revokeObjectURL(url);
 }
 
+function buildCsvRowsFromKeywords(keywords = []) {
+  return keywords.map((item) => ({
+    keyword: item.keyword,
+    intent: item.intent || '',
+    cluster: item.clusterLabel || '',
+    priorityScore: item.priorityScore ?? '',
+    opportunityScore: item.opportunityScore ?? '',
+    difficultyEstimate: item.difficultyEstimate ?? '',
+    trendDirection: item.trend?.direction || '',
+    trendScore: item.trend?.score ?? '',
+    competitorGap: item.competitorGap?.isGap ? 'Yes' : 'No',
+    recommendedPageType: item.recommendedPageType || '',
+    notes: Array.isArray(item.notes) ? item.notes.join(' | ') : '',
+  }));
+}
+
 export default function KeywordResearch() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -169,6 +185,7 @@ export default function KeywordResearch() {
   const [deletingListId, setDeletingListId] = useState(null);
   const [deletingListItemKey, setDeletingListItemKey] = useState(null);
   const [selectedClusterKey, setSelectedClusterKey] = useState('');
+  const [showAllClusterKeywords, setShowAllClusterKeywords] = useState(false);
   const [showAllKeywords, setShowAllKeywords] = useState(false);
 
   useEffect(() => {
@@ -292,6 +309,10 @@ export default function KeywordResearch() {
       setSelectedClusterKey(data.clusters[0].key);
     }
   }, [data, selectedClusterKey]);
+
+  useEffect(() => {
+    setShowAllClusterKeywords(false);
+  }, [selectedClusterKey, data?.keyword]);
 
   useEffect(() => {
     if (!storageHydrated) {
@@ -1142,10 +1163,43 @@ export default function KeywordResearch() {
                     </button>
                   </div>
 
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowAllClusterKeywords((current) => !current)}
+                      className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:border-indigo-300 hover:text-indigo-700"
+                    >
+                      {showAllClusterKeywords ? 'Show less keywords' : `Show all keywords (${selectedCluster.keywordCount})`}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        downloadCsv(
+                          `${data.keyword.replace(/\s+/g, '-')}-${selectedCluster.label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-cluster.csv`,
+                          buildCsvRowsFromKeywords(selectedCluster.keywords)
+                        )
+                      }
+                      className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:border-indigo-300 hover:text-indigo-700"
+                    >
+                      Export cluster CSV
+                    </button>
+                  </div>
+
                   <div className="grid gap-4 md:grid-cols-2">
                     <div>
                       <h4 className="font-semibold text-gray-900 mb-2">Keyword set</h4>
-                      <KeywordPills keywords={selectedCluster.keywords.slice(0, 18).map((item) => item.keyword)} />
+                      <KeywordPills
+                        keywords={
+                          showAllClusterKeywords
+                            ? selectedCluster.keywords.map((item) => item.keyword)
+                            : selectedCluster.keywords.slice(0, 18).map((item) => item.keyword)
+                        }
+                      />
+                      {!showAllClusterKeywords && selectedCluster.keywordCount > 18 && (
+                        <p className="mt-2 text-xs text-gray-500">
+                          Showing 18 of {selectedCluster.keywordCount} keywords in this cluster.
+                        </p>
+                      )}
                     </div>
                     <div>
                       <h4 className="font-semibold text-gray-900 mb-2">Brief</h4>

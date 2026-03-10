@@ -44,7 +44,7 @@ router.post('/research', async (req, res) => {
     res.json(result);
   } catch (err) {
     console.error('[Route /keywords/research] Error:', err.message);
-    res.status(500).json({ error: 'Keyword research failed.', details: err.message });
+    res.status(err.statusCode || 500).json({ error: 'Keyword research failed.', details: err.message });
   }
 });
 

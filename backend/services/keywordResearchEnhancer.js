@@ -518,14 +518,23 @@ function updateKeywordScoresWithSignals(keywords) {
         trendScore,
         enrichment: item.enrichment,
       });
-      const priorityScore = Math.round(
+      const basePriorityScore = Math.round(
         (item.relevanceScore * 0.35) +
         (item.businessIntentScore * 0.25) +
         (opportunityScore * 0.3) +
         ((100 - item.difficultyEstimate) * 0.1)
       );
+      const priorityScore = typeof item.aiResearchScore === 'number'
+        ? Math.round((basePriorityScore * 0.82) + (item.aiResearchScore * 0.18))
+        : basePriorityScore;
 
       const notes = [...item.notes];
+      if (typeof item.aiResearchScore === 'number') {
+        notes.push(`AI research score ${item.aiResearchScore}/100.`);
+      }
+      if (item.aiResearchReason) {
+        notes.push(`AI research: ${item.aiResearchReason}`);
+      }
       if (item.enrichment?.forumCount > 0) {
         notes.push(`Forums/UGC appear ${item.enrichment.forumCount} times in the top results.`);
       }
@@ -559,6 +568,7 @@ function buildCsvRows(keywords) {
     intent: item.intent,
     cluster: item.clusterLabel,
     priorityScore: item.priorityScore,
+    aiResearchScore: item.aiResearchScore ?? '',
     opportunityScore: item.opportunityScore ?? '',
     difficultyEstimate: item.difficultyEstimate,
     trendDirection: item.trend?.direction || '',

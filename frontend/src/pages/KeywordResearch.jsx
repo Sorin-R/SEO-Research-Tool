@@ -19,6 +19,8 @@ import {
 
 const DEFAULT_AI_PROMPT =
   'Keep only the keywords that are the closest match to the seed keyword. Remove broad, weak, or loosely related phrases.';
+const DEFAULT_AI_RESEARCH_PROMPT =
+  'Generate the closest, highest-intent keywords a real buyer would search for around the seed keyword. Favor commercially useful, tightly relevant terms and avoid weak tangents.';
 const STORAGE_KEY = 'seo-tool:keyword-research:last-session';
 const HISTORY_LIMIT = 10;
 const MAX_VISIBLE_KEYWORDS = 150;
@@ -68,6 +70,9 @@ function createDefaultOptions() {
     enrichTopN: 5,
     targetCount: 1000,
     targetAudience: '',
+    aiResearchEnabled: false,
+    aiResearchCount: 100,
+    aiResearchPrompt: '',
   };
 }
 
@@ -98,6 +103,9 @@ function buildOptionsFromResult(result) {
     enrichTopN: result.researchOptions?.enrichTopN || 5,
     targetCount: result.researchOptions?.targetCount || 1000,
     targetAudience: result.researchOptions?.targetAudience || '',
+    aiResearchEnabled: result.researchOptions?.aiResearchEnabled || false,
+    aiResearchCount: result.researchOptions?.aiResearchCount || 100,
+    aiResearchPrompt: result.researchOptions?.aiResearchPrompt || '',
   };
 }
 
@@ -146,6 +154,7 @@ function buildCsvRowsFromKeywords(keywords = []) {
     intent: item.intent || '',
     cluster: item.clusterLabel || '',
     priorityScore: item.priorityScore ?? '',
+    aiResearchScore: item.aiResearchScore ?? '',
     opportunityScore: item.opportunityScore ?? '',
     difficultyEstimate: item.difficultyEstimate ?? '',
     trendDirection: item.trend?.direction || '',
@@ -606,7 +615,7 @@ export default function KeywordResearch() {
           </div>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-4 md:grid-cols-2">
+        <div className="grid gap-4 xl:grid-cols-5 lg:grid-cols-3 md:grid-cols-2">
           <label className="space-y-1">
             <span className="text-sm font-medium text-gray-700">Country</span>
             <select
@@ -658,6 +667,19 @@ export default function KeywordResearch() {
               disabled={!options.includeTrends}
             />
           </label>
+
+          <label className="space-y-1">
+            <span className="text-sm font-medium text-gray-700">AI First-Pass Count</span>
+            <input
+              type="number"
+              min="10"
+              max="250"
+              value={options.aiResearchCount}
+              onChange={(event) => updateOption('aiResearchCount', event.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              disabled={!options.aiResearchEnabled}
+            />
+          </label>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
@@ -694,6 +716,27 @@ export default function KeywordResearch() {
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y"
               />
             </label>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-[1.2fr_0.8fr]">
+          <label className="space-y-1">
+            <span className="text-sm font-medium text-gray-700">AI Research Prompt</span>
+            <textarea
+              value={options.aiResearchPrompt}
+              onChange={(event) => updateOption('aiResearchPrompt', event.target.value)}
+              rows={3}
+              placeholder={DEFAULT_AI_RESEARCH_PROMPT}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y"
+              disabled={!options.aiResearchEnabled}
+            />
+          </label>
+
+          <div className="rounded-lg border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
+            <div className="font-semibold text-indigo-950">AI-first mode</div>
+            <p className="mt-1">
+              AI generates the first curated keyword set, then the normal filters, clustering, SERP enrichment, and scoring layer refine it.
+            </p>
           </div>
         </div>
 
@@ -834,6 +877,15 @@ export default function KeywordResearch() {
         </div>
 
         <div className="flex flex-wrap gap-4">
+          <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={options.aiResearchEnabled}
+              onChange={(event) => updateOption('aiResearchEnabled', event.target.checked)}
+            />
+            Use AI as main researcher
+          </label>
+
           <label className="inline-flex items-center gap-2 text-sm text-gray-700">
             <input
               type="checkbox"
@@ -1024,6 +1076,11 @@ export default function KeywordResearch() {
               Found <span className="font-semibold text-gray-900">{data.totalSuggestions || 0}</span> filtered keywords
               {' '}from <span className="font-semibold text-gray-900">{data.rawSuggestionCount || 0}</span> raw suggestions
               {data.deepScan ? ' using deep scan' : ''} in {data.countryName || data.country}.
+              {data.aiResearch?.enabled ? (
+                <>
+                  {' '}AI first-pass added <span className="font-semibold text-gray-900">{data.aiResearch.selectedCount || 0}</span> curated seed keywords.
+                </>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap gap-3">
@@ -1050,10 +1107,20 @@ export default function KeywordResearch() {
             <AppliedSetting label="Target count" value={data.researchOptions?.targetCount || 1000} />
             <AppliedSetting label="SERP Top N" value={data.researchOptions?.enrichTopN ?? 0} />
             <AppliedSetting
+              label="AI-first"
+              value={data.researchOptions?.aiResearchEnabled ? `${data.researchOptions?.aiResearchCount || 100}` : 'Off'}
+            />
+            <AppliedSetting
               label="Trend Top N"
               value={data.researchOptions?.includeTrends ? data.researchOptions?.trendTopN ?? 0 : 'Off'}
             />
           </div>
+
+          {data.aiResearch?.enabled && data.aiResearch.summary && (
+            <div className="rounded-lg border border-indigo-100 bg-indigo-50 px-5 py-4 text-sm text-indigo-900">
+              {data.aiResearch.summary}
+            </div>
+          )}
 
           {Number(data.rawSuggestionCount || 0) > 0 &&
             Number(data.totalSuggestions || 0) <= 10 &&
@@ -1072,7 +1139,7 @@ export default function KeywordResearch() {
           </div>
 
           <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-            <Panel title="Top Opportunities" description="Priority score blends relevance, business intent, difficulty estimate, trend signal, and SERP opportunity.">
+            <Panel title="Top Opportunities" description="Priority score blends relevance, business intent, difficulty estimate, trend signal, SERP opportunity, and AI-first research when enabled.">
               <KeywordRows
                 keywords={(data.keywords || []).slice(0, 20)}
                 tracked={tracked}
@@ -1092,6 +1159,10 @@ export default function KeywordResearch() {
                       ? `${data.serpEnrichment.processed} processed${data.serpEnrichment.failed ? ` • ${data.serpEnrichment.failed} failed` : ''}`
                       : 'Disabled'
                   }
+                />
+                <SignalLine
+                  label="AI first-pass"
+                  value={data.aiResearch?.enabled ? `${data.aiResearch.selectedCount || 0} generated` : 'Disabled'}
                 />
                 <SignalLine
                   label="Trend overlay"
@@ -1420,6 +1491,7 @@ function KeywordRows({ keywords, tracked, onTrack, onSaveToList, savingList, can
                 <Badge>Priority {item.priorityScore}</Badge>
                 {typeof item.opportunityScore === 'number' && <Badge>Opportunity {item.opportunityScore}</Badge>}
                 {typeof item.difficultyEstimate === 'number' && <Badge>Difficulty {item.difficultyEstimate}</Badge>}
+                {typeof item.aiResearchScore === 'number' && <Badge>AI {item.aiResearchScore}</Badge>}
                 {item.trend?.direction && item.trend.direction !== 'unknown' && <Badge>Trend {item.trend.direction}</Badge>}
                 {item.competitorGap?.isGap && <Badge tone="warning">Gap</Badge>}
               </div>

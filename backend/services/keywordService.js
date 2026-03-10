@@ -5,7 +5,12 @@ const {
   categoriseSuggestions,
 } = require('../scrapers/googleAutocomplete');
 const { fetchSERPResults } = require('../scrapers/googleSERP');
-const { filterKeywordsWithAI, DEFAULT_AI_FILTER_PROMPT } = require('./aiKeywordFilterService');
+const {
+  filterKeywordsWithAI,
+  DEFAULT_AI_FILTER_PROMPT,
+  DEFAULT_AI_RESEARCH_PROMPT,
+  generateKeywordsWithAI,
+} = require('./aiKeywordFilterService');
 const trendService = require('./trendService');
 const localStore = require('../utils/localStore');
 const { getCountryConfig, normalizeCountryCode } = require('../utils/searchCountry');
@@ -78,6 +83,9 @@ function normaliseResearchOptions(options = {}) {
     maxWords: Number.parseInt(options.maxWords, 10) || 0,
     brandedMode: String(options.brandedMode || 'all'),
     targetAudience: String(options.targetAudience || '').trim(),
+    aiResearchEnabled: options.aiResearchEnabled === true || options.aiResearchEnabled === 'true',
+    aiResearchCount: clampLimit(options.aiResearchCount || 100, 10, 250),
+    aiResearchPrompt: String(options.aiResearchPrompt || '').trim(),
   };
 }
 
@@ -107,6 +115,36 @@ function buildLocalVariants(seedKeyword, options) {
   }
 
   return uniqueStrings(results);
+}
+
+function applyAiResearchSignals(keywords, aiResearch) {
+  if (!aiResearch?.keywords?.length) {
+    return keywords;
+  }
+
+  const aiKeywordMap = new Map(
+    aiResearch.keywords.map((item) => [canonicalizeKeyword(item.keyword), item])
+  );
+
+  return keywords.map((item) => {
+    const aiMatch = aiKeywordMap.get(item.canonicalKeyword);
+
+    if (!aiMatch) {
+      return item;
+    }
+
+    return {
+      ...item,
+      aiResearchScore: aiMatch.score,
+      aiResearchReason: aiMatch.reason,
+      aiSuggestedIntent: aiMatch.intent || item.intent,
+      aiSuggestedPageType: aiMatch.recommendedPageType || item.recommendedPageType,
+      notes: uniqueStrings([
+        ...item.notes,
+        aiMatch.reason ? `AI research: ${aiMatch.reason}` : null,
+      ].filter(Boolean)),
+    };
+  });
 }
 
 async function getPaaQuestions(keyword) {
@@ -329,6 +367,14 @@ async function persistResearchHistory(result) {
 async function researchKeyword(keyword, inputOptions = {}) {
   const seedKeyword = normalizeKeywordText(keyword);
   const options = normaliseResearchOptions(inputOptions);
+  const aiResearch = options.aiResearchEnabled
+    ? await generateKeywordsWithAI({
+        seedKeyword,
+        prompt: options.aiResearchPrompt || options.goalPrompt,
+        maxResults: options.aiResearchCount,
+        options,
+      })
+    : null;
   const expansion = options.expand
     ? await getExpandedSuggestions(seedKeyword, {
         targetCount: options.targetCount,
@@ -347,12 +393,13 @@ async function researchKeyword(keyword, inputOptions = {}) {
   const paaQuestions = await getPaaQuestions(seedKeyword);
   const localVariants = buildLocalVariants(seedKeyword, options);
   const rawSuggestions = uniqueStrings([
+    ...(aiResearch?.keywords || []).map((item) => item.keyword),
     ...(expansion ? expansion.suggestions : baseSuggestions.all),
     ...paaQuestions,
     ...localVariants,
   ]);
 
-  let keywords = buildKeywordObjects(seedKeyword, rawSuggestions, options);
+  let keywords = applyAiResearchSignals(buildKeywordObjects(seedKeyword, rawSuggestions, options), aiResearch);
   const serpEnrichment = await addSerpEnrichment(keywords, options);
   const trendOverlay = await addTrendOverlay(keywords, options);
   keywords = updateKeywordScoresWithSignals(keywords);
@@ -406,6 +453,21 @@ async function researchKeyword(keyword, inputOptions = {}) {
     },
     serpEnrichment,
     trendOverlay,
+    aiResearch: aiResearch
+      ? {
+          enabled: true,
+          summary: aiResearch.summary,
+          selectedCount: aiResearch.selectedCount,
+          model: aiResearch.model,
+          prompt: aiResearch.prompt,
+        }
+      : {
+          enabled: false,
+          summary: '',
+          selectedCount: 0,
+          model: null,
+          prompt: options.aiResearchPrompt || '',
+        },
     researchOptions: {
       expand: options.expand,
       targetCount: options.targetCount,
@@ -416,6 +478,9 @@ async function researchKeyword(keyword, inputOptions = {}) {
       includeTrends: options.includeTrends,
       trendTopN: options.trendTopN,
       enrichTopN: options.enrichTopN,
+      aiResearchEnabled: options.aiResearchEnabled,
+      aiResearchCount: options.aiResearchCount,
+      aiResearchPrompt: options.aiResearchPrompt,
     },
   };
 
@@ -748,7 +813,9 @@ async function deleteKeywordListItem(listId, itemId) {
 
 module.exports = {
   DEFAULT_AI_FILTER_PROMPT,
+  DEFAULT_AI_RESEARCH_PROMPT,
   filterKeywordsWithAI,
+  generateKeywordsWithAI,
   researchKeyword,
   saveKeyword,
   getTrackedKeywords,

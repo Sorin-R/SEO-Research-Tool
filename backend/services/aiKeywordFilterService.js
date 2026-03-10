@@ -2,6 +2,8 @@ const axios = require('axios');
 
 const DEFAULT_PROMPT =
   'Keep only the keywords that are the closest match to the seed keyword. Remove broad, weak, or loosely related phrases.';
+const DEFAULT_RESEARCH_PROMPT =
+  'Generate the closest, highest-intent keywords a real buyer would search for around the seed keyword. Favor commercially useful, tightly relevant terms and avoid weak tangents.';
 const DEFAULT_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const DEFAULT_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
 const DEFAULT_MAX_RESULTS = 100;
@@ -21,6 +23,10 @@ function clamp(value, min, max) {
 
 function normalisePrompt(prompt) {
   return prompt && prompt.trim() ? prompt.trim() : DEFAULT_PROMPT;
+}
+
+function normaliseResearchPrompt(prompt) {
+  return prompt && prompt.trim() ? prompt.trim() : DEFAULT_RESEARCH_PROMPT;
 }
 
 function normaliseKeywords(keywords = []) {
@@ -64,6 +70,8 @@ function mergeRankedKeywords(rankedKeywords) {
       keyword,
       score: Number.isFinite(item.score) ? clamp(Math.round(item.score), 0, 100) : 0,
       reason: typeof item.reason === 'string' ? item.reason.trim() : '',
+      intent: typeof item.intent === 'string' ? item.intent.trim() : '',
+      recommendedPageType: typeof item.recommendedPageType === 'string' ? item.recommendedPageType.trim() : '',
     };
 
     if (!existing || nextItem.score > existing.score) {
@@ -131,6 +139,41 @@ function buildFilterInput({ seedKeyword, prompt, maxResults, keywords }) {
     '',
     'Candidate keywords:',
     ...keywords.map((keyword, index) => `${index + 1}. ${keyword}`),
+  ].join('\n');
+}
+
+function formatListSection(label, values = []) {
+  const list = Array.isArray(values) ? values.filter(Boolean) : [];
+  if (list.length === 0) {
+    return `${label}: none`;
+  }
+
+  return `${label}: ${list.join(', ')}`;
+}
+
+function buildResearchInput({ seedKeyword, prompt, maxResults, options = {} }) {
+  return [
+    `Seed keyword: ${seedKeyword}`,
+    `Country: ${options.countryName || options.country || 'US'}`,
+    `Target audience: ${options.targetAudience || 'not specified'}`,
+    formatListSection('Preferred intents', options.intents),
+    formatListSection('Include terms', options.includeTerms),
+    formatListSection('Exclude terms', options.excludeTerms),
+    formatListSection('Modifier terms', options.modifierTerms),
+    formatListSection('Brand terms', options.brandTerms),
+    formatListSection('Local cities', options.localCities),
+    formatListSection('Local services', options.localServices),
+    formatListSection('Competitor domains', options.competitorDomains),
+    `Target domain: ${options.targetDomain || 'not specified'}`,
+    `Questions only: ${options.questionsOnly ? 'yes' : 'no'}`,
+    '',
+    'Research goal:',
+    prompt,
+    '',
+    `Generate the best ${maxResults} keywords or fewer if only a smaller number is truly strong.`,
+    'Keep the list tightly aligned to the seed keyword and the research goal.',
+    'Do not include junk, vague tangents, or barely related phrases.',
+    'Return only distinct keyword phrases users would actually search for.',
   ].join('\n');
 }
 
@@ -226,6 +269,104 @@ async function requestFilterPass({ apiKey, baseUrl, model, seedKeyword, prompt, 
   }
 }
 
+async function requestResearchPass({ apiKey, baseUrl, model, seedKeyword, prompt, options, maxResults }) {
+  const responseSchema = {
+    type: 'json_schema',
+    name: 'keyword_generation_result',
+    strict: true,
+    schema: {
+      type: 'object',
+      properties: {
+        summary: {
+          type: 'string',
+        },
+        keywords: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              keyword: {
+                type: 'string',
+              },
+              score: {
+                type: 'integer',
+                minimum: 0,
+                maximum: 100,
+              },
+              reason: {
+                type: 'string',
+              },
+              intent: {
+                type: 'string',
+              },
+              recommendedPageType: {
+                type: 'string',
+              },
+            },
+            required: ['keyword', 'score', 'reason', 'intent', 'recommendedPageType'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['summary', 'keywords'],
+      additionalProperties: false,
+    },
+  };
+
+  try {
+    const { data } = await axios.post(
+      `${baseUrl}/responses`,
+      {
+        model,
+        store: false,
+        input: buildResearchInput({
+          seedKeyword,
+          prompt,
+          maxResults,
+          options,
+        }),
+        text: {
+          format: responseSchema,
+        },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 120000,
+      }
+    );
+
+    const parsed = parseStructuredPayload(data);
+
+    return {
+      summary: typeof parsed.summary === 'string' ? parsed.summary.trim() : '',
+      keywords: mergeRankedKeywords(parsed.keywords).slice(0, maxResults),
+    };
+  } catch (error) {
+    if (error.statusCode) {
+      throw error;
+    }
+
+    const upstreamStatus = error.response?.status;
+    const upstreamMessage = error.response?.data?.error?.message || error.message;
+
+    if (upstreamStatus === 401 || upstreamStatus === 403) {
+      throw createServiceError(
+        'AI keyword research could not authenticate. Check OPENAI_API_KEY and OPENAI_MODEL.',
+        502
+      );
+    }
+
+    if (upstreamStatus === 429) {
+      throw createServiceError('AI keyword research is rate limited right now. Try again shortly.', 429);
+    }
+
+    throw createServiceError(`AI keyword research failed: ${upstreamMessage}`, 502);
+  }
+}
+
 async function filterKeywordsWithAI({ seedKeyword, keywords, prompt, maxResults }) {
   if (!seedKeyword || !seedKeyword.trim()) {
     throw createServiceError('Seed keyword is required for AI filtering.');
@@ -301,7 +442,43 @@ async function filterKeywordsWithAI({ seedKeyword, keywords, prompt, maxResults 
   };
 }
 
+async function generateKeywordsWithAI({ seedKeyword, prompt, maxResults, options = {} }) {
+  if (!seedKeyword || !seedKeyword.trim()) {
+    throw createServiceError('Seed keyword is required for AI keyword research.');
+  }
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw createServiceError('AI keyword research is not configured. Set OPENAI_API_KEY on the backend.');
+  }
+
+  const selectedPrompt = normaliseResearchPrompt(prompt);
+  const resultLimit = clamp(Number.parseInt(maxResults, 10) || DEFAULT_MAX_RESULTS, 10, MAX_RESULTS_LIMIT);
+  const model = process.env.OPENAI_MODEL || DEFAULT_MODEL;
+  const baseUrl = DEFAULT_BASE_URL;
+  const generated = await requestResearchPass({
+    apiKey,
+    baseUrl,
+    model,
+    seedKeyword,
+    prompt: selectedPrompt,
+    options,
+    maxResults: resultLimit,
+  });
+
+  return {
+    keyword: seedKeyword.trim(),
+    prompt: selectedPrompt,
+    selectedCount: generated.keywords.length,
+    model,
+    summary: generated.summary,
+    keywords: generated.keywords,
+  };
+}
+
 module.exports = {
   DEFAULT_AI_FILTER_PROMPT: DEFAULT_PROMPT,
+  DEFAULT_AI_RESEARCH_PROMPT: DEFAULT_RESEARCH_PROMPT,
   filterKeywordsWithAI,
+  generateKeywordsWithAI,
 };

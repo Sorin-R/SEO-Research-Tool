@@ -1182,6 +1182,89 @@ export default function KeywordResearch() {
             <MetricCard label="Gap keywords" value={data.competitorGapSummary?.totalGapKeywords || 0} />
           </div>
 
+          <Panel title="AI Keyword Filter" description="Use AI after the scrape when you want a tighter shortlist aligned to the exact business goal.">
+            <div className="space-y-4">
+              <label className="space-y-1 block">
+                <span className="text-sm font-medium text-gray-700">AI Instructions</span>
+                <textarea
+                  value={aiPrompt}
+                  onChange={(event) => setAiPrompt(event.target.value)}
+                  rows={4}
+                  placeholder="Explain the business, search intent, target audience, and how tightly the keywords should match the seed keyword."
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y"
+                />
+              </label>
+
+              <div className="flex flex-col gap-3 md:flex-row md:items-end">
+                <label className="space-y-1 block md:w-48">
+                  <span className="text-sm font-medium text-gray-700">Max Results</span>
+                  <input
+                    type="number"
+                    min="5"
+                    max="250"
+                    value={aiMaxResults}
+                    onChange={(event) => setAiMaxResults(event.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  onClick={handleAiFilter}
+                  disabled={aiLoading || !(data.keywords || []).length}
+                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {aiLoading ? 'Filtering...' : 'Filter with AI'}
+                </button>
+              </div>
+
+              <p className="text-xs text-gray-500">
+                Requires <code>OPENAI_API_KEY</code> on the backend.
+              </p>
+              {aiError && <ErrorAlert message={aiError} />}
+              {aiLoading && <LoadingSpinner message="Filtering keywords with AI..." />}
+              {aiData && !aiLoading && (
+                <AIKeywordSection
+                  data={aiData}
+                  sourceKeywords={data.keywords || []}
+                  tracked={tracked}
+                  onTrack={handleTrack}
+                  onSaveToList={(keywords) =>
+                    saveItemsToSelectedList(
+                      (Array.isArray(keywords) ? keywords : [keywords]).map((keyword) => ({
+                        keyword,
+                        sourceKeyword: data.keyword,
+                      }))
+                    )
+                  }
+                  canSave={!!selectedListId}
+                  savingList={savingList}
+                />
+              )}
+            </div>
+          </Panel>
+
+          {data.aiResearch?.enabled && (data.aiResearch.keywords || []).length > 0 && (
+            <Panel title="AI First-Pass Keywords" description="These are the raw AI-generated seed keywords before the main scoring layer blends them into the full research set.">
+              <AIKeywordSection
+                data={data.aiResearch}
+                sourceKeywords={data.keywords || []}
+                tracked={tracked}
+                onTrack={handleTrack}
+                onSaveToList={(keywords) =>
+                  saveItemsToSelectedList(
+                    (Array.isArray(keywords) ? keywords : [keywords]).map((keyword) => ({
+                      keyword,
+                      sourceKeyword: data.keyword,
+                    }))
+                  )
+                }
+                canSave={!!selectedListId}
+                savingList={savingList}
+              />
+            </Panel>
+          )}
+
           <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
             <Panel title="Top Opportunities" description="Priority score blends relevance, business intent, difficulty estimate, trend signal, SERP opportunity, and AI-first research when enabled.">
               <KeywordRows
@@ -1236,27 +1319,6 @@ export default function KeywordResearch() {
               )}
             </Panel>
           </div>
-
-          {data.aiResearch?.enabled && (data.aiResearch.keywords || []).length > 0 && (
-            <Panel title="AI First-Pass Keywords" description="These are the raw AI-generated seed keywords before the main scoring layer blends them into the full research set.">
-              <AIKeywordSection
-                data={data.aiResearch}
-                sourceKeywords={data.keywords || []}
-                tracked={tracked}
-                onTrack={handleTrack}
-                onSaveToList={(keywords) =>
-                  saveItemsToSelectedList(
-                    (Array.isArray(keywords) ? keywords : [keywords]).map((keyword) => ({
-                      keyword,
-                      sourceKeyword: data.keyword,
-                    }))
-                  )
-                }
-                canSave={!!selectedListId}
-                savingList={savingList}
-              />
-            </Panel>
-          )}
 
           <Panel title="Intent Clusters and Page Targets" description="Clusters show which keywords should live on one page, what page type to build, and a ready-made content brief.">
             <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
@@ -1343,68 +1405,6 @@ export default function KeywordResearch() {
                     </div>
                   </div>
                 </div>
-              )}
-            </div>
-          </Panel>
-
-          <Panel title="AI Keyword Filter" description="Use AI after the scrape when you want a tighter shortlist aligned to the exact business goal.">
-            <div className="space-y-4">
-              <label className="space-y-1 block">
-                <span className="text-sm font-medium text-gray-700">AI Instructions</span>
-                <textarea
-                  value={aiPrompt}
-                  onChange={(event) => setAiPrompt(event.target.value)}
-                  rows={4}
-                  placeholder="Explain the business, search intent, target audience, and how tightly the keywords should match the seed keyword."
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y"
-                />
-              </label>
-
-              <div className="flex flex-col gap-3 md:flex-row md:items-end">
-                <label className="space-y-1 block md:w-48">
-                  <span className="text-sm font-medium text-gray-700">Max Results</span>
-                  <input
-                    type="number"
-                    min="5"
-                    max="250"
-                    value={aiMaxResults}
-                    onChange={(event) => setAiMaxResults(event.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </label>
-
-                <button
-                  type="button"
-                  onClick={handleAiFilter}
-                  disabled={aiLoading || !(data.keywords || []).length}
-                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {aiLoading ? 'Filtering...' : 'Filter with AI'}
-                </button>
-              </div>
-
-              <p className="text-xs text-gray-500">
-                Requires <code>OPENAI_API_KEY</code> on the backend.
-              </p>
-              {aiError && <ErrorAlert message={aiError} />}
-              {aiLoading && <LoadingSpinner message="Filtering keywords with AI..." />}
-              {aiData && !aiLoading && (
-                <AIKeywordSection
-                  data={aiData}
-                  sourceKeywords={data.keywords || []}
-                  tracked={tracked}
-                  onTrack={handleTrack}
-                  onSaveToList={(keywords) =>
-                    saveItemsToSelectedList(
-                      (Array.isArray(keywords) ? keywords : [keywords]).map((keyword) => ({
-                        keyword,
-                        sourceKeyword: data.keyword,
-                      }))
-                    )
-                  }
-                  canSave={!!selectedListId}
-                  savingList={savingList}
-                />
               )}
             </div>
           </Panel>

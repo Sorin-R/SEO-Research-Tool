@@ -705,7 +705,12 @@ export default function KeywordResearch() {
     }));
   }
 
+  const savedKeywordSet = new Set(
+    keywordLists.flatMap((list) => (Array.isArray(list.items) ? list.items : []).map((item) => String(item.keyword || '').toLowerCase()))
+  );
   const selectedCluster = data?.clusters?.find((cluster) => cluster.key === selectedClusterKey) || data?.clusters?.[0] || null;
+  const isSelectedClusterSaved = !!selectedCluster?.keywords?.length
+    && selectedCluster.keywords.every((item) => savedKeywordSet.has(String(item.keyword || '').toLowerCase()));
   const visibleKeywords = showAllKeywords ? data?.keywords || [] : (data?.keywords || []).slice(0, MAX_VISIBLE_KEYWORDS);
 
   return (
@@ -1358,11 +1363,12 @@ export default function KeywordResearch() {
                   
                   <AIKeywordSection
                     data={aiData}
-                    sourceKeywords={data.keywords || []}
-                    tracked={tracked}
-                    onTrack={handleTrack}
-                    onSaveToList={(keywords) =>
-                      openSaveListDialog(
+                  sourceKeywords={data.keywords || []}
+                  tracked={tracked}
+                  savedKeywords={savedKeywordSet}
+                  onTrack={handleTrack}
+                  onSaveToList={(keywords) =>
+                    openSaveListDialog(
                         (Array.isArray(keywords) ? keywords : [keywords]).map((keyword) => ({
                           keyword,
                           sourceKeyword: data.keyword,
@@ -1401,6 +1407,7 @@ export default function KeywordResearch() {
                 data={data.aiResearch}
                 sourceKeywords={data.keywords || []}
                 tracked={tracked}
+                savedKeywords={savedKeywordSet}
                 onTrack={handleTrack}
                 onSaveToList={(keywords) =>
                   openSaveListDialog(
@@ -1439,6 +1446,7 @@ export default function KeywordResearch() {
               <KeywordRows
                 keywords={(data.keywords || []).slice(0, 20)}
                 tracked={tracked}
+                savedKeywords={savedKeywordSet}
                 onTrack={handleTrack}
                 onSaveToList={(keyword) => openSaveListDialog([mapKeywordToListItem(data.keyword)(keyword)], 'Save keyword to list')}
                 savingList={savingList}
@@ -1540,10 +1548,14 @@ export default function KeywordResearch() {
                     <button
                       type="button"
                       onClick={() => openSaveListDialog(selectedCluster.keywords.map(mapKeywordToListItem(data.keyword)), 'Save cluster to list')}
-                      disabled={savingList || keywordLists.length === 0}
-                      className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={savingList || keywordLists.length === 0 || isSelectedClusterSaved}
+                      className={`rounded-lg px-4 py-2 text-sm font-medium ${
+                        isSelectedClusterSaved
+                          ? 'border border-green-200 bg-green-50 text-green-700'
+                          : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                      } disabled:opacity-50 disabled:cursor-not-allowed`}
                     >
-                      Save cluster to list
+                      {isSelectedClusterSaved ? 'Saved' : 'Save cluster to list'}
                     </button>
                   </div>
 
@@ -1617,6 +1629,7 @@ export default function KeywordResearch() {
               <KeywordRows
                 keywords={visibleKeywords}
                 tracked={tracked}
+                savedKeywords={savedKeywordSet}
                 onTrack={handleTrack}
                 onSaveToList={(keyword) => openSaveListDialog([mapKeywordToListItem(data.keyword)(keyword)], 'Save keyword to list')}
                 savingList={savingList}
@@ -1854,15 +1867,18 @@ function BriefBlock({ brief }) {
   );
 }
 
-function KeywordRows({ keywords, tracked, onTrack, onSaveToList, savingList, canSave }) {
+function KeywordRows({ keywords, tracked, savedKeywords, onTrack, onSaveToList, savingList, canSave }) {
   if (!keywords?.length) {
     return <p className="text-sm text-gray-500">No keywords found for the current filters.</p>;
   }
 
   return (
     <div className="space-y-3">
-      {keywords.map((item) => (
-        <div key={item.keyword} className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+      {keywords.map((item) => {
+        const isSaved = savedKeywords?.has(String(item.keyword || '').toLowerCase());
+
+        return (
+          <div key={item.keyword} className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
             <div className="min-w-0 space-y-2">
               <div className="flex flex-wrap items-center gap-2">
@@ -1920,15 +1936,20 @@ function KeywordRows({ keywords, tracked, onTrack, onSaveToList, savingList, can
               <button
                 type="button"
                 onClick={() => onSaveToList(item)}
-                disabled={savingList || !canSave}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={savingList || !canSave || isSaved}
+                className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
+                  isSaved
+                    ? 'border-green-200 bg-green-50 text-green-700'
+                    : 'border-gray-300 bg-white text-gray-700 hover:border-indigo-300 hover:text-indigo-700'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
               >
-                Save to list
+                {isSaved ? 'Saved' : 'Save to list'}
               </button>
             </div>
           </div>
-        </div>
-      ))}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1945,11 +1966,13 @@ function Badge({ children, tone = 'default' }) {
   );
 }
 
-function AIKeywordSection({ data, sourceKeywords, tracked, onTrack, onSaveToList, canSave, savingList }) {
+function AIKeywordSection({ data, sourceKeywords, tracked, savedKeywords, onTrack, onSaveToList, canSave, savingList }) {
   const clusters = buildAiClusters(data?.keywords || [], sourceKeywords);
   const [selectedClusterKey, setSelectedClusterKey] = useState(clusters[0]?.key || '');
   const [showAllClusterKeywords, setShowAllClusterKeywords] = useState(false);
   const selectedCluster = clusters.find((cluster) => cluster.key === selectedClusterKey) || clusters[0] || null;
+  const isSelectedClusterSaved = !!selectedCluster?.keywords?.length
+    && selectedCluster.keywords.every((item) => savedKeywords?.has(String(item.keyword || '').toLowerCase()));
 
   useEffect(() => {
     if (!clusters.length) {
@@ -2011,10 +2034,14 @@ function AIKeywordSection({ data, sourceKeywords, tracked, onTrack, onSaveToList
               <button
                 type="button"
                 onClick={() => onSaveToList(selectedCluster.keywords.map((item) => item.keyword))}
-                disabled={savingList || !canSave}
-                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={savingList || !canSave || isSelectedClusterSaved}
+                className={`rounded-lg px-4 py-2 text-sm font-medium ${
+                  isSelectedClusterSaved
+                    ? 'border border-green-200 bg-green-50 text-green-700'
+                    : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
               >
-                Save AI cluster
+                {isSelectedClusterSaved ? 'Saved' : 'Save AI cluster'}
               </button>
             </div>
 
@@ -2041,49 +2068,57 @@ function AIKeywordSection({ data, sourceKeywords, tracked, onTrack, onSaveToList
             </div>
 
             <div className="space-y-3">
-              {(showAllClusterKeywords ? selectedCluster.keywords : selectedCluster.keywords.slice(0, 12)).map((item) => (
-                <div
-                  key={item.keyword}
-                  className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 md:flex-row md:items-start md:justify-between"
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-gray-900">{item.keyword}</span>
-                      <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">
-                        {item.score}/100
-                      </span>
-                      <Badge>{item.intent}</Badge>
-                    </div>
-                    <div className="text-sm text-gray-600">
-                      {[item.clusterLabel, item.recommendedPageType].filter(Boolean).join(' • ')}
-                    </div>
-                    <p className="text-sm text-gray-600">{item.reason}</p>
-                  </div>
+              {(showAllClusterKeywords ? selectedCluster.keywords : selectedCluster.keywords.slice(0, 12)).map((item) => {
+                const isSaved = savedKeywords?.has(String(item.keyword || '').toLowerCase());
 
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => onTrack(item.keyword)}
-                      disabled={tracked.has(item.keyword)}
-                      className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
-                        tracked.has(item.keyword)
-                          ? 'border-green-200 bg-green-50 text-green-700'
-                          : 'border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50'
-                      }`}
-                    >
-                      {tracked.has(item.keyword) ? 'Tracked' : 'Track'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onSaveToList(item.keyword)}
-                      disabled={savingList || !canSave}
-                      className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Save to list
-                    </button>
+                return (
+                  <div
+                    key={item.keyword}
+                    className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 md:flex-row md:items-start md:justify-between"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-gray-900">{item.keyword}</span>
+                        <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">
+                          {item.score}/100
+                        </span>
+                        <Badge>{item.intent}</Badge>
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        {[item.clusterLabel, item.recommendedPageType].filter(Boolean).join(' • ')}
+                      </div>
+                      <p className="text-sm text-gray-600">{item.reason}</p>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onTrack(item.keyword)}
+                        disabled={tracked.has(item.keyword)}
+                        className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
+                          tracked.has(item.keyword)
+                            ? 'border-green-200 bg-green-50 text-green-700'
+                            : 'border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50'
+                        }`}
+                      >
+                        {tracked.has(item.keyword) ? 'Tracked' : 'Track'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onSaveToList(item.keyword)}
+                        disabled={savingList || !canSave || isSaved}
+                        className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
+                          isSaved
+                            ? 'border-green-200 bg-green-50 text-green-700'
+                            : 'border-gray-300 bg-white text-gray-700 hover:border-indigo-300 hover:text-indigo-700'
+                        } disabled:opacity-50 disabled:cursor-not-allowed`}
+                      >
+                        {isSaved ? 'Saved' : 'Save to list'}
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
 
               {!showAllClusterKeywords && selectedCluster.keywordCount > 12 && (
                 <p className="text-xs text-gray-500">

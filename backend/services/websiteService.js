@@ -8,6 +8,34 @@ function createServiceError(message, statusCode = 400) {
   return error;
 }
 
+function shouldUseLocalFallback(err) {
+  if (!err) {
+    return false;
+  }
+
+  const fallbackCodes = new Set([
+    'ER_ACCESS_DENIED_ERROR',
+    'ECONNREFUSED',
+    'ECONNRESET',
+    'ENOTFOUND',
+    'ETIMEDOUT',
+    'PROTOCOL_CONNECTION_LOST',
+  ]);
+
+  if (fallbackCodes.has(err.code)) {
+    return true;
+  }
+
+  const message = String(err.message || '').toLowerCase();
+  return (
+    message.includes('access denied') ||
+    message.includes('connection') ||
+    message.includes('connect') ||
+    message.includes('timeout') ||
+    message.includes('not available')
+  );
+}
+
 function normalizeDomain(domain) {
   if (!domain || !domain.trim()) {
     throw createServiceError('Website domain is required.');
@@ -57,6 +85,10 @@ async function getWebsiteById(id) {
     const rows = await db.query('SELECT * FROM websites WHERE id = ? LIMIT 1', [id]);
     return sanitizeWebsiteRecord(rows[0] || null);
   } catch (err) {
+    if (!shouldUseLocalFallback(err)) {
+      throw err;
+    }
+
     console.warn('[WebsiteService] DB unavailable, using local store for getWebsiteById:', err.message);
     return localStore.getWebsiteById(id);
   }
@@ -69,6 +101,10 @@ async function getWebsites() {
     );
     return rows.map(sanitizeWebsiteRecord);
   } catch (err) {
+    if (!shouldUseLocalFallback(err)) {
+      throw err;
+    }
+
     console.warn('[WebsiteService] DB unavailable, using local store for getWebsites:', err.message);
     return localStore.getWebsites();
   }
@@ -81,6 +117,10 @@ async function getActiveWebsites() {
     );
     return rows.map(sanitizeWebsiteRecord);
   } catch (err) {
+    if (!shouldUseLocalFallback(err)) {
+      throw err;
+    }
+
     console.warn('[WebsiteService] DB unavailable, using local store for getActiveWebsites:', err.message);
     return localStore.getActiveWebsites();
   }
@@ -102,6 +142,10 @@ async function createWebsite({ name, domain, country = 'US', isActive = true }) 
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') {
       throw createServiceError('This website is already being tracked.', 409);
+    }
+
+    if (!shouldUseLocalFallback(err)) {
+      throw err;
     }
 
     console.warn('[WebsiteService] DB unavailable, using local store for createWebsite:', err.message);
@@ -148,6 +192,10 @@ async function updateWebsite(id, updates = {}) {
       throw createServiceError('Another tracked website already uses that domain.', 409);
     }
 
+    if (!shouldUseLocalFallback(err)) {
+      throw err;
+    }
+
     console.warn('[WebsiteService] DB unavailable, using local store for updateWebsite:', err.message);
     return localStore.updateWebsite(id, {
       name: normalizedName,
@@ -162,6 +210,10 @@ async function deleteWebsite(id) {
   try {
     await db.query('DELETE FROM websites WHERE id = ?', [id]);
   } catch (err) {
+    if (!shouldUseLocalFallback(err)) {
+      throw err;
+    }
+
     console.warn('[WebsiteService] DB unavailable, using local store for deleteWebsite:', err.message);
     await localStore.deleteWebsite(id);
   }

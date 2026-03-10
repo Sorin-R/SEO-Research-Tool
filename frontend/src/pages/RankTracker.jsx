@@ -395,12 +395,20 @@ export default function RankTracker() {
       setWebsiteName('');
       setWebsiteDomain('');
       setWebsiteCountry(website.country || 'US');
-      setWebsites((current) => {
-        const next = [website, ...current.filter((item) => item.id !== website.id)];
-        return sortWebsites(next);
-      });
-      setSelectedWebsiteId(website.id);
-      setRestoreNotice(`Added ${website.domain} to rank tracking for ${getCountryName(website.country)}.`);
+
+      const trackedWebsites = await getTrackedWebsites();
+      const persistedWebsite = trackedWebsites.find((item) => String(item.id) === String(website.id))
+        || trackedWebsites.find((item) => item.domain === website.domain);
+
+      if (!persistedWebsite) {
+        throw new Error('The website was not saved by the server. Check the runtime log and try again.');
+      }
+
+      setWebsites(sortWebsites(trackedWebsites));
+      setSelectedWebsiteId(persistedWebsite.id);
+      setRestoreNotice(
+        `Added ${persistedWebsite.domain} to rank tracking for ${getCountryName(persistedWebsite.country)}.`
+      );
     } catch (err) {
       setError(err.response?.data?.error || err.message);
     } finally {

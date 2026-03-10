@@ -360,6 +360,15 @@ async function getSERPAnalysisHistoryItem(id) {
   }
 }
 
+async function deleteSERPAnalysisHistoryItem(id) {
+  try {
+    await db.query('DELETE FROM serp_analysis_history WHERE id = ?', [id]);
+  } catch (err) {
+    console.warn('[SERPService] DB unavailable, using local store for deleteSERPAnalysisHistoryItem:', err.message);
+    await localStore.deleteSerpAnalysisHistoryItem(id);
+  }
+}
+
 module.exports = {
   getSERPAnalysis,
   trackRanking,
@@ -367,6 +376,7 @@ module.exports = {
   getLatestRankings,
   getSERPAnalysisHistory,
   getSERPAnalysisHistoryItem,
+  deleteSERPAnalysisHistoryItem,
 };
 
 function buildCacheKey(keyword, country) {

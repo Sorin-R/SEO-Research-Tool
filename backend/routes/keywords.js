@@ -89,6 +89,16 @@ router.get('/history/:id', async (req, res) => {
   }
 });
 
+router.delete('/history/:id', async (req, res) => {
+  try {
+    await keywordService.deleteKeywordResearchHistoryItem(req.params.id);
+    res.json({ message: 'Keyword research history item deleted.' });
+  } catch (err) {
+    console.error('[Route /keywords/history/:id DELETE] Error:', err.message);
+    res.status(500).json({ error: 'Failed to delete keyword research history item.' });
+  }
+});
+
 /**
  * GET /api/keywords/tracked
  * Get all tracked keywords from the database.

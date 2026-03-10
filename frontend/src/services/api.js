@@ -26,6 +26,11 @@ export async function getKeywordResearchHistoryItem(id) {
   return data;
 }
 
+export async function deleteKeywordResearchHistoryItem(id) {
+  const { data } = await api.delete(`/keywords/history/${id}`);
+  return data;
+}
+
 export async function filterKeywordsWithAI({ keyword, keywords, prompt, maxResults }) {
   const { data } = await api.post('/keywords/filter', {
     keyword,
@@ -73,6 +78,11 @@ export async function getSERPAnalysisHistory(limit = 10) {
 
 export async function getSERPAnalysisHistoryItem(id) {
   const { data } = await api.get(`/serp/history/${id}`);
+  return data;
+}
+
+export async function deleteSERPAnalysisHistoryItem(id) {
+  const { data } = await api.delete(`/serp/history/${id}`);
   return data;
 }
 
@@ -144,6 +154,11 @@ export async function getContentAnalysisHistory(limit = 10) {
 
 export async function getContentAnalysisHistoryItem(id) {
   const { data } = await api.get(`/analyze/history/${id}`);
+  return data;
+}
+
+export async function deleteContentAnalysisHistoryItem(id) {
+  const { data } = await api.delete(`/analyze/history/${id}`);
   return data;
 }
 

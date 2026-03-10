@@ -8,6 +8,7 @@ import StatCard from '../components/StatCard';
 import ScoreBadge from '../components/ScoreBadge';
 import {
   analyzeSERP,
+  deleteSERPAnalysisHistoryItem,
   getSERPAnalysisHistory,
   getSERPAnalysisHistoryItem,
 } from '../services/api';
@@ -26,6 +27,7 @@ export default function SERPAnalyzer() {
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState(null);
   const [loadingHistoryId, setLoadingHistoryId] = useState(null);
+  const [deletingHistoryId, setDeletingHistoryId] = useState(null);
   const [storageHydrated, setStorageHydrated] = useState(false);
   const [restoreNotice, setRestoreNotice] = useState(null);
 
@@ -161,6 +163,27 @@ export default function SERPAnalyzer() {
     }
   }
 
+  async function handleDeleteHistory(id) {
+    setDeletingHistoryId(id);
+    setHistoryError(null);
+    setError(null);
+
+    try {
+      await deleteSERPAnalysisHistoryItem(id);
+      setHistory((current) => current.filter((item) => String(item.id) !== String(id)));
+
+      if (String(data?.historyId) === String(id)) {
+        setData(null);
+        setRestoreNotice(null);
+        window.localStorage.removeItem(STORAGE_KEY);
+      }
+    } catch (err) {
+      setHistoryError(err.response?.data?.error || err.message);
+    } finally {
+      setDeletingHistoryId(null);
+    }
+  }
+
   function handleSubmit(e) {
     e.preventDefault();
     handleSearch();
@@ -232,28 +255,42 @@ export default function SERPAnalyzer() {
         {!historyLoading && history.length > 0 && (
           <div className="space-y-2">
             {history.map((item) => (
-              <button
+              <div
                 key={item.id}
-                type="button"
-                onClick={() => handleLoadHistory(item.id)}
-                disabled={loadingHistoryId === item.id}
-                className="w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-left hover:border-indigo-300 hover:bg-indigo-50 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                className="flex items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 transition-colors hover:border-indigo-300 hover:bg-indigo-50"
               >
-                <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <div className="font-medium text-gray-900">
-                      {item.keyword} <span className="text-gray-400">· {item.country_name || item.country}</span>
+                <button
+                  type="button"
+                  onClick={() => handleLoadHistory(item.id)}
+                  disabled={loadingHistoryId === item.id || deletingHistoryId === item.id}
+                  className="min-w-0 flex-1 text-left disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <div className="font-medium text-gray-900">
+                        {item.keyword} <span className="text-gray-400">· {item.country_name || item.country}</span>
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {item.total_results || 0} results
+                        {item.difficulty_score != null ? ` · Difficulty ${item.difficulty_score}` : ''}
+                      </div>
                     </div>
                     <div className="text-xs text-gray-500">
-                      {item.total_results || 0} results
-                      {item.difficulty_score != null ? ` · Difficulty ${item.difficulty_score}` : ''}
+                      {loadingHistoryId === item.id ? 'Loading...' : formatSavedAt(item.updated_at || item.created_at)}
                     </div>
                   </div>
-                  <div className="text-xs text-gray-500">
-                    {loadingHistoryId === item.id ? 'Loading...' : formatSavedAt(item.updated_at || item.created_at)}
-                  </div>
-                </div>
-              </button>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteHistory(item.id)}
+                  disabled={loadingHistoryId === item.id || deletingHistoryId === item.id}
+                  className="shrink-0 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-semibold text-gray-500 hover:border-red-300 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+                  aria-label={`Delete saved SERP analysis for ${item.keyword} in ${item.country_name || item.country}`}
+                  title="Delete saved analysis"
+                >
+                  {deletingHistoryId === item.id ? '...' : 'X'}
+                </button>
+              </div>
             ))}
           </div>
         )}

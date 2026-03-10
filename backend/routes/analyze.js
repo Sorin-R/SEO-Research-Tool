@@ -105,4 +105,14 @@ router.get('/history/:id', async (req, res) => {
   }
 });
 
+router.delete('/history/:id', async (req, res) => {
+  try {
+    await contentAnalysisService.deleteContentAnalysisHistoryItem(req.params.id);
+    res.json({ message: 'Content analysis history item deleted.' });
+  } catch (err) {
+    console.error('[Route /analyze/history/:id DELETE] Error:', err.message);
+    res.status(500).json({ error: 'Failed to delete content analysis history item.' });
+  }
+});
+
 module.exports = router;

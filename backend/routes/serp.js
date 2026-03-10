@@ -60,6 +60,16 @@ router.get('/history/:id', async (req, res) => {
   }
 });
 
+router.delete('/history/:id', async (req, res) => {
+  try {
+    await serpService.deleteSERPAnalysisHistoryItem(req.params.id);
+    res.json({ message: 'SERP analysis history item deleted.' });
+  } catch (err) {
+    console.error('[Route /serp/history/:id DELETE] Error:', err.message);
+    res.status(500).json({ error: 'Failed to delete SERP analysis history item.' });
+  }
+});
+
 /**
  * GET /api/serp/rankings
  * Get the latest rankings for all tracked keywords.

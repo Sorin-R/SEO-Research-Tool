@@ -3,6 +3,7 @@ import SearchBar from '../components/SearchBar';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorAlert from '../components/ErrorAlert';
 import {
+  deleteKeywordResearchHistoryItem,
   filterKeywordsWithAI,
   getKeywordResearchHistory,
   getKeywordResearchHistoryItem,
@@ -31,6 +32,7 @@ export default function KeywordResearch() {
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState(null);
   const [loadingHistoryId, setLoadingHistoryId] = useState(null);
+  const [deletingHistoryId, setDeletingHistoryId] = useState(null);
   const [storageHydrated, setStorageHydrated] = useState(false);
 
   useEffect(() => {
@@ -200,6 +202,29 @@ export default function KeywordResearch() {
     }
   }
 
+  async function handleDeleteHistory(id) {
+    setDeletingHistoryId(id);
+    setHistoryError(null);
+    setError(null);
+    setAiError(null);
+
+    try {
+      await deleteKeywordResearchHistoryItem(id);
+      setHistory((current) => current.filter((item) => String(item.id) !== String(id)));
+
+      if (String(data?.historyId) === String(id)) {
+        setData(null);
+        setAiData(null);
+        setRestoreNotice(null);
+        window.localStorage.removeItem(STORAGE_KEY);
+      }
+    } catch (err) {
+      setHistoryError(err.response?.data?.error || err.message);
+    } finally {
+      setDeletingHistoryId(null);
+    }
+  }
+
   return (
     <div>
       <h2 className="text-2xl font-bold text-gray-900 mb-1">Keyword Research</h2>
@@ -232,26 +257,40 @@ export default function KeywordResearch() {
         {!historyLoading && history.length > 0 && (
           <div className="space-y-2">
             {history.map((item) => (
-              <button
+              <div
                 key={item.id}
-                type="button"
-                onClick={() => handleLoadHistory(item.id)}
-                disabled={loadingHistoryId === item.id}
-                className="w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-left hover:border-indigo-300 hover:bg-indigo-50 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                className="flex items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 transition-colors hover:border-indigo-300 hover:bg-indigo-50"
               >
-                <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <div className="font-medium text-gray-900">{item.keyword}</div>
+                <button
+                  type="button"
+                  onClick={() => handleLoadHistory(item.id)}
+                  disabled={loadingHistoryId === item.id || deletingHistoryId === item.id}
+                  className="min-w-0 flex-1 text-left disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <div className="font-medium text-gray-900">{item.keyword}</div>
+                      <div className="text-xs text-gray-500">
+                        {item.total_suggestions || 0} suggestions
+                        {item.deep_scan ? ' • deep scan' : ''}
+                      </div>
+                    </div>
                     <div className="text-xs text-gray-500">
-                      {item.total_suggestions || 0} suggestions
-                      {item.deep_scan ? ' • deep scan' : ''}
+                      {loadingHistoryId === item.id ? 'Loading...' : formatSavedAt(item.updated_at || item.created_at)}
                     </div>
                   </div>
-                  <div className="text-xs text-gray-500">
-                    {loadingHistoryId === item.id ? 'Loading...' : formatSavedAt(item.updated_at || item.created_at)}
-                  </div>
-                </div>
-              </button>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteHistory(item.id)}
+                  disabled={loadingHistoryId === item.id || deletingHistoryId === item.id}
+                  className="shrink-0 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-semibold text-gray-500 hover:border-red-300 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+                  aria-label={`Delete saved keyword research for ${item.keyword}`}
+                  title="Delete saved search"
+                >
+                  {deletingHistoryId === item.id ? '...' : 'X'}
+                </button>
+              </div>
             ))}
           </div>
         )}

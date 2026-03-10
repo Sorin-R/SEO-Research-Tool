@@ -359,6 +359,16 @@ async function getKeywordResearchHistoryItem(id) {
   };
 }
 
+async function deleteKeywordResearchHistoryItem(id) {
+  const state = await readState();
+  const beforeCount = state.keywordResearchHistory.length;
+  state.keywordResearchHistory = state.keywordResearchHistory.filter((entry) => String(entry.id) !== String(id));
+
+  if (state.keywordResearchHistory.length !== beforeCount) {
+    await writeState(state);
+  }
+}
+
 async function saveSerpAnalysisHistory(result, maxEntries = 12) {
   const state = await readState();
   const timestamp = nowIso();
@@ -432,6 +442,16 @@ async function getSerpAnalysisHistoryItem(id) {
   };
 }
 
+async function deleteSerpAnalysisHistoryItem(id) {
+  const state = await readState();
+  const beforeCount = state.serpAnalysisHistory.length;
+  state.serpAnalysisHistory = state.serpAnalysisHistory.filter((entry) => String(entry.id) !== String(id));
+
+  if (state.serpAnalysisHistory.length !== beforeCount) {
+    await writeState(state);
+  }
+}
+
 async function saveContentAnalysisHistory(payload, maxEntries = 12) {
   const state = await readState();
   const timestamp = nowIso();
@@ -497,6 +517,16 @@ async function getContentAnalysisHistoryItem(id) {
   };
 }
 
+async function deleteContentAnalysisHistoryItem(id) {
+  const state = await readState();
+  const beforeCount = state.contentAnalysisHistory.length;
+  state.contentAnalysisHistory = state.contentAnalysisHistory.filter((entry) => String(entry.id) !== String(id));
+
+  if (state.contentAnalysisHistory.length !== beforeCount) {
+    await writeState(state);
+  }
+}
+
 module.exports = {
   getCachedSERP,
   saveSerpCache,
@@ -516,10 +546,13 @@ module.exports = {
   saveKeywordResearchHistory,
   getKeywordResearchHistory,
   getKeywordResearchHistoryItem,
+  deleteKeywordResearchHistoryItem,
   saveSerpAnalysisHistory,
   getSerpAnalysisHistory,
   getSerpAnalysisHistoryItem,
+  deleteSerpAnalysisHistoryItem,
   saveContentAnalysisHistory,
   getContentAnalysisHistory,
   getContentAnalysisHistoryItem,
+  deleteContentAnalysisHistoryItem,
 };

@@ -162,8 +162,18 @@ async function getContentAnalysisHistoryItem(id) {
   }
 }
 
+async function deleteContentAnalysisHistoryItem(id) {
+  try {
+    await db.query('DELETE FROM content_analyses WHERE id = ?', [id]);
+  } catch (err) {
+    console.warn('[ContentAnalysisService] DB unavailable, using local store for deleteContentAnalysisHistoryItem:', err.message);
+    await localStore.deleteContentAnalysisHistoryItem(id);
+  }
+}
+
 module.exports = {
   analyzeAndStoreContent,
   getContentAnalysisHistory,
   getContentAnalysisHistoryItem,
+  deleteContentAnalysisHistoryItem,
 };

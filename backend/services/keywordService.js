@@ -269,6 +269,15 @@ async function getKeywordResearchHistoryItem(id) {
   }
 }
 
+async function deleteKeywordResearchHistoryItem(id) {
+  try {
+    await db.query('DELETE FROM keyword_research_history WHERE id = ?', [id]);
+  } catch (err) {
+    console.warn('[KeywordService] DB unavailable, using local store for deleteKeywordResearchHistoryItem:', err.message);
+    await localStore.deleteKeywordResearchHistoryItem(id);
+  }
+}
+
 module.exports = {
   DEFAULT_AI_FILTER_PROMPT,
   filterKeywordsWithAI,
@@ -279,4 +288,5 @@ module.exports = {
   deleteKeyword,
   getKeywordResearchHistory,
   getKeywordResearchHistoryItem,
+  deleteKeywordResearchHistoryItem,
 };

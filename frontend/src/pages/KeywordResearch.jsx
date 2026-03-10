@@ -367,6 +367,13 @@ export default function KeywordResearch() {
     }
   }
 
+  function handleResetOptions() {
+    setOptions(createDefaultOptions());
+    setAiData(null);
+    setAiError(null);
+    setRestoreNotice('Research settings were reset to the default broad scan.');
+  }
+
   async function handleTrack(keyword) {
     try {
       await trackKeyword(keyword);
@@ -543,6 +550,19 @@ export default function KeywordResearch() {
           placeholder="Enter a seed keyword..."
           initialValue={searchValue}
         />
+
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <span>
+            These research filters are saved in this browser and reused next time you open the page.
+          </span>
+          <button
+            type="button"
+            onClick={handleResetOptions}
+            className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-medium text-amber-900 hover:border-amber-400"
+          >
+            Reset filters
+          </button>
+        </div>
 
         <div className="grid gap-4 lg:grid-cols-4 md:grid-cols-2">
           <label className="space-y-1">
@@ -982,6 +1002,15 @@ export default function KeywordResearch() {
               </button>
             </div>
           </div>
+
+          {Number(data.rawSuggestionCount || 0) > 0 &&
+            Number(data.totalSuggestions || 0) <= 10 &&
+            Number(data.rawSuggestionCount || 0) > Number(data.totalSuggestions || 0) && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+                Only a small number of keywords made it through your current filters. If you want a broader result set,
+                click <span className="font-semibold">Reset filters</span> and search again.
+              </div>
+            )}
 
           <div className="grid gap-4 lg:grid-cols-4 md:grid-cols-2">
             <MetricCard label="Clusters" value={data.summary?.totalClusters || 0} />

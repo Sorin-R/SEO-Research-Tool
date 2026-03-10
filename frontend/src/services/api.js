@@ -14,6 +14,16 @@ export async function researchKeyword(keyword, expand = true) {
   return data;
 }
 
+export async function filterKeywordsWithAI({ keyword, keywords, prompt, maxResults }) {
+  const { data } = await api.post('/keywords/filter', {
+    keyword,
+    keywords,
+    prompt,
+    maxResults,
+  });
+  return data;
+}
+
 export async function getTrackedKeywords() {
   const { data } = await api.get('/keywords/tracked');
   return data;

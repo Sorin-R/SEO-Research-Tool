@@ -4,6 +4,7 @@ const {
   getExpandedSuggestions,
   categoriseSuggestions,
 } = require('../scrapers/googleAutocomplete');
+const { filterKeywordsWithAI, DEFAULT_AI_FILTER_PROMPT } = require('./aiKeywordFilterService');
 const localStore = require('../utils/localStore');
 
 /**
@@ -117,6 +118,8 @@ async function deleteKeyword(id) {
 }
 
 module.exports = {
+  DEFAULT_AI_FILTER_PROMPT,
+  filterKeywordsWithAI,
   researchKeyword,
   saveKeyword,
   getTrackedKeywords,

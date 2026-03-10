@@ -6,6 +6,7 @@ const rankTrackerSettingsService = require('./rankTrackerSettingsService');
 
 let scheduledTask = null;
 let activeScheduleTime = rankTrackerSettingsService.DEFAULT_SCHEDULE_TIME;
+let activeSearchDepth = rankTrackerSettingsService.DEFAULT_SEARCH_DEPTH;
 
 async function runRankTrackerJob(source = 'Cron') {
   const prefix = `[${source}]`;
@@ -35,7 +36,8 @@ async function runRankTrackerJob(source = 'Cron') {
           keyword.keyword,
           website.target_url || website.domain,
           website.id,
-          website.country || 'US'
+          website.country || 'US',
+          activeSearchDepth
         );
         updated += 1;
         if (result.position != null) {
@@ -72,8 +74,9 @@ function stopScheduledTask() {
   scheduledTask = null;
 }
 
-function scheduleRankTrackerJob(scheduleTime) {
+function scheduleRankTrackerJob(scheduleTime, searchDepth = rankTrackerSettingsService.DEFAULT_SEARCH_DEPTH) {
   const normalizedTime = rankTrackerSettingsService.normalizeScheduleTime(scheduleTime);
+  const normalizedDepth = rankTrackerSettingsService.normalizeSearchDepth(searchDepth);
   const cronExpression = rankTrackerSettingsService.scheduleTimeToCron(normalizedTime);
 
   stopScheduledTask();
@@ -87,29 +90,32 @@ function scheduleRankTrackerJob(scheduleTime) {
   });
 
   activeScheduleTime = normalizedTime;
-  console.log(`[Scheduler] Rank tracker scheduled daily at ${normalizedTime}.`);
+  activeSearchDepth = normalizedDepth;
+  console.log(`[Scheduler] Rank tracker scheduled daily at ${normalizedTime} with depth ${normalizedDepth}.`);
 
   return {
     scheduleTime: normalizedTime,
+    searchDepth: normalizedDepth,
     cronExpression,
   };
 }
 
 async function startRankTrackerScheduler() {
   const settings = await rankTrackerSettingsService.getRankTrackerSchedule();
-  scheduleRankTrackerJob(settings.scheduleTime);
+  scheduleRankTrackerJob(settings.scheduleTime, settings.searchDepth);
   return settings;
 }
 
-async function rescheduleRankTrackerScheduler(scheduleTime) {
-  const settings = await rankTrackerSettingsService.updateRankTrackerSchedule(scheduleTime);
-  scheduleRankTrackerJob(settings.scheduleTime);
+async function rescheduleRankTrackerScheduler(scheduleTime, searchDepth) {
+  const settings = await rankTrackerSettingsService.updateRankTrackerSchedule(scheduleTime, searchDepth);
+  scheduleRankTrackerJob(settings.scheduleTime, settings.searchDepth);
   return settings;
 }
 
 function getActiveRankTrackerSchedule() {
   return {
     scheduleTime: activeScheduleTime,
+    searchDepth: activeSearchDepth,
     cronExpression: rankTrackerSettingsService.scheduleTimeToCron(activeScheduleTime),
   };
 }

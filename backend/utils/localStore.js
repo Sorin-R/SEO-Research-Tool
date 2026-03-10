@@ -3,6 +3,7 @@ const path = require('path');
 const { normalizeCountryCode } = require('./searchCountry');
 
 const storePath = path.join(__dirname, '../data/runtime-store.json');
+const ALLOWED_SEARCH_DEPTHS = [10, 20, 50, 100];
 
 function normalizePathname(pathname) {
   const value = String(pathname || '/').trim();
@@ -40,6 +41,11 @@ function normalizeStoredTargetUrl(targetUrl, fallbackDomain = '') {
   }
 }
 
+function normalizeStoredSearchDepth(searchDepth) {
+  const value = Number.parseInt(searchDepth, 10);
+  return ALLOWED_SEARCH_DEPTHS.includes(value) ? value : 10;
+}
+
 function createEmptyState() {
   return {
     websites: [],
@@ -48,6 +54,7 @@ function createEmptyState() {
     serpCache: [],
     rankTrackerSettings: {
       schedule_time: '06:00',
+      search_depth: 10,
       updated_at: null,
     },
     keywordResearchHistory: [],
@@ -83,10 +90,12 @@ async function readState() {
             schedule_time: typeof parsed.rankTrackerSettings.schedule_time === 'string'
               ? parsed.rankTrackerSettings.schedule_time
               : '06:00',
+            search_depth: normalizeStoredSearchDepth(parsed.rankTrackerSettings.search_depth),
             updated_at: parsed.rankTrackerSettings.updated_at || null,
           }
         : {
             schedule_time: '06:00',
+            search_depth: 10,
             updated_at: null,
           },
       keywordResearchHistory: Array.isArray(parsed.keywordResearchHistory)
@@ -154,14 +163,16 @@ async function getRankTrackerSettings() {
   const state = await readState();
   return {
     schedule_time: state.rankTrackerSettings?.schedule_time || '06:00',
+    search_depth: normalizeStoredSearchDepth(state.rankTrackerSettings?.search_depth),
     updated_at: state.rankTrackerSettings?.updated_at || null,
   };
 }
 
-async function updateRankTrackerSettings(scheduleTime) {
+async function updateRankTrackerSettings(scheduleTime, searchDepth = 10) {
   const state = await readState();
   state.rankTrackerSettings = {
     schedule_time: scheduleTime,
+    search_depth: normalizeStoredSearchDepth(searchDepth),
     updated_at: nowIso(),
   };
   await writeState(state);

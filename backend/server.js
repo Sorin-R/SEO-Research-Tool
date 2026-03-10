@@ -79,7 +79,7 @@ async function start() {
   try {
     const schedulerSettings = await startRankTrackerScheduler();
     console.log(
-      `[Server] Rank tracker scheduled daily at ${schedulerSettings.scheduleTime} (${schedulerSettings.serverTimeZone}).`
+      `[Server] Rank tracker scheduled daily at ${schedulerSettings.scheduleTime} (${schedulerSettings.serverTimeZone}) with depth ${schedulerSettings.searchDepth}.`
     );
   } catch (error) {
     console.warn('[Server] Failed to start rank tracker scheduler:', error.message);

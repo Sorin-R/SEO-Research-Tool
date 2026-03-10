@@ -74,9 +74,10 @@ export async function getRankTrackerSchedule() {
   return data;
 }
 
-export async function updateRankTrackerSchedule(scheduleTime) {
+export async function updateRankTrackerSchedule(scheduleTime, searchDepth) {
   const { data } = await api.patch('/serp/schedule', {
     scheduleTime,
+    searchDepth,
   });
   return data;
 }
@@ -112,13 +113,21 @@ export async function getRankingHistory(keywordId, days = 30, websiteId = null) 
   return data;
 }
 
-export async function manualTrackRank(keywordId, keyword, targetDomain, websiteId = null, country = null) {
+export async function manualTrackRank(
+  keywordId,
+  keyword,
+  targetDomain,
+  websiteId = null,
+  country = null,
+  depth = null
+) {
   const { data } = await api.post('/serp/track', {
     keywordId,
     keyword,
     targetDomain,
     websiteId,
     country,
+    depth,
   });
   return data;
 }

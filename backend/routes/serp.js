@@ -25,11 +25,20 @@ router.get('/', async (req, res) => {
     });
 
     if (syncTrackedRankings !== 'false') {
+      const rankTrackerSettings = await rankTrackerSettingsService.getRankTrackerSchedule();
+      const trackingResults = rankTrackerSettings.searchDepth > (result.results || []).length
+        ? await serpService.getRankTrackingResults(result.keyword, {
+            country: normalizedCountry,
+            numResults: rankTrackerSettings.searchDepth,
+          })
+        : (result.results || []);
+
       result.rankTrackerSync = await serpService.syncTrackedRankingsFromResults(
         result.keyword,
-        result.results || [],
+        trackingResults,
         normalizedCountry
       );
+      result.rankTrackerSync.searchDepth = rankTrackerSettings.searchDepth;
     }
 
     res.json(result);
@@ -50,10 +59,10 @@ router.get('/schedule', async (_req, res) => {
 });
 
 router.patch('/schedule', async (req, res) => {
-  const { scheduleTime } = req.body || {};
+  const { scheduleTime, searchDepth } = req.body || {};
 
   try {
-    const settings = await rescheduleRankTrackerScheduler(scheduleTime);
+    const settings = await rescheduleRankTrackerScheduler(scheduleTime, searchDepth);
     res.json(settings);
   } catch (err) {
     console.error('[Route /serp/schedule PATCH] Error:', err.message);
@@ -141,7 +150,7 @@ router.get('/rankings/:keywordId', async (req, res) => {
  * Body: { keywordId, keyword, targetDomain }
  */
 router.post('/track', async (req, res) => {
-  const { keywordId, keyword, websiteId, targetDomain, country } = req.body;
+  const { keywordId, keyword, websiteId, targetDomain, country, depth } = req.body;
 
   if (!keywordId || !keyword) {
     return res.status(400).json({
@@ -170,12 +179,15 @@ router.post('/track', async (req, res) => {
       });
     }
 
+    const rankTrackerSettings = await rankTrackerSettingsService.getRankTrackerSchedule();
+
     const result = await serpService.trackRanking(
       keywordId,
       keyword,
       resolvedTargetDomain,
       websiteId || null,
-      resolvedCountry
+      resolvedCountry,
+      depth || rankTrackerSettings.searchDepth
     );
     res.json(result);
   } catch (err) {

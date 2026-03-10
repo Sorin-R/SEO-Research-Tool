@@ -1,6 +1,7 @@
 const db = require('../database');
 const { analyzeSERP } = require('../analyzers/serpAnalyzer');
 const { calculateDifficulty } = require('../analyzers/keywordDifficulty');
+const { fetchSERPResults } = require('../scrapers/googleSERP');
 const localStore = require('../utils/localStore');
 const { getCountryConfig, normalizeCountryCode } = require('../utils/searchCountry');
 
@@ -11,6 +12,7 @@ const { getCountryConfig, normalizeCountryCode } = require('../utils/searchCount
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const MAX_SERP_HISTORY_ENTRIES = 12;
 let rankingsSchemaRepairPromise = null;
+const ALLOWED_TRACKING_DEPTHS = [10, 20, 50, 100];
 
 function clampLimit(limit, min, max) {
   return Math.min(Math.max(Number.parseInt(limit, 10) || min, min), max);
@@ -25,6 +27,11 @@ function parseStoredResult(value) {
   } catch {
     return null;
   }
+}
+
+function normalizeTrackingDepth(depth) {
+  const value = Number.parseInt(depth, 10);
+  return ALLOWED_TRACKING_DEPTHS.includes(value) ? value : 10;
 }
 
 async function persistSERPAnalysisHistory(result) {
@@ -146,6 +153,12 @@ async function getSERPAnalysis(keyword, options = {}) {
   }
 
   return result;
+}
+
+async function getRankTrackingResults(keyword, options = {}) {
+  return fetchSERPResults(keyword, normalizeTrackingDepth(options.numResults), {
+    country: normalizeCountryCode(options.country),
+  });
 }
 
 /**
@@ -414,11 +427,12 @@ async function getActiveTrackedWebsites() {
  * @param {string} targetDomain - The user's domain to track position for
  * @returns {Promise<Object>} Ranking record
  */
-async function trackRanking(keywordId, keyword, targetDomain, websiteId = null, country = 'US') {
-  const analysis = await analyzeSERP(keyword, 10, {
+async function trackRanking(keywordId, keyword, targetDomain, websiteId = null, country = 'US', depth = 10) {
+  const results = await getRankTrackingResults(keyword, {
     country: normalizeCountryCode(country),
+    numResults: depth,
   });
-  return trackRankingFromResults(keywordId, keyword, targetDomain, websiteId, analysis.results);
+  return trackRankingFromResults(keywordId, keyword, targetDomain, websiteId, results);
 }
 
 /**
@@ -627,6 +641,7 @@ async function syncTrackedRankingsFromResults(keyword, results, country = 'US') 
 
 module.exports = {
   getSERPAnalysis,
+  getRankTrackingResults,
   trackRanking,
   syncTrackedRankingsFromResults,
   getRankingHistory,

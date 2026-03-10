@@ -22,6 +22,7 @@ import {
 const STORAGE_KEY = 'seo-tool:rank-tracker:last-session';
 const SYNC_EVENT_KEY = 'seo-tool:rank-tracker:sync-event';
 const SILENT_REFRESH_COOLDOWN_MS = 5000;
+const RANK_TRACKING_DEPTHS = [10, 20, 50, 100];
 
 export default function RankTracker() {
   const [keywords, setKeywords] = useState([]);
@@ -35,6 +36,7 @@ export default function RankTracker() {
   const [websiteDomain, setWebsiteDomain] = useState('');
   const [websiteCountry, setWebsiteCountry] = useState('US');
   const [scheduleTime, setScheduleTime] = useState('06:00');
+  const [searchDepth, setSearchDepth] = useState(10);
   const [scheduleInfo, setScheduleInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [rankingsLoading, setRankingsLoading] = useState(false);
@@ -270,6 +272,7 @@ export default function RankTracker() {
       setKeywords(trackedKeywords);
       setWebsites(trackedWebsites);
       setScheduleTime(trackedSchedule.scheduleTime || '06:00');
+      setSearchDepth(trackedSchedule.searchDepth || 10);
       setScheduleInfo(trackedSchedule);
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -479,7 +482,7 @@ export default function RankTracker() {
   async function handleSaveSchedule(event) {
     event.preventDefault();
 
-    if (!scheduleTime) {
+    if (!scheduleTime || !searchDepth) {
       return;
     }
 
@@ -487,11 +490,12 @@ export default function RankTracker() {
     setError(null);
 
     try {
-      const updatedSchedule = await updateRankTrackerSchedule(scheduleTime);
+      const updatedSchedule = await updateRankTrackerSchedule(scheduleTime, searchDepth);
       setScheduleTime(updatedSchedule.scheduleTime || scheduleTime);
+      setSearchDepth(updatedSchedule.searchDepth || searchDepth);
       setScheduleInfo(updatedSchedule);
       setRestoreNotice(
-        `Daily rank checks will run at ${updatedSchedule.scheduleTime} (${updatedSchedule.serverTimeZone}).`
+        `Daily rank checks will run at ${updatedSchedule.scheduleTime} (${updatedSchedule.serverTimeZone}) and scan the top ${updatedSchedule.searchDepth} results.`
       );
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -612,7 +616,7 @@ export default function RankTracker() {
 
         <form
           onSubmit={handleSaveSchedule}
-          className="rounded-lg border border-gray-200 bg-gray-50 p-4 grid grid-cols-1 gap-3 lg:grid-cols-[220px_auto_1fr]"
+          className="rounded-lg border border-gray-200 bg-gray-50 p-4 grid grid-cols-1 gap-3 lg:grid-cols-[220px_160px_auto_1fr]"
         >
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Daily Check Time</label>
@@ -624,15 +628,29 @@ export default function RankTracker() {
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Search Depth</label>
+            <select
+              value={searchDepth}
+              onChange={(event) => setSearchDepth(Number(event.target.value))}
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              {RANK_TRACKING_DEPTHS.map((depth) => (
+                <option key={depth} value={depth}>
+                  Top {depth}
+                </option>
+              ))}
+            </select>
+          </div>
           <button
             type="submit"
-            disabled={scheduleSaving || !scheduleTime}
+            disabled={scheduleSaving || !scheduleTime || !searchDepth}
             className="px-6 py-2.5 bg-white border border-indigo-200 text-indigo-700 text-sm font-medium rounded-lg hover:border-indigo-300 hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors self-end"
           >
-            {scheduleSaving ? 'Saving...' : 'Save Timer'}
+            {scheduleSaving ? 'Saving...' : 'Save Settings'}
           </button>
           <div className="text-sm text-gray-500 self-center">
-            Automatic rank checks run once per day using the server timezone.
+            Automatic rank checks run once per day using the server timezone and scan the top {scheduleInfo?.searchDepth || searchDepth} results.
             {scheduleInfo?.serverTimeZone ? ` Current timezone: ${scheduleInfo.serverTimeZone}.` : ''}
             {scheduleInfo?.updatedAt ? ` Updated ${formatSavedAt(scheduleInfo.updatedAt)}.` : ''}
           </div>

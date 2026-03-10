@@ -76,6 +76,7 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS rank_tracker_settings (
     id TINYINT NOT NULL PRIMARY KEY,
     schedule_time CHAR(5) NOT NULL DEFAULT '06:00',
+    search_depth INT NOT NULL DEFAULT 10,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   ) ENGINE=InnoDB`,
 ];
@@ -131,6 +132,7 @@ async function ensureSchema() {
   await ensureWebsitesTargetUrlSchema();
   await ensureWebsitesCountrySchema();
   await ensureRankingsWebsiteSchema();
+  await ensureRankTrackerSettingsSchema();
 
   console.log('[DB] Schema verified.');
 }
@@ -234,6 +236,20 @@ async function ensureWebsitesTargetUrlSchema() {
   if (!(await hasColumn('websites', 'target_url'))) {
     await pool.query('ALTER TABLE websites ADD COLUMN target_url VARCHAR(2048) DEFAULT NULL AFTER domain');
   }
+}
+
+async function ensureRankTrackerSettingsSchema() {
+  if (!(await hasColumn('rank_tracker_settings', 'search_depth'))) {
+    await pool.query(
+      'ALTER TABLE rank_tracker_settings ADD COLUMN search_depth INT NOT NULL DEFAULT 10 AFTER schedule_time'
+    );
+  }
+
+  await pool.query(
+    `UPDATE rank_tracker_settings
+     SET search_depth = 10
+     WHERE search_depth IS NULL OR search_depth NOT IN (10, 20, 50, 100)`
+  );
 }
 
 module.exports = {

@@ -110,5 +110,6 @@ CREATE TABLE IF NOT EXISTS serp_analysis_history (
 CREATE TABLE IF NOT EXISTS rank_tracker_settings (
   id            TINYINT      NOT NULL PRIMARY KEY,
   schedule_time CHAR(5)      NOT NULL DEFAULT '06:00',
+  search_depth  INT          NOT NULL DEFAULT 10,
   updated_at    TIMESTAMP    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;

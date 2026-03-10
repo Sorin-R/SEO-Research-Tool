@@ -170,7 +170,7 @@ async function getWebsiteById(id) {
 async function getWebsites() {
   try {
     const rows = await db.query(
-      'SELECT * FROM websites ORDER BY is_active DESC, updated_at DESC, created_at DESC'
+      'SELECT * FROM websites ORDER BY created_at DESC, id DESC'
     );
     return rows.map(sanitizeWebsiteRecord);
   } catch (err) {

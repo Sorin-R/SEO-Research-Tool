@@ -857,11 +857,14 @@ function getWebsiteLabel(websites, websiteId) {
 
 function sortWebsites(websites) {
   return [...websites].sort((left, right) => {
-    if (Boolean(left.is_active) !== Boolean(right.is_active)) {
-      return left.is_active ? -1 : 1;
+    const leftCreated = new Date(left.created_at || 0).getTime();
+    const rightCreated = new Date(right.created_at || 0).getTime();
+
+    if (rightCreated !== leftCreated) {
+      return rightCreated - leftCreated;
     }
 
-    return new Date(right.updated_at || right.created_at) - new Date(left.updated_at || left.created_at);
+    return Number(right.id || 0) - Number(left.id || 0);
   });
 }
 

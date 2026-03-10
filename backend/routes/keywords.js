@@ -80,6 +80,28 @@ router.post('/filter', async (req, res) => {
   }
 });
 
+router.post('/competitors/extract', async (req, res) => {
+  const { keyword, competitorSites, options } = req.body || {};
+
+  if (!keyword || !String(keyword).trim()) {
+    return res.status(400).json({ error: 'Seed keyword is required.' });
+  }
+
+  try {
+    const result = await keywordService.extractCompetitorKeywords({
+      seedKeyword: String(keyword).trim(),
+      competitorSites,
+      options: options || {},
+    });
+    res.json(result);
+  } catch (err) {
+    console.error('[Route /keywords/competitors/extract] Error:', err.message);
+    res.status(err.statusCode || 400).json({
+      error: err.message || 'Competitor keyword extraction failed.',
+    });
+  }
+});
+
 /**
  * GET /api/keywords/history?limit=10
  * Get recent saved keyword research runs.

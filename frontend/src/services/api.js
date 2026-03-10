@@ -70,6 +70,15 @@ export async function filterKeywordsWithAI({ keyword, keywords, prompt, maxResul
   return data;
 }
 
+export async function extractCompetitorKeywords(keyword, competitorSites, options = {}) {
+  const { data } = await api.post('/keywords/competitors/extract', {
+    keyword,
+    competitorSites,
+    options,
+  });
+  return data;
+}
+
 export async function getTrackedKeywords() {
   const { data } = await api.get('/keywords/tracked');
   return data;

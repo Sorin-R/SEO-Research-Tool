@@ -217,7 +217,15 @@ async function crawlPage(requestUrl, siteUrl, canonicalHost, depth) {
       : null;
     const metaRobots = $('meta[name="robots"]').attr('content')?.trim() || '';
     const noindex = /noindex/i.test(metaRobots) || hasNoindexHeader(response.headers['x-robots-tag']);
-    const h1Count = $('h1').filter((_, element) => $(element).text().trim()).length;
+    const h1Texts = $('h1')
+      .toArray()
+      .map((element) => $(element).text().replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+    const h2Texts = $('h2')
+      .toArray()
+      .map((element) => $(element).text().replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+    const h1Count = h1Texts.length;
 
     const bodyClone = $('body').clone();
     bodyClone.find('nav, footer, header, aside, script, style').remove();
@@ -260,7 +268,10 @@ async function crawlPage(requestUrl, siteUrl, canonicalHost, depth) {
       metaDescriptionLength: metaDescription.length,
       canonical,
       h1Count,
+      h1Texts,
+      h2Texts,
       wordCount,
+      bodyText,
       imageCount: images.length,
       imagesWithoutAlt,
       internalLinkCount: discoveredInternalLinks.length,
@@ -282,7 +293,10 @@ async function crawlPage(requestUrl, siteUrl, canonicalHost, depth) {
       metaDescriptionLength: 0,
       canonical: null,
       h1Count: 0,
+      h1Texts: [],
+      h2Texts: [],
       wordCount: 0,
+      bodyText: '',
       imageCount: 0,
       imagesWithoutAlt: 0,
       internalLinkCount: 0,
@@ -596,4 +610,7 @@ function isHttpUrl(url) {
 
 module.exports = {
   auditSite,
+  crawlPage,
+  normalizeSiteUrl,
+  normalizeInternalUrl,
 };

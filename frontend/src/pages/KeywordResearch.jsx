@@ -8,6 +8,7 @@ import {
   deleteKeywordList,
   deleteKeywordListItem,
   deleteKeywordResearchHistoryItem,
+  extractCompetitorKeywords,
   filterKeywordsWithAI,
   getTrackedKeywords,
   getKeywordLists,
@@ -70,6 +71,9 @@ function createDefaultOptions() {
     enrichTopN: 5,
     targetCount: 1000,
     targetAudience: '',
+    competitorExtractMaxSites: 3,
+    competitorExtractMaxPagesPerSite: 5,
+    competitorExtractKeywordLimit: 100,
     aiResearchEnabled: false,
     aiResearchCount: 100,
     aiResearchPrompt: '',
@@ -103,6 +107,9 @@ function buildOptionsFromResult(result) {
     enrichTopN: result.researchOptions?.enrichTopN || 5,
     targetCount: result.researchOptions?.targetCount || 1000,
     targetAudience: result.researchOptions?.targetAudience || '',
+    competitorExtractMaxSites: 3,
+    competitorExtractMaxPagesPerSite: 5,
+    competitorExtractKeywordLimit: 100,
     aiResearchEnabled: result.researchOptions?.aiResearchEnabled || false,
     aiResearchCount: result.researchOptions?.aiResearchCount || 100,
     aiResearchPrompt: result.researchOptions?.aiResearchPrompt || '',
@@ -206,6 +213,24 @@ function buildCsvRowsFromAllLists(lists = []) {
   );
 }
 
+function buildCsvRowsFromCompetitorKeywords(keywords = []) {
+  return keywords.map((item) => ({
+    keyword: item.keyword,
+    intent: item.intent || '',
+    cluster: item.clusterLabel || '',
+    priorityScore: item.priorityScore ?? '',
+    opportunityScore: item.opportunityScore ?? '',
+    difficultyEstimate: item.difficultyEstimate ?? '',
+    extractionScore: item.extractionScore ?? '',
+    sourceSiteCount: item.sourceSiteCount ?? 0,
+    sourcePageCount: item.sourcePageCount ?? 0,
+    sourceDomains: (item.sourceDomains || []).join(' | '),
+    samplePages: (item.sourcePages || []).join(' | '),
+    recommendedPageType: item.recommendedPageType || '',
+    notes: Array.isArray(item.notes) ? item.notes.join(' | ') : '',
+  }));
+}
+
 function buildClusterSummaryCsvRows(clusters = []) {
   return (Array.isArray(clusters) ? clusters : []).map((cluster) => ({
     cluster: cluster.label || '',
@@ -281,6 +306,9 @@ export default function KeywordResearch() {
   const [aiData, setAiData] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState(null);
+  const [competitorData, setCompetitorData] = useState(null);
+  const [competitorLoading, setCompetitorLoading] = useState(false);
+  const [competitorError, setCompetitorError] = useState(null);
   const [keywordLists, setKeywordLists] = useState([]);
   const [listsLoading, setListsLoading] = useState(true);
   const [listsError, setListsError] = useState(null);
@@ -322,6 +350,10 @@ export default function KeywordResearch() {
 
       if (parsed?.aiData) {
         setAiData(parsed.aiData);
+      }
+
+      if (parsed?.competitorData) {
+        setCompetitorData(parsed.competitorData);
       }
 
       if (typeof parsed?.aiPrompt === 'string' && parsed.aiPrompt.trim()) {
@@ -439,13 +471,14 @@ export default function KeywordResearch() {
         data,
         options,
         aiData,
+        competitorData,
         aiPrompt,
         aiMaxResults,
         selectedListId,
         savedAt: new Date().toISOString(),
       })
     );
-  }, [data, options, aiData, aiPrompt, aiMaxResults, selectedListId, storageHydrated]);
+  }, [data, options, aiData, competitorData, aiPrompt, aiMaxResults, selectedListId, storageHydrated]);
 
   async function refreshHistory() {
     try {
@@ -484,6 +517,8 @@ export default function KeywordResearch() {
     setError(null);
     setAiData(null);
     setAiError(null);
+    setCompetitorData(null);
+    setCompetitorError(null);
     setRestoreNotice(null);
     setShowAllKeywords(false);
 
@@ -505,6 +540,8 @@ export default function KeywordResearch() {
     setOptions(nextOptions);
     setAiData(null);
     setAiError(null);
+    setCompetitorData(null);
+    setCompetitorError(null);
     setRestoreNotice('Research settings were reset to the default broad scan.');
     window.localStorage.removeItem(STORAGE_KEY);
 
@@ -546,6 +583,42 @@ export default function KeywordResearch() {
     }
   }
 
+  async function handleExtractCompetitors() {
+    const activeKeyword = data?.keyword;
+    const competitorSites = options.competitorDomains;
+
+    if (!activeKeyword) {
+      setCompetitorError('Run a keyword search first so the extractor has a seed keyword.');
+      return;
+    }
+
+    if (!competitorSites.trim()) {
+      setCompetitorError('Add at least one competitor domain or URL first.');
+      return;
+    }
+
+    setCompetitorLoading(true);
+    setCompetitorError(null);
+
+    try {
+      const result = await extractCompetitorKeywords(activeKeyword, competitorSites, {
+        maxSites: options.competitorExtractMaxSites,
+        maxPagesPerSite: options.competitorExtractMaxPagesPerSite,
+        keywordLimit: options.competitorExtractKeywordLimit,
+        goalPrompt: options.goalPrompt,
+        brandTerms: options.brandTerms,
+        localCities: options.localCities,
+        localServices: options.localServices,
+        targetAudience: options.targetAudience,
+      });
+      setCompetitorData(result);
+    } catch (err) {
+      setCompetitorError(err.response?.data?.error || err.message);
+    } finally {
+      setCompetitorLoading(false);
+    }
+  }
+
   async function handleLoadHistory(id) {
     setLoadingHistoryId(id);
     setError(null);
@@ -555,6 +628,8 @@ export default function KeywordResearch() {
       const result = await getKeywordResearchHistoryItem(id);
       setData(result);
       setAiData(null);
+      setCompetitorData(null);
+      setCompetitorError(null);
       setSearchValue(result.keyword || '');
       setOptions(buildOptionsFromResult(result));
       setRestoreNotice('Loaded a saved keyword research result from history.');
@@ -578,6 +653,7 @@ export default function KeywordResearch() {
       if (String(data?.historyId) === String(id)) {
         setData(null);
         setAiData(null);
+        setCompetitorData(null);
         setRestoreNotice(null);
         window.localStorage.removeItem(STORAGE_KEY);
       }
@@ -999,6 +1075,72 @@ export default function KeywordResearch() {
           </label>
         </div>
 
+        <div className="grid gap-4 lg:grid-cols-3 md:grid-cols-2">
+          <label className="space-y-1">
+            <span className="text-sm font-medium text-gray-700">Competitor Sites to Crawl</span>
+            <input
+              type="number"
+              min="1"
+              max="5"
+              value={options.competitorExtractMaxSites}
+              onChange={(event) => updateOption('competitorExtractMaxSites', event.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-sm font-medium text-gray-700">Pages Per Competitor</span>
+            <input
+              type="number"
+              min="1"
+              max="12"
+              value={options.competitorExtractMaxPagesPerSite}
+              onChange={(event) => updateOption('competitorExtractMaxPagesPerSite', event.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-sm font-medium text-gray-700">Competitor Keyword Limit</span>
+            <input
+              type="number"
+              min="20"
+              max="250"
+              value={options.competitorExtractKeywordLimit}
+              onChange={(event) => updateOption('competitorExtractKeywordLimit', event.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </label>
+        </div>
+
+        <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-1">
+              <div className="font-semibold text-sky-950">Competitor site keyword extraction</div>
+              <p className="text-sm text-sky-900">
+                Crawl the competitor domains above, extract phrases from their titles, headings, URLs, and repeated body copy,
+                then score those phrases using the current seed keyword.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleExtractCompetitors}
+              disabled={competitorLoading || loading || !data?.keyword || !options.competitorDomains.trim()}
+              className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {competitorLoading ? 'Extracting...' : 'Extract competitor keywords'}
+            </button>
+          </div>
+
+          {!data?.keyword && (
+            <p className="mt-3 text-xs text-sky-900">
+              Run a normal keyword search first. The extractor uses that seed keyword to keep competitor phrases relevant.
+            </p>
+          )}
+
+          {competitorError && <div className="mt-3"><ErrorAlert message={competitorError} /></div>}
+        </div>
+
         <div className="space-y-2">
           <span className="text-sm font-medium text-gray-700">Intent Filters</span>
           <div className="flex flex-wrap gap-3">
@@ -1302,6 +1444,89 @@ export default function KeywordResearch() {
             <MetricCard label="Local terms" value={data.summary?.localCount || 0} />
             <MetricCard label="Gap keywords" value={data.competitorGapSummary?.totalGapKeywords || 0} />
           </div>
+
+          {(competitorLoading || competitorData) && (
+            <Panel
+              title="Competitor Site Keywords"
+              description="Keywords extracted directly from competitor titles, headings, URL paths, and repeated on-page phrases."
+              actions={
+                competitorData ? (
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        downloadCsv(
+                          `${data.keyword.replace(/\s+/g, '-')}-competitor-keywords.csv`,
+                          buildCsvRowsFromCompetitorKeywords(competitorData.keywords || [])
+                        )
+                      }
+                      className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:border-indigo-300 hover:text-indigo-700"
+                    >
+                      Export competitor CSV
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openSaveListDialog(
+                          (competitorData.keywords || []).slice(0, 25).map(mapKeywordToListItem(data.keyword)),
+                          'Save competitor keywords to list'
+                        )
+                      }
+                      disabled={savingList || keywordLists.length === 0 || !(competitorData.keywords || []).length}
+                      className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {savingList ? 'Saving...' : 'Save top extracted keywords'}
+                    </button>
+                  </div>
+                ) : null
+              }
+            >
+              {competitorLoading && <LoadingSpinner message="Crawling competitor sites and extracting keyword ideas..." />}
+
+              {competitorData && !competitorLoading && (
+                <div className="space-y-5">
+                  <div className="grid gap-4 lg:grid-cols-4 md:grid-cols-2">
+                    <MetricCard label="Sites crawled" value={competitorData.summary?.totalCompetitorSites || 0} />
+                    <MetricCard label="Pages crawled" value={competitorData.summary?.totalPagesCrawled || 0} />
+                    <MetricCard label="Extracted keywords" value={(competitorData.keywords || []).length} />
+                    <MetricCard label="Clusters" value={competitorData.summary?.totalClusters || 0} />
+                  </div>
+
+                  {(competitorData.competitorSites || []).length > 0 && (
+                    <div className="space-y-3">
+                      <h4 className="font-semibold text-gray-900">Crawled competitor sites</h4>
+                      <div className="grid gap-3 lg:grid-cols-2">
+                        {competitorData.competitorSites.map((site) => (
+                          <div key={site.siteUrl} className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                            <div className="font-medium text-gray-900">{site.domain}</div>
+                            <div className="mt-1 text-sm text-gray-600">
+                              {(site.pagesCrawled || 0)} pages crawled • {(site.successfulPages || 0)} successful
+                              {site.failedPages ? ` • ${site.failedPages} failed` : ''}
+                            </div>
+                            {site.error && (
+                              <div className="mt-2 text-xs text-red-600">
+                                {site.error}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <KeywordRows
+                    keywords={competitorData.keywords || []}
+                    tracked={tracked}
+                    savedKeywords={savedKeywordSet}
+                    onTrack={handleTrack}
+                    onSaveToList={(keyword) => openSaveListDialog([mapKeywordToListItem(data.keyword)(keyword)], 'Save competitor keyword to list')}
+                    savingList={savingList}
+                    canSave={keywordLists.length > 0}
+                  />
+                </div>
+              )}
+            </Panel>
+          )}
 
           <Panel title="AI Keyword Filter" description="Use AI after the scrape when you want a tighter shortlist aligned to the exact business goal.">
             <div className="space-y-4">
@@ -1949,6 +2174,8 @@ function KeywordRows({ keywords, tracked, savedKeywords, onTrack, onSaveToList, 
                 <Badge>Priority {item.priorityScore}</Badge>
                 {typeof item.opportunityScore === 'number' && <Badge>Opportunity {item.opportunityScore}</Badge>}
                 {typeof item.difficultyEstimate === 'number' && <Badge>Difficulty {item.difficultyEstimate}</Badge>}
+                {typeof item.extractionScore === 'number' && <Badge>Extract {item.extractionScore}</Badge>}
+                {typeof item.sourceSiteCount === 'number' && item.sourceSiteCount > 0 && <Badge>Sites {item.sourceSiteCount}</Badge>}
                 {typeof item.aiResearchScore === 'number' && <Badge>AI {item.aiResearchScore}</Badge>}
                 {item.trend?.direction && item.trend.direction !== 'unknown' && <Badge>Trend {item.trend.direction}</Badge>}
                 {item.competitorGap?.isGap && <Badge tone="warning">Gap</Badge>}

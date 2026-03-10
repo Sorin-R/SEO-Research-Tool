@@ -11,6 +11,7 @@ const {
   DEFAULT_AI_RESEARCH_PROMPT,
   generateKeywordsWithAI,
 } = require('./aiKeywordFilterService');
+const { extractCompetitorKeywords } = require('./competitorKeywordExtractionService');
 const trendService = require('./trendService');
 const localStore = require('../utils/localStore');
 const { getCountryConfig, normalizeCountryCode } = require('../utils/searchCountry');
@@ -818,6 +819,7 @@ module.exports = {
   DEFAULT_AI_RESEARCH_PROMPT,
   filterKeywordsWithAI,
   generateKeywordsWithAI,
+  extractCompetitorKeywords,
   researchKeyword,
   saveKeyword,
   getTrackedKeywords,

@@ -1584,12 +1584,18 @@ export default function KeywordResearch() {
                   <div className="grid gap-4 md:grid-cols-2">
                     <div>
                       <h4 className="font-semibold text-gray-900 mb-2">Keyword set</h4>
-                      <KeywordPills
+                      <ClusterKeywordList
                         keywords={
                           showAllClusterKeywords
-                            ? selectedCluster.keywords.map((item) => item.keyword)
-                            : selectedCluster.keywords.slice(0, 18).map((item) => item.keyword)
+                            ? selectedCluster.keywords
+                            : selectedCluster.keywords.slice(0, 18)
                         }
+                        tracked={tracked}
+                        savedKeywords={savedKeywordSet}
+                        onTrack={handleTrack}
+                        onSaveToList={(keyword) => openSaveListDialog([mapKeywordToListItem(data.keyword)(keyword)], 'Save keyword to list')}
+                        savingList={savingList}
+                        canSave={keywordLists.length > 0}
                       />
                       {!showAllClusterKeywords && selectedCluster.keywordCount > 18 && (
                         <p className="mt-2 text-xs text-gray-500">
@@ -1824,6 +1830,62 @@ function KeywordPills({ keywords }) {
           {keyword}
         </span>
       ))}
+    </div>
+  );
+}
+
+function ClusterKeywordList({ keywords, tracked, savedKeywords, onTrack, onSaveToList, savingList, canSave }) {
+  if (!keywords?.length) {
+    return <p className="text-sm text-gray-500">No keywords in this cluster yet.</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {keywords.map((item) => {
+        const keyword = typeof item === 'string' ? item : item.keyword;
+        const isTracked = tracked.has(keyword);
+        const isSaved = savedKeywords?.has(String(keyword || '').toLowerCase());
+
+        return (
+          <div key={keyword} className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="font-medium text-sm text-gray-900">{keyword}</div>
+              {typeof item === 'object' && (
+                <div className="text-xs text-gray-500">
+                  {[item.intent, item.recommendedPageType, item.wordCount ? `${item.wordCount} words` : null].filter(Boolean).join(' • ')}
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => onTrack(keyword)}
+                disabled={isTracked}
+                className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
+                  isTracked
+                    ? 'border-green-200 bg-green-50 text-green-700'
+                    : 'border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50'
+                }`}
+              >
+                {isTracked ? 'Tracked' : 'Track'}
+              </button>
+              <button
+                type="button"
+                onClick={() => onSaveToList(item)}
+                disabled={savingList || !canSave || isSaved}
+                className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
+                  isSaved
+                    ? 'border-green-200 bg-green-50 text-green-700'
+                    : 'border-gray-300 bg-white text-gray-700 hover:border-indigo-300 hover:text-indigo-700'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                {isSaved ? 'Saved' : 'Save to list'}
+              </button>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

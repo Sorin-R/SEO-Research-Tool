@@ -15,6 +15,7 @@ import {
 import { SERP_COUNTRIES } from '../constants/serpCountries';
 
 const STORAGE_KEY = 'seo-tool:serp-analyzer:last-session';
+const RANK_TRACKER_SYNC_KEY = 'seo-tool:rank-tracker:sync-event';
 const HISTORY_LIMIT = 10;
 
 export default function SERPAnalyzer() {
@@ -142,6 +143,7 @@ export default function SERPAnalyzer() {
       setKeyword(result.keyword || searchKeyword);
       setCountry(result.country || country);
       setRestoreNotice(buildSERPNotice(result, forceRefresh));
+      notifyRankTrackerSync(result);
       await refreshHistory();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -462,4 +464,25 @@ function buildSERPNotice(result, forceRefresh) {
   }
 
   return null;
+}
+
+function notifyRankTrackerSync(result) {
+  if (!result?.rankTrackerSync?.tracked || result.rankTrackerSync.updated <= 0) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      RANK_TRACKER_SYNC_KEY,
+      JSON.stringify({
+        keyword: result.keyword,
+        country: result.rankTrackerSync.country || result.country || 'US',
+        updated: result.rankTrackerSync.updated,
+        matched: result.rankTrackerSync.matched,
+        syncedAt: new Date().toISOString(),
+      })
+    );
+  } catch {
+    // Ignore storage quota issues.
+  }
 }

@@ -20,6 +20,7 @@ import {
 } from '../services/api';
 
 const STORAGE_KEY = 'seo-tool:rank-tracker:last-session';
+const SYNC_EVENT_KEY = 'seo-tool:rank-tracker:sync-event';
 
 export default function RankTracker() {
   const [keywords, setKeywords] = useState([]);
@@ -39,6 +40,7 @@ export default function RankTracker() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [websiteSubmitting, setWebsiteSubmitting] = useState(false);
   const [scheduleSaving, setScheduleSaving] = useState(false);
+  const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
   const [websiteBusyId, setWebsiteBusyId] = useState(null);
   const [error, setError] = useState(null);
   const [restoreNotice, setRestoreNotice] = useState(null);
@@ -117,40 +119,9 @@ export default function RankTracker() {
   }, [loading, websites, selectedWebsiteId]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadRankings() {
-      if (!selectedWebsiteId) {
-        setRankings([]);
-        return;
-      }
-
-      setRankingsLoading(true);
-
-      try {
-        const nextRankings = await getLatestRankings(selectedWebsiteId);
-        if (!cancelled) {
-          setRankings(nextRankings);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setRankings([]);
-          setError(err.response?.data?.error || err.message);
-        }
-      } finally {
-        if (!cancelled) {
-          setRankingsLoading(false);
-        }
-      }
-    }
-
     if (!loading) {
-      loadRankings();
+      reloadRankings(selectedWebsiteId);
     }
-
-    return () => {
-      cancelled = true;
-    };
   }, [loading, selectedWebsiteId]);
 
   useEffect(() => {
@@ -193,20 +164,14 @@ export default function RankTracker() {
     let cancelled = false;
 
     async function reloadSelectedHistory() {
-      setHistoryLoading(true);
-
       try {
-        const nextHistory = await getRankingHistory(matchedKeyword.id, 90, selectedWebsiteId);
+        const nextHistory = await reloadHistory(matchedKeyword.id, selectedWebsiteId, { silent: false });
         if (!cancelled) {
           setHistory(nextHistory);
         }
       } catch {
         if (!cancelled) {
           setHistory([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setHistoryLoading(false);
         }
       }
     }
@@ -217,6 +182,36 @@ export default function RankTracker() {
       cancelled = true;
     };
   }, [keywords, loading, restoredSelectionDone, selectedWebsiteId]);
+
+  useEffect(() => {
+    function handleStorage(event) {
+      if (event.key !== SYNC_EVENT_KEY) {
+        return;
+      }
+
+      refreshCurrentSelection({ silent: true });
+    }
+
+    function handleFocus() {
+      refreshCurrentSelection({ silent: true });
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'visible') {
+        refreshCurrentSelection({ silent: true });
+      }
+    }
+
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [selectedId, selectedWebsiteId, loading, restoredSelectionDone]);
 
   async function loadBaseData() {
     setLoading(true);
@@ -237,6 +232,72 @@ export default function RankTracker() {
       setError(err.response?.data?.error || err.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function reloadRankings(websiteId, options = {}) {
+    if (!websiteId) {
+      setRankings([]);
+      return [];
+    }
+
+    if (!options.silent) {
+      setRankingsLoading(true);
+    }
+
+    try {
+      const nextRankings = await getLatestRankings(websiteId);
+      setRankings(nextRankings);
+      return nextRankings;
+    } catch (err) {
+      setRankings([]);
+      if (!options.silent) {
+        setError(err.response?.data?.error || err.message);
+      }
+      return [];
+    } finally {
+      if (!options.silent) {
+        setRankingsLoading(false);
+      }
+    }
+  }
+
+  async function reloadHistory(keywordId, websiteId, options = {}) {
+    if (!keywordId || !websiteId) {
+      setHistory([]);
+      return [];
+    }
+
+    if (!options.silent) {
+      setHistoryLoading(true);
+    }
+
+    try {
+      const nextHistory = await getRankingHistory(keywordId, 90, websiteId);
+      setHistory(nextHistory);
+      return nextHistory;
+    } catch (err) {
+      setHistory([]);
+      if (!options.silent) {
+        setError(err.response?.data?.error || err.message);
+      }
+      return [];
+    } finally {
+      if (!options.silent) {
+        setHistoryLoading(false);
+      }
+    }
+  }
+
+  async function refreshCurrentSelection(options = {}) {
+    if (loading || !selectedWebsiteId) {
+      return;
+    }
+
+    await reloadRankings(selectedWebsiteId, options);
+
+    if (selectedId) {
+      await reloadHistory(selectedId, selectedWebsiteId, options);
     }
   }
 
@@ -281,12 +342,10 @@ export default function RankTracker() {
     }
 
     setSelectedId(keywordItem.id);
-    setHistoryLoading(true);
     setError(null);
 
     try {
-      const nextHistory = await getRankingHistory(keywordItem.id, 90, websiteId);
-      setHistory(nextHistory);
+      await reloadHistory(keywordItem.id, websiteId, { silent: false });
       setRestoreNotice(
         options.restoring
           ? `Restored ranking history for "${keywordItem.keyword}" on ${getWebsiteLabel(websites, websiteId)}.`
@@ -301,6 +360,18 @@ export default function RankTracker() {
       );
     } finally {
       setHistoryLoading(false);
+    }
+  }
+
+  async function handleManualRefresh() {
+    setManualRefreshLoading(true);
+    setError(null);
+
+    try {
+      await refreshCurrentSelection({ silent: false });
+      setRestoreNotice('Rank Tracker reloaded the latest saved ranking data.');
+    } finally {
+      setManualRefreshLoading(false);
     }
   }
 
@@ -651,12 +722,24 @@ export default function RankTracker() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-1 bg-white rounded-lg border border-gray-200 overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-200">
-              <h3 className="font-semibold text-gray-900">Tracked Keywords ({keywords.length})</h3>
-              <p className="text-xs text-gray-500 mt-1">
-                {selectedWebsite
-                  ? `Showing latest rankings for ${selectedWebsite.domain}`
-                  : 'Select or add a website to view rankings.'}
-              </p>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-gray-900">Tracked Keywords ({keywords.length})</h3>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {selectedWebsite
+                      ? `Showing latest rankings for ${selectedWebsite.domain}`
+                      : 'Select or add a website to view rankings.'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleManualRefresh}
+                  disabled={!selectedWebsite || manualRefreshLoading || rankingsLoading || historyLoading}
+                  className="shrink-0 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-medium text-indigo-700 hover:border-indigo-300 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {manualRefreshLoading ? 'Refreshing...' : 'Refresh Now'}
+                </button>
+              </div>
             </div>
 
             {keywords.length === 0 ? (

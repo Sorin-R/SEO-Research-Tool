@@ -28,54 +28,31 @@ async function search(keyword, numResults = 10, options = {}) {
   await throttle();
 
   try {
-    const targetCount = Math.min(Math.max(Number.parseInt(numResults, 10) || 10, 1), 100);
-    const pageSize = 10;
-    const results = [];
+    const response = await axios.get(API_URL, {
+      params: {
+        q: keyword,
+        api_key: apiKey,
+        num: Math.min(numResults, 10),
+        engine: 'google',
+        gl: country.googleGl,
+        hl: country.hl,
+        google_domain: country.googleDomain,
+      },
+      timeout: 15000,
+    });
 
-    for (let start = 0; results.length < targetCount; start += pageSize) {
-      const response = await axios.get(API_URL, {
-        params: {
-          q: keyword,
-          api_key: apiKey,
-          num: Math.min(pageSize, targetCount - results.length),
-          start,
-          engine: 'google',
-          gl: country.googleGl,
-          hl: country.hl,
-          google_domain: country.googleDomain,
-        },
-        timeout: 15000,
-      });
-
-      if (response.data.error) {
-        throw new Error(response.data.error);
-      }
-
-      const organicResults = response.data.organic_results || [];
-
-      if (organicResults.length === 0) {
-        break;
-      }
-
-      for (const result of organicResults) {
-        if (results.length >= targetCount) {
-          break;
-        }
-
-        results.push({
-          position: result.position || (results.length + 1),
-          title: result.title,
-          url: result.link,
-          snippet: result.snippet || '',
-        });
-      }
-
-      if (organicResults.length < pageSize) {
-        break;
-      }
-
-      await throttle();
+    if (response.data.error) {
+      throw new Error(response.data.error);
     }
+
+    const results = (response.data.organic_results || [])
+      .slice(0, numResults)
+      .map((result) => ({
+        position: result.position,
+        title: result.title,
+        url: result.link,
+        snippet: result.snippet || '',
+      }));
 
     return results;
   } catch (err) {

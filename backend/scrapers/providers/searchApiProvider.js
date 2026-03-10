@@ -28,13 +28,12 @@ async function search(keyword, numResults = 10, options = {}) {
   await throttle();
 
   try {
-    const targetCount = Math.min(Math.max(Number.parseInt(numResults, 10) || 10, 1), 100);
     const response = await axios.get(API_URL, {
       params: {
         api_key: apiKey,
         q: keyword,
-        num: targetCount > 10 ? targetCount : 10,
-        engine: targetCount > 10 ? 'google_rank_tracking' : 'google',
+        num: Math.min(numResults, 10),
+        engine: 'google',
         gl: country.googleGl,
         hl: country.hl,
         google_domain: country.googleDomain,
@@ -47,7 +46,7 @@ async function search(keyword, numResults = 10, options = {}) {
     }
 
     const results = (response.data.organic_results || [])
-      .slice(0, targetCount)
+      .slice(0, numResults)
       .map((result, index) => ({
         position: result.position || (index + 1),
         title: result.title,

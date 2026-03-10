@@ -48,6 +48,8 @@ export default function RankTracker() {
   const [storageHydrated, setStorageHydrated] = useState(false);
   const [restoredSelectionDone, setRestoredSelectionDone] = useState(false);
   const lastSilentRefreshAtRef = useRef(0);
+  const autoSelectionWebsiteIdRef = useRef(null);
+  const autoSelectionSettledRef = useRef(false);
 
   useEffect(() => {
     try {
@@ -215,6 +217,45 @@ export default function RankTracker() {
     };
   }, [selectedId, selectedWebsiteId, loading, restoredSelectionDone]);
 
+  useEffect(() => {
+    if (String(autoSelectionWebsiteIdRef.current ?? '') !== String(selectedWebsiteId ?? '')) {
+      autoSelectionWebsiteIdRef.current = selectedWebsiteId;
+      autoSelectionSettledRef.current = false;
+    }
+
+    if (loading || rankingsLoading || !selectedWebsiteId || keywords.length === 0) {
+      return;
+    }
+
+    const firstRankedKeyword = keywords.find((keywordItem) =>
+      rankings.some((ranking) =>
+        String(ranking.keyword_id) === String(keywordItem.id) || ranking.keyword === keywordItem.keyword
+      )
+    );
+
+    const selectedHasRanking = selectedId != null && rankings.some((ranking) =>
+      String(ranking.keyword_id) === String(selectedId)
+    );
+
+    if (!firstRankedKeyword) {
+      return;
+    }
+
+    if (autoSelectionSettledRef.current) {
+      return;
+    }
+
+    if (selectedId == null || !selectedHasRanking) {
+      autoSelectionSettledRef.current = true;
+      handleSelectKeyword(firstRankedKeyword, {
+        websiteId: selectedWebsiteId,
+        autoSelected: true,
+      });
+    } else {
+      autoSelectionSettledRef.current = true;
+    }
+  }, [keywords, loading, rankings, rankingsLoading, selectedId, selectedWebsiteId]);
+
   async function loadBaseData() {
     setLoading(true);
     setError(null);
@@ -365,6 +406,8 @@ export default function RankTracker() {
       setRestoreNotice(
         options.restoring
           ? `Restored ranking history for "${keywordItem.keyword}" on ${getWebsiteLabel(websites, websiteId)}.`
+          : options.autoSelected
+            ? `Showing current ranking data for "${keywordItem.keyword}" on ${getWebsiteLabel(websites, websiteId)}.`
           : null
       );
     } catch {

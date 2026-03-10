@@ -347,7 +347,9 @@ export default function KeywordResearch() {
     }
   }
 
-  async function handleSearch(keyword) {
+  async function handleSearch(keyword, overrideOptions = null) {
+    const effectiveOptions = overrideOptions || options;
+
     setLoading(true);
     setError(null);
     setAiData(null);
@@ -356,7 +358,7 @@ export default function KeywordResearch() {
     setShowAllKeywords(false);
 
     try {
-      const result = await researchKeyword(keyword, options);
+      const result = await researchKeyword(keyword, effectiveOptions);
       setData(result);
       setSearchValue(result.keyword || keyword);
       await refreshHistory();
@@ -367,11 +369,19 @@ export default function KeywordResearch() {
     }
   }
 
-  function handleResetOptions() {
-    setOptions(createDefaultOptions());
+  async function handleResetOptions() {
+    const nextOptions = createDefaultOptions();
+
+    setOptions(nextOptions);
     setAiData(null);
     setAiError(null);
     setRestoreNotice('Research settings were reset to the default broad scan.');
+    window.localStorage.removeItem(STORAGE_KEY);
+
+    const activeKeyword = searchValue || data?.keyword;
+    if (activeKeyword) {
+      await handleSearch(activeKeyword, nextOptions);
+    }
   }
 
   async function handleTrack(keyword) {
@@ -555,13 +565,24 @@ export default function KeywordResearch() {
           <span>
             These research filters are saved in this browser and reused next time you open the page.
           </span>
-          <button
-            type="button"
-            onClick={handleResetOptions}
-            className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-medium text-amber-900 hover:border-amber-400"
-          >
-            Reset filters
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => handleSearch(searchValue || data?.keyword || '', options)}
+              disabled={loading || !(searchValue || data?.keyword)}
+              className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-medium text-amber-900 hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Apply current filters
+            </button>
+            <button
+              type="button"
+              onClick={handleResetOptions}
+              disabled={loading}
+              className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-medium text-amber-900 hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Reset filters
+            </button>
+          </div>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-4 md:grid-cols-2">
@@ -1003,6 +1024,16 @@ export default function KeywordResearch() {
             </div>
           </div>
 
+          <div className="flex flex-wrap gap-2">
+            <AppliedSetting label="Country" value={data.countryName || data.country} />
+            <AppliedSetting label="Target count" value={data.researchOptions?.targetCount || 1000} />
+            <AppliedSetting label="SERP Top N" value={data.researchOptions?.enrichTopN ?? 0} />
+            <AppliedSetting
+              label="Trend Top N"
+              value={data.researchOptions?.includeTrends ? data.researchOptions?.trendTopN ?? 0 : 'Off'}
+            />
+          </div>
+
           {Number(data.rawSuggestionCount || 0) > 0 &&
             Number(data.totalSuggestions || 0) <= 10 &&
             Number(data.rawSuggestionCount || 0) > Number(data.totalSuggestions || 0) && (
@@ -1252,6 +1283,14 @@ function SignalLine({ label, value }) {
       <span className="font-medium text-gray-900">{label}</span>
       <span className="text-right">{value}</span>
     </div>
+  );
+}
+
+function AppliedSetting({ label, value }) {
+  return (
+    <span className="rounded-full border border-gray-200 bg-white px-3 py-1 text-sm text-gray-700">
+      <span className="font-medium text-gray-900">{label}:</span> {value}
+    </span>
   );
 }
 

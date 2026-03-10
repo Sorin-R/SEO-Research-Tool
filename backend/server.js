@@ -28,7 +28,9 @@ app.use(express.static(frontendPath));
 // Rate limit inbound API requests (per IP)
 const apiLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
-  max: 30,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
   message: { error: 'Too many requests. Please try again shortly.' },
 });
 app.use('/api', apiLimiter);

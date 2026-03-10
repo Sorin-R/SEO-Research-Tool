@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
@@ -21,6 +21,7 @@ import {
 
 const STORAGE_KEY = 'seo-tool:rank-tracker:last-session';
 const SYNC_EVENT_KEY = 'seo-tool:rank-tracker:sync-event';
+const SILENT_REFRESH_COOLDOWN_MS = 5000;
 
 export default function RankTracker() {
   const [keywords, setKeywords] = useState([]);
@@ -46,6 +47,7 @@ export default function RankTracker() {
   const [restoreNotice, setRestoreNotice] = useState(null);
   const [storageHydrated, setStorageHydrated] = useState(false);
   const [restoredSelectionDone, setRestoredSelectionDone] = useState(false);
+  const lastSilentRefreshAtRef = useRef(0);
 
   useEffect(() => {
     try {
@@ -292,6 +294,20 @@ export default function RankTracker() {
   async function refreshCurrentSelection(options = {}) {
     if (loading || !selectedWebsiteId) {
       return;
+    }
+
+    if (options.silent) {
+      const now = Date.now();
+
+      if (now - lastSilentRefreshAtRef.current < SILENT_REFRESH_COOLDOWN_MS) {
+        return;
+      }
+
+      lastSilentRefreshAtRef.current = now;
+
+      if (rankingsLoading || historyLoading || manualRefreshLoading) {
+        return;
+      }
     }
 
     await reloadRankings(selectedWebsiteId, options);

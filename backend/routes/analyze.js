@@ -10,11 +10,13 @@ const { serpService, contentAnalysisService } = require('../services');
  *   keyword: string (required),
  *   text?: string,          // Raw article text
  *   url?: string,           // URL to fetch and analyze
+ *   title?: string,         // Optional manual SEO title
+ *   metaDescription?: string, // Optional manual meta description
  *   compareToSerp?: boolean // Compare against SERP competitor data
  * }
  */
 router.post('/', async (req, res) => {
-  const { keyword, text, url, compareToSerp } = req.body;
+  const { keyword, text, url, title, metaDescription, compareToSerp } = req.body;
 
   if (!keyword || !keyword.trim()) {
     return res.status(400).json({ error: 'Keyword is required.' });
@@ -61,6 +63,8 @@ router.post('/', async (req, res) => {
       text: text || undefined,
       url: url || undefined,
       keyword: keyword.trim(),
+      title: title?.trim() || undefined,
+      metaDescription: metaDescription?.trim() || undefined,
       compareToSerp: !!compareToSerp,
       competitorData,
     });

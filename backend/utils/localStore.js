@@ -511,6 +511,8 @@ async function getContentAnalysisHistoryItem(id) {
     savedAt: item.updated_at,
     inputMode: item.payload.inputMode,
     inputText: item.payload.inputText,
+    inputTitle: item.payload.inputTitle || '',
+    inputMetaDescription: item.payload.inputMetaDescription || '',
     compareToSerp: item.payload.compareToSerp,
     url: item.payload.url || null,
     keyword: item.payload.keyword,

@@ -17,7 +17,9 @@ export default function ContentAnalyzer() {
   const [keyword, setKeyword] = useState('');
   const [url, setUrl] = useState('');
   const [text, setText] = useState('');
-  const [mode, setMode] = useState('url'); // 'url' or 'text'
+  const [titleInput, setTitleInput] = useState('');
+  const [metaDescriptionInput, setMetaDescriptionInput] = useState('');
+  const [mode, setMode] = useState('url');
   const [compareToSerp, setCompareToSerp] = useState(true);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -43,6 +45,8 @@ export default function ContentAnalyzer() {
       if (typeof parsed.keyword === 'string') setKeyword(parsed.keyword);
       if (typeof parsed.url === 'string') setUrl(parsed.url);
       if (typeof parsed.text === 'string') setText(parsed.text);
+      if (typeof parsed.titleInput === 'string') setTitleInput(parsed.titleInput);
+      if (typeof parsed.metaDescriptionInput === 'string') setMetaDescriptionInput(parsed.metaDescriptionInput);
       if (parsed.mode === 'url' || parsed.mode === 'text') setMode(parsed.mode);
       if (typeof parsed.compareToSerp === 'boolean') setCompareToSerp(parsed.compareToSerp);
 
@@ -92,7 +96,14 @@ export default function ContentAnalyzer() {
       return;
     }
 
-    if (!data && !keyword.trim() && !url.trim() && !text.trim()) {
+    if (
+      !data &&
+      !keyword.trim() &&
+      !url.trim() &&
+      !text.trim() &&
+      !titleInput.trim() &&
+      !metaDescriptionInput.trim()
+    ) {
       window.localStorage.removeItem(STORAGE_KEY);
       return;
     }
@@ -104,6 +115,8 @@ export default function ContentAnalyzer() {
           keyword,
           url,
           text,
+          titleInput,
+          metaDescriptionInput,
           mode,
           compareToSerp,
           data,
@@ -113,7 +126,7 @@ export default function ContentAnalyzer() {
     } catch {
       // Ignore storage quota issues.
     }
-  }, [compareToSerp, data, keyword, mode, storageHydrated, text, url]);
+  }, [compareToSerp, data, keyword, metaDescriptionInput, mode, storageHydrated, text, titleInput, url]);
 
   async function refreshHistory() {
     try {
@@ -127,8 +140,8 @@ export default function ContentAnalyzer() {
     }
   }
 
-  async function handleSubmit(e) {
-    e.preventDefault();
+  async function handleSubmit(event) {
+    event.preventDefault();
     if (!keyword.trim()) return;
     if (mode === 'url' && !url.trim()) return;
     if (mode === 'text' && !text.trim()) return;
@@ -136,11 +149,14 @@ export default function ContentAnalyzer() {
     setLoading(true);
     setError(null);
     setRestoreNotice(null);
+
     try {
       const result = await analyzeContent({
         keyword: keyword.trim(),
         url: mode === 'url' ? url.trim() : undefined,
         text: mode === 'text' ? text.trim() : undefined,
+        title: titleInput.trim() || undefined,
+        metaDescription: metaDescriptionInput.trim() || undefined,
         compareToSerp,
       });
       setData(result);
@@ -162,6 +178,8 @@ export default function ContentAnalyzer() {
       setKeyword(result.keyword || '');
       setUrl(result.url || '');
       setText(result.inputText || '');
+      setTitleInput(result.inputTitle || '');
+      setMetaDescriptionInput(result.inputMetaDescription || '');
       setMode(result.inputMode === 'text' ? 'text' : 'url');
       setCompareToSerp(!!result.compareToSerp);
       setRestoreNotice('Loaded a saved content analysis from history.');
@@ -197,23 +215,21 @@ export default function ContentAnalyzer() {
     <div>
       <h2 className="text-2xl font-bold text-gray-900 mb-1">Content Analyzer</h2>
       <p className="text-sm text-gray-500 mb-6">
-        Analyze your content for SEO quality. Paste text or provide a URL.
+        Audit title tags, meta descriptions, keyword placement, internal links, and readability for a URL or a draft.
       </p>
 
       <form onSubmit={handleSubmit} className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
-        {/* Keyword input */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Target Keyword</label>
           <input
             type="text"
             value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
+            onChange={(event) => setKeyword(event.target.value)}
             placeholder="e.g., vegan cupcakes"
             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
         </div>
 
-        {/* Mode toggle */}
         <div className="flex gap-4">
           <label className="flex items-center gap-2 text-sm">
             <input
@@ -235,14 +251,13 @@ export default function ContentAnalyzer() {
           </label>
         </div>
 
-        {/* URL or text input */}
         {mode === 'url' ? (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">URL</label>
             <input
               type="url"
               value={url}
-              onChange={(e) => setUrl(e.target.value)}
+              onChange={(event) => setUrl(event.target.value)}
               placeholder="https://example.com/article"
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
@@ -252,7 +267,7 @@ export default function ContentAnalyzer() {
             <label className="block text-sm font-medium text-gray-700 mb-1">Article Text</label>
             <textarea
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(event) => setText(event.target.value)}
               placeholder="Paste your article content here..."
               rows={8}
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y"
@@ -260,12 +275,41 @@ export default function ContentAnalyzer() {
           </div>
         )}
 
-        {/* Compare to SERP */}
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">SEO Title</label>
+            <input
+              type="text"
+              value={titleInput}
+              onChange={(event) => setTitleInput(event.target.value)}
+              placeholder={mode === 'url' ? 'Optional override for the live page title' : 'Recommended for draft analysis'}
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              {mode === 'url' ? 'Leave blank to use the live page title.' : 'Add the intended title so page-title scoring is accurate.'}
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Meta Description</label>
+            <textarea
+              value={metaDescriptionInput}
+              onChange={(event) => setMetaDescriptionInput(event.target.value)}
+              placeholder={mode === 'url' ? 'Optional override for the live meta description' : 'Recommended for draft analysis'}
+              rows={3}
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              {mode === 'url' ? 'Leave blank to use the live meta description.' : 'Add the intended meta description for accurate scoring.'}
+            </p>
+          </div>
+        </div>
+
         <label className="flex items-center gap-2 text-sm text-gray-600">
           <input
             type="checkbox"
             checked={compareToSerp}
-            onChange={(e) => setCompareToSerp(e.target.checked)}
+            onChange={(event) => setCompareToSerp(event.target.checked)}
             className="accent-indigo-600"
           />
           Compare against SERP competitors (slower but finds content gaps)
@@ -351,45 +395,168 @@ export default function ContentAnalyzer() {
             </div>
           )}
 
-          {/* Score + stats */}
-          <div className="flex items-start gap-6">
-            <div className="bg-white rounded-lg border border-gray-200 p-6 flex flex-col items-center">
-              <ScoreBadge score={data.seoScore} label="SEO Score" size="lg" />
-              {data.savedAt && (
-                <p className="mt-3 text-xs text-gray-500">
-                  Saved {formatSavedAt(data.savedAt)}
+          <div className="grid gap-4 xl:grid-cols-[280px,1fr]">
+            <div className="bg-white rounded-lg border border-gray-200 p-6">
+              <div className="flex flex-col items-center text-center">
+                <ScoreBadge score={data.seoScore} label="SEO Score" size="lg" />
+                <p className="mt-4 text-sm text-gray-600">
+                  {data.savedAt ? `Saved ${formatSavedAt(data.savedAt)}.` : 'Fresh analysis.'}
                 </p>
-              )}
+                <p className="mt-2 text-sm text-gray-500">
+                  Focus keyword: <span className="font-medium text-gray-800">{data.keyword}</span>
+                </p>
+              </div>
             </div>
 
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 flex-1">
-              <StatCard label="Word Count" value={data.wordCount} sub={`Target: ${data.recommendedWordCount}`} />
-              <StatCard label="Keyword Density" value={`${data.keywordDensity}%`} sub={`${data.keywordCount} occurrences`} />
-              <StatCard label="Headings" value={data.headings.h1 + data.headings.h2 + data.headings.h3} sub={`H1:${data.headings.h1} H2:${data.headings.h2} H3:${data.headings.h3}`} />
-              <StatCard label="Images" value={data.imageCount} />
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <ScoreSummaryCard
+                title="Readability"
+                score={data.readabilityScore}
+                description={data.readability?.label || 'Readability checks'}
+              />
+              <ScoreSummaryCard
+                title="Page Title"
+                score={data.pageTitleScore}
+                description={`${data.pageTitleLength || 0}/60 chars`}
+              />
+              <ScoreSummaryCard
+                title="Meta Description"
+                score={data.metaDescriptionScore}
+                description={`${data.metaDescriptionLength || 0}/160 chars`}
+              />
+              <ScoreSummaryCard
+                title="Content"
+                score={data.contentScore}
+                description={`${data.wordCount || 0} words`}
+              />
             </div>
           </div>
 
-          {/* Suggestions */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard label="Word Count" value={data.wordCount} sub={`Target: ${data.recommendedWordCount}`} />
+            <StatCard label="Keyword Density" value={`${data.keywordDensity}%`} sub={`${data.keywordCount} occurrences`} />
+            <StatCard
+              label="Headings"
+              value={data.headings.h1 + data.headings.h2 + data.headings.h3}
+              sub={`H1:${data.headings.h1} H2:${data.headings.h2} H3:${data.headings.h3}`}
+            />
+            <StatCard label="Links" value={data.internalLinkCount} sub={`${data.externalLinkCount || 0} external`} />
+            <StatCard label="Images" value={data.imageCount} />
+            <StatCard
+              label="Long Sentences"
+              value={`${data.readability?.longSentencePercentage || 0}%`}
+              sub="Sentences over 20 words"
+            />
+            <StatCard
+              label="Transition Words"
+              value={`${data.readability?.transitionWordPercentage || 0}%`}
+              sub="Sentence coverage"
+            />
+            <StatCard
+              label="Passive Voice"
+              value={`${data.readability?.passiveVoicePercentage || 0}%`}
+              sub="Sentence coverage"
+            />
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ValueCard
+              label="Page Title"
+              value={data.pageTitle}
+              helper={data.pageTitle ? `${data.pageTitleLength || data.pageTitle.length} characters` : 'No page title found'}
+            />
+            <ValueCard
+              label="Meta Description"
+              value={data.metaDescription}
+              helper={data.metaDescription ? `${data.metaDescriptionLength || data.metaDescription.length} characters` : 'No meta description found'}
+            />
+          </div>
+
+          {data.firstParagraph && (
+            <ValueCard
+              label="First Paragraph"
+              value={data.firstParagraph}
+              helper={data.keywordInFirstParagraph ? 'Focus keyword found in the first paragraph.' : 'Focus keyword not found in the first paragraph.'}
+            />
+          )}
+
+          <div className="grid gap-6 xl:grid-cols-2">
+            <AuditSection
+              title="Page Title Score"
+              score={data.audit?.pageTitle?.score || data.pageTitleScore}
+              checks={data.audit?.pageTitle?.checks || []}
+            />
+            <AuditSection
+              title="Meta Description Score"
+              score={data.audit?.metaDescription?.score || data.metaDescriptionScore}
+              checks={data.audit?.metaDescription?.checks || []}
+            />
+            <AuditSection
+              title="Content Score"
+              score={data.audit?.content?.score || data.contentScore}
+              checks={data.audit?.content?.checks || []}
+            />
+            <AuditSection
+              title="Readability Score"
+              score={data.audit?.readability?.score || data.readabilityScore}
+              checks={data.audit?.readability?.checks || []}
+            />
+          </div>
+
+          {data.readability?.subheadingSections?.length > 0 && (
+            <div className="bg-white rounded-lg border border-gray-200 p-6">
+              <div className="flex items-center justify-between gap-4 mb-4">
+                <div>
+                  <h3 className="font-semibold text-gray-900">Subheading Section Lengths</h3>
+                  <p className="text-sm text-gray-500">
+                    Keep each section below 300 words after a H2 or H3.
+                  </p>
+                </div>
+                <span className="text-xs text-gray-500">
+                  {data.readability.subheadingSections.filter((section) => section.wordCount > 300).length} over limit
+                </span>
+              </div>
+              <div className="space-y-2">
+                {data.readability.subheadingSections.map((section, index) => (
+                  <div
+                    key={`${section.level}-${section.heading}-${index}`}
+                    className={`flex items-center justify-between rounded-lg border px-4 py-3 text-sm ${
+                      section.wordCount > 300
+                        ? 'border-red-200 bg-red-50 text-red-900'
+                        : 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="font-medium">{section.heading}</div>
+                      <div className="text-xs opacity-80">{String(section.level || '').toUpperCase()}</div>
+                    </div>
+                    <div className="font-semibold">{section.wordCount} words</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {data.suggestions?.length > 0 && (
             <div className="bg-white rounded-lg border border-gray-200 p-6">
               <h3 className="font-semibold text-gray-900 mb-3">Improvement Suggestions</h3>
               <ul className="space-y-2">
-                {data.suggestions.map((s, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
+                {data.suggestions.map((suggestion, index) => (
+                  <li key={index} className="flex items-start gap-2 text-sm text-gray-700">
                     <span className="text-amber-500 mt-0.5">&#9679;</span>
-                    {s}
+                    {suggestion}
                   </li>
                 ))}
               </ul>
             </div>
           )}
 
-          {/* Missing topics */}
           {data.missingTopics?.length > 0 && (
             <div className="bg-white rounded-lg border border-gray-200 p-6">
               <h3 className="font-semibold text-gray-900 mb-3">Missing Topics</h3>
-              <p className="text-xs text-gray-500 mb-3">Topics your competitors cover but your content doesn't mention:</p>
+              <p className="text-xs text-gray-500 mb-3">
+                Topics your competitors cover but your content doesn't mention:
+              </p>
               <div className="flex flex-wrap gap-2">
                 {data.missingTopics.map((topic) => (
                   <span key={topic} className="bg-red-50 text-red-700 border border-red-200 px-3 py-1 rounded-md text-sm">
@@ -401,6 +568,83 @@ export default function ContentAnalyzer() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function ScoreSummaryCard({ title, score, description }) {
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 p-4">
+      <div className="flex items-center gap-4">
+        <ScoreBadge score={score} />
+        <div>
+          <h3 className="font-semibold text-gray-900">{title}</h3>
+          <p className="text-sm text-gray-500">{description}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ValueCard({ label, value, helper }) {
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 p-6">
+      <h3 className="font-semibold text-gray-900 mb-2">{label}</h3>
+      <p className={`text-sm ${value ? 'text-gray-700' : 'text-gray-400 italic'}`}>
+        {value || 'Not available'}
+      </p>
+      {helper && <p className="mt-2 text-xs text-gray-500">{helper}</p>}
+    </div>
+  );
+}
+
+function AuditSection({ title, score, checks }) {
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 p-6">
+      <div className="flex items-center justify-between gap-4 mb-4">
+        <div>
+          <h3 className="font-semibold text-gray-900">{title}</h3>
+          <p className="text-sm text-gray-500">{checks.length} checks</p>
+        </div>
+        <ScoreBadge score={score} />
+      </div>
+
+      <div className="space-y-3">
+        {checks.map((check) => (
+          <AuditCheck key={check.id} check={check} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AuditCheck({ check }) {
+  const styles = {
+    pass: 'border-emerald-200 bg-emerald-50 text-emerald-900',
+    warn: 'border-amber-200 bg-amber-50 text-amber-900',
+    fail: 'border-red-200 bg-red-50 text-red-900',
+  };
+
+  const badgeStyles = {
+    pass: 'bg-emerald-100 text-emerald-800',
+    warn: 'bg-amber-100 text-amber-800',
+    fail: 'bg-red-100 text-red-800',
+  };
+
+  return (
+    <div className={`rounded-lg border px-4 py-3 ${styles[check.status] || styles.fail}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="font-medium">{check.label}</div>
+          <p className="mt-1 text-sm">{check.message}</p>
+          {check.status !== 'pass' && check.suggestion && (
+            <p className="mt-2 text-xs opacity-80">Suggestion: {check.suggestion}</p>
+          )}
+        </div>
+        <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold ${badgeStyles[check.status] || badgeStyles.fail}`}>
+          {check.status.toUpperCase()}
+        </span>
+      </div>
     </div>
   );
 }

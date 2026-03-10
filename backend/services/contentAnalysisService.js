@@ -72,6 +72,8 @@ async function analyzeAndStoreContent({
   keyword,
   text,
   url,
+  title,
+  metaDescription,
   compareToSerp,
   competitorData,
 }) {
@@ -79,6 +81,8 @@ async function analyzeAndStoreContent({
     text,
     url,
     keyword,
+    title,
+    metaDescription,
     competitorData,
   });
 
@@ -87,6 +91,8 @@ async function analyzeAndStoreContent({
     url: url || null,
     inputMode: text ? 'text' : 'url',
     inputText: text || '',
+    inputTitle: title || '',
+    inputMetaDescription: metaDescription || '',
     compareToSerp: !!compareToSerp,
     result,
   };
@@ -104,6 +110,8 @@ async function analyzeAndStoreContent({
     ...result,
     inputMode: payload.inputMode,
     inputText: payload.inputText,
+    inputTitle: payload.inputTitle,
+    inputMetaDescription: payload.inputMetaDescription,
     compareToSerp: payload.compareToSerp,
   };
 }
@@ -152,6 +160,8 @@ async function getContentAnalysisHistoryItem(id) {
       savedAt: row.created_at,
       inputMode: payload.inputMode || (row.url ? 'url' : 'text'),
       inputText: payload.inputText || '',
+      inputTitle: payload.inputTitle || '',
+      inputMetaDescription: payload.inputMetaDescription || '',
       compareToSerp: !!payload.compareToSerp,
       url: payload.url || row.url || null,
       keyword: payload.keyword || row.keyword || payload.result.keyword,

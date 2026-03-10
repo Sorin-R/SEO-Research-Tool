@@ -135,11 +135,13 @@ export async function deleteTrackedWebsite(id) {
 
 // ---- Content Analysis ----
 
-export async function analyzeContent({ keyword, text, url, compareToSerp }) {
+export async function analyzeContent({ keyword, text, url, title, metaDescription, compareToSerp }) {
   const { data } = await api.post('/analyze', {
     keyword,
     text,
     url,
+    title,
+    metaDescription,
     compareToSerp,
   });
   return data;

@@ -1,14 +1,14 @@
 {
   "name": "seo-research-tool",
   "private": true,
-  "workspaces": [
-    "backend",
-    "frontend"
-  ],
+  "main": "server.js",
   "scripts": {
-    "start": "npm --workspace backend start",
-    "build": "npm --workspace frontend run build",
-    "postinstall": "npm run build"
+    "start": "node server.js",
+    "build": "npm --prefix frontend run build",
+    "postinstall": "npm install --prefix backend --omit=dev --omit=optional && npm install --prefix frontend --omit=dev && npm run build"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
   },
   "engines": {
     "node": ">=20.19.0"

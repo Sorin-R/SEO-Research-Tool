@@ -113,3 +113,12 @@ CREATE TABLE IF NOT EXISTS rank_tracker_settings (
   search_depth  INT          NOT NULL DEFAULT 10,
   updated_at    TIMESTAMP    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
+
+-- --------------------------------------------------------
+-- SERP provider on/off settings
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS serp_provider_settings (
+  provider_id VARCHAR(64) NOT NULL PRIMARY KEY,
+  is_enabled  TINYINT(1)  NOT NULL DEFAULT 1,
+  updated_at  TIMESTAMP   DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;

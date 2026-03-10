@@ -156,6 +156,18 @@ export async function deleteTrackedWebsite(id) {
   return data;
 }
 
+export async function getSerpProviders() {
+  const { data } = await api.get('/serp/providers');
+  return data;
+}
+
+export async function updateSerpProvider(providerId, enabled) {
+  const { data } = await api.patch(`/serp/providers/${providerId}`, {
+    enabled,
+  });
+  return data;
+}
+
 // ---- Content Analysis ----
 
 export async function analyzeContent({ keyword, text, url, title, metaDescription, compareToSerp }) {

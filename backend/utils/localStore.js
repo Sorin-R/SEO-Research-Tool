@@ -57,6 +57,7 @@ function createEmptyState() {
       search_depth: 10,
       updated_at: null,
     },
+    serpProviderSettings: {},
     keywordResearchHistory: [],
     serpAnalysisHistory: [],
     contentAnalysisHistory: [],
@@ -98,6 +99,9 @@ async function readState() {
             search_depth: 10,
             updated_at: null,
           },
+      serpProviderSettings: parsed.serpProviderSettings && typeof parsed.serpProviderSettings === 'object'
+        ? parsed.serpProviderSettings
+        : {},
       keywordResearchHistory: Array.isArray(parsed.keywordResearchHistory)
         ? parsed.keywordResearchHistory
         : [],
@@ -177,6 +181,24 @@ async function updateRankTrackerSettings(scheduleTime, searchDepth = 10) {
   };
   await writeState(state);
   return state.rankTrackerSettings;
+}
+
+async function getSerpProviderSettings() {
+  const state = await readState();
+  return { ...(state.serpProviderSettings || {}) };
+}
+
+async function updateSerpProviderSetting(providerId, isEnabled) {
+  const state = await readState();
+  state.serpProviderSettings = {
+    ...(state.serpProviderSettings || {}),
+    [providerId]: {
+      is_enabled: !!isEnabled,
+      updated_at: nowIso(),
+    },
+  };
+  await writeState(state);
+  return state.serpProviderSettings[providerId];
 }
 
 async function saveKeyword(keyword, difficulty = null, searchVolume = null) {
@@ -655,6 +677,8 @@ module.exports = {
   saveSerpCache,
   getRankTrackerSettings,
   updateRankTrackerSettings,
+  getSerpProviderSettings,
+  updateSerpProviderSetting,
   saveWebsite,
   getWebsites,
   getActiveWebsites,

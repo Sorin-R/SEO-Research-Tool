@@ -79,6 +79,11 @@ const schemaStatements = [
     search_depth INT NOT NULL DEFAULT 10,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   ) ENGINE=InnoDB`,
+  `CREATE TABLE IF NOT EXISTS serp_provider_settings (
+    provider_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB`,
 ];
 
 /**
@@ -133,6 +138,7 @@ async function ensureSchema() {
   await ensureWebsitesCountrySchema();
   await ensureRankingsWebsiteSchema();
   await ensureRankTrackerSettingsSchema();
+  await ensureSerpProviderSettingsSchema();
 
   console.log('[DB] Schema verified.');
 }
@@ -262,6 +268,18 @@ async function ensureRankTrackerSettingsSchema() {
      SET search_depth = 10
      WHERE search_depth IS NULL OR search_depth NOT IN (10, 20, 50, 100)`
   );
+}
+
+async function ensureSerpProviderSettingsSchema() {
+  if (!(await hasColumn('serp_provider_settings', 'provider_id'))) {
+    return;
+  }
+
+  if (!(await hasColumn('serp_provider_settings', 'is_enabled'))) {
+    await pool.query(
+      'ALTER TABLE serp_provider_settings ADD COLUMN is_enabled TINYINT(1) NOT NULL DEFAULT 1 AFTER provider_id'
+    );
+  }
 }
 
 module.exports = {

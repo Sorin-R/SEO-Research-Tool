@@ -11,6 +11,7 @@ const searchApiProvider = require('./providers/searchApiProvider');
 const scaleserpProvider = require('./providers/scaleserpProvider');
 const googleSearchProvider = require('./providers/googleSearchProvider');
 const bingSearchProvider = require('./providers/bingSearchProvider');
+const providerSettingsService = require('../services/providerSettingsService');
 
 function hasConfiguredValue(value) {
   if (!value) return false;
@@ -26,41 +27,83 @@ function hasConfiguredValue(value) {
  */
 const providers = [
   {
+    id: 'serpapi',
     name: 'SerpAPI',
     provider: serpApiProvider,
-    enabled: () => hasConfiguredValue(process.env.SERPAPI_KEY),
+    docsUrl: 'https://serpapi.com/',
+    quota: '100/month',
+    quotaType: 'Monthly',
+    setupTime: '2 min',
+    envVars: ['SERPAPI_KEY'],
+    isConfigured: () => hasConfiguredValue(process.env.SERPAPI_KEY),
   },
   {
+    id: 'serpstack',
     name: 'Serpstack',
     provider: serpstackProvider,
-    enabled: () => hasConfiguredValue(process.env.SERPSTACK_KEY),
+    docsUrl: 'https://serpstack.com/',
+    quota: '100/month',
+    quotaType: 'Monthly',
+    setupTime: '2 min',
+    envVars: ['SERPSTACK_KEY'],
+    isConfigured: () => hasConfiguredValue(process.env.SERPSTACK_KEY),
   },
   {
+    id: 'zenserp',
     name: 'Zenserp',
     provider: zenserpProvider,
-    enabled: () => hasConfiguredValue(process.env.ZENSERP_KEY),
+    docsUrl: 'https://zenserp.com/',
+    quota: '100/month',
+    quotaType: 'Monthly',
+    setupTime: '2 min',
+    envVars: ['ZENSERP_KEY'],
+    isConfigured: () => hasConfiguredValue(process.env.ZENSERP_KEY),
   },
   {
+    id: 'searchapi',
     name: 'SearchAPI',
     provider: searchApiProvider,
-    enabled: () => hasConfiguredValue(process.env.SEARCHAPI_KEY),
+    docsUrl: 'https://www.searchapi.io/',
+    quota: '100/month',
+    quotaType: 'Monthly',
+    setupTime: '2 min',
+    envVars: ['SEARCHAPI_KEY'],
+    isConfigured: () => hasConfiguredValue(process.env.SEARCHAPI_KEY),
   },
   {
+    id: 'scaleserp',
     name: 'ScaleSERP',
     provider: scaleserpProvider,
-    enabled: () => hasConfiguredValue(process.env.SCALESERP_KEY),
+    docsUrl: 'https://www.scaleserp.com/',
+    quota: '100/month',
+    quotaType: 'Monthly',
+    setupTime: '2 min',
+    envVars: ['SCALESERP_KEY'],
+    isConfigured: () => hasConfiguredValue(process.env.SCALESERP_KEY),
   },
   {
+    id: 'google-custom-search',
     name: 'Google Custom Search',
     provider: googleSearchProvider,
-    enabled: () =>
+    docsUrl: 'https://programmablesearchengine.google.com/',
+    quota: '100/day',
+    quotaType: 'Daily',
+    setupTime: '10 min',
+    envVars: ['GOOGLE_SEARCH_API_KEY', 'GOOGLE_SEARCH_CX'],
+    isConfigured: () =>
       hasConfiguredValue(process.env.GOOGLE_SEARCH_API_KEY) &&
       hasConfiguredValue(process.env.GOOGLE_SEARCH_CX),
   },
   {
+    id: 'bing-search-api',
     name: 'Bing Search API',
     provider: bingSearchProvider,
-    enabled: () => hasConfiguredValue(process.env.BING_SEARCH_KEY),
+    docsUrl: 'https://www.microsoft.com/en-us/bing/apis/bing-web-search-api',
+    quota: '~1000/month',
+    quotaType: 'Monthly',
+    setupTime: '3 min',
+    envVars: ['BING_SEARCH_KEY'],
+    isConfigured: () => hasConfiguredValue(process.env.BING_SEARCH_KEY),
   },
 ];
 
@@ -77,12 +120,14 @@ async function search(keyword, numResults = 10, options = {}) {
     throw new Error('Keyword is required.');
   }
 
-  const enabledProviders = providers.filter((p) => p.enabled());
+  const settings = await providerSettingsService.getProviderSettingsMap();
+  const enabledProviders = providers.filter((providerConfig) => (
+    providerConfig.isConfigured() && isProviderEnabled(providerConfig.id, settings)
+  ));
 
   if (enabledProviders.length === 0) {
     throw new Error(
-      'No SERP providers configured. Set one of: SERPAPI_KEY, SERPSTACK_KEY, ZENSERP_KEY, ' +
-      'SEARCHAPI_KEY, SCALESERP_KEY, GOOGLE_SEARCH_API_KEY+GOOGLE_SEARCH_CX, or BING_SEARCH_KEY in .env'
+      'No active SERP providers available. Configure a provider API key and make sure its toggle is ON.'
     );
   }
 
@@ -115,34 +160,59 @@ async function search(keyword, numResults = 10, options = {}) {
  * Get status of all configured providers.
  * Useful for debugging.
  */
-function getStatus() {
+async function getStatus() {
+  const settings = await providerSettingsService.getProviderSettingsMap();
+  const availableProviders = providers.map((providerConfig) => ({
+    id: providerConfig.id,
+    name: providerConfig.name,
+    configured: providerConfig.isConfigured(),
+    enabled: isProviderEnabled(providerConfig.id, settings),
+    active: providerConfig.isConfigured() && isProviderEnabled(providerConfig.id, settings),
+    envVars: providerConfig.envVars,
+    docsUrl: providerConfig.docsUrl,
+    quota: providerConfig.quota,
+    quotaType: providerConfig.quotaType,
+    setupTime: providerConfig.setupTime,
+    updatedAt: settings[providerConfig.id]?.updated_at || null,
+  }));
+
   return {
-    configuredProviders: providers
-      .filter((p) => p.enabled())
-      .map((p) => p.name),
+    configuredProviders: availableProviders
+      .filter((providerConfig) => providerConfig.configured)
+      .map((providerConfig) => providerConfig.name),
+    activeProviders: availableProviders
+      .filter((providerConfig) => providerConfig.active)
+      .map((providerConfig) => providerConfig.name),
     totalProviders: providers.length,
-    availableProviders: providers.map((p) => ({
-      name: p.name,
-      enabled: p.enabled(),
-      envVar: getEnvVarForProvider(p.name),
-    })),
+    availableProviders,
   };
 }
 
-function getEnvVarForProvider(name) {
-  const envMap = {
-    'SerpAPI': 'SERPAPI_KEY',
-    'Serpstack': 'SERPSTACK_KEY',
-    'Zenserp': 'ZENSERP_KEY',
-    'SearchAPI': 'SEARCHAPI_KEY',
-    'ScaleSERP': 'SCALESERP_KEY',
-    'Google Custom Search': 'GOOGLE_SEARCH_API_KEY, GOOGLE_SEARCH_CX',
-    'Bing Search API': 'BING_SEARCH_KEY',
-  };
-  return envMap[name] || '?';
+async function updateProviderState(providerId, isEnabled) {
+  const providerConfig = providers.find((entry) => entry.id === providerId);
+
+  if (!providerConfig) {
+    const error = new Error('Provider not found.');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  await providerSettingsService.updateProviderSetting(providerId, isEnabled);
+  const status = await getStatus();
+
+  return status.availableProviders.find((entry) => entry.id === providerId) || null;
+}
+
+function isProviderEnabled(providerId, settings = {}) {
+  if (!settings[providerId]) {
+    return true;
+  }
+
+  return Boolean(settings[providerId].is_enabled);
 }
 
 module.exports = {
   search,
   getStatus,
+  updateProviderState,
 };

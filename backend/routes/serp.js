@@ -255,16 +255,33 @@ router.delete('/websites/:id', async (req, res) => {
  */
 router.get('/providers', async (req, res) => {
   try {
-    const status = serpApiManager.getStatus();
+    const status = await serpApiManager.getStatus();
 
     res.json({
       configured: status.configuredProviders,
+      active: status.activeProviders,
       available: status.availableProviders.map(p => p.name),
       details: status.availableProviders,
     });
   } catch (err) {
     console.error('[Route /serp/providers] Error:', err.message);
     res.status(500).json({ error: 'Failed to fetch provider status.', details: err.message });
+  }
+});
+
+router.patch('/providers/:providerId', async (req, res) => {
+  const { enabled } = req.body || {};
+
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ error: 'enabled must be a boolean.' });
+  }
+
+  try {
+    const provider = await serpApiManager.updateProviderState(req.params.providerId, enabled);
+    res.json(provider);
+  } catch (err) {
+    console.error('[Route /serp/providers/:providerId PATCH] Error:', err.message);
+    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to update provider status.' });
   }
 });
 

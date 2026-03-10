@@ -2,29 +2,38 @@ import { useState } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
-import SearchBar from '../components/SearchBar';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorAlert from '../components/ErrorAlert';
 import StatCard from '../components/StatCard';
 import ScoreBadge from '../components/ScoreBadge';
 import { analyzeSERP } from '../services/api';
+import { SERP_COUNTRIES } from '../constants/serpCountries';
 
 export default function SERPAnalyzer() {
+  const [keyword, setKeyword] = useState('');
+  const [country, setCountry] = useState('US');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  async function handleSearch(keyword) {
+  async function handleSearch(searchKeyword = keyword.trim()) {
+    if (!searchKeyword) return;
+
     setLoading(true);
     setError(null);
     try {
-      const result = await analyzeSERP(keyword);
+      const result = await analyzeSERP(searchKeyword, false, country);
       setData(result);
     } catch (err) {
       setError(err.response?.data?.error || err.message);
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    handleSearch();
   }
 
   const avg = data?.averages;
@@ -45,13 +54,45 @@ export default function SERPAnalyzer() {
         Analyze top 10 Google results for any keyword. Get word counts, meta data, and difficulty scores.
       </p>
 
-      <SearchBar onSearch={handleSearch} loading={loading} placeholder="Enter a keyword to analyze..." />
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3 lg:flex-row">
+        <input
+          type="text"
+          value={keyword}
+          onChange={(e) => setKeyword(e.target.value)}
+          placeholder="Enter a keyword to analyze..."
+          className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+          disabled={loading}
+        />
+        <select
+          value={country}
+          onChange={(e) => setCountry(e.target.value)}
+          className="px-4 py-2.5 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+          disabled={loading}
+        >
+          {SERP_COUNTRIES.map((option) => (
+            <option key={option.code} value={option.code}>
+              {option.name}
+            </option>
+          ))}
+        </select>
+        <button
+          type="submit"
+          disabled={loading || !keyword.trim()}
+          className="px-6 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {loading ? 'Searching...' : 'Search'}
+        </button>
+      </form>
 
       {loading && <LoadingSpinner message="Scraping SERP results... This may take a minute." />}
       {error && <div className="mt-6"><ErrorAlert message={error} /></div>}
 
       {data && !loading && (
         <div className="mt-8 space-y-8">
+          <p className="text-sm text-gray-500">
+            Scanned country: <span className="font-medium text-gray-700">{data.countryName || country}</span>
+          </p>
+
           {/* Difficulty + Stats overview */}
           <div className="flex items-start gap-6">
             {diff && (

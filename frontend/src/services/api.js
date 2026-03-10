@@ -35,9 +35,9 @@ export async function deleteTrackedKeyword(id) {
 
 // ---- SERP ----
 
-export async function analyzeSERP(keyword, refresh = false) {
+export async function analyzeSERP(keyword, refresh = false, country = 'US') {
   const { data } = await api.get('/serp', {
-    params: { q: keyword, refresh },
+    params: { q: keyword, refresh, country },
   });
   return data;
 }

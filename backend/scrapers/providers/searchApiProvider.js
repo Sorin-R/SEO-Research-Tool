@@ -6,6 +6,7 @@
 
 const axios = require('axios');
 const { throttle } = require('../../utils/rateLimiter');
+const { getCountryConfig } = require('../../utils/searchCountry');
 
 const API_URL = 'https://www.searchapi.io/api/v1/search';
 
@@ -16,8 +17,9 @@ const API_URL = 'https://www.searchapi.io/api/v1/search';
  * @param {number} numResults
  * @returns {Promise<Array>} Formatted search results
  */
-async function search(keyword, numResults = 10) {
+async function search(keyword, numResults = 10, options = {}) {
   const apiKey = process.env.SEARCHAPI_KEY;
+  const country = getCountryConfig(options.country);
 
   if (!apiKey) {
     throw new Error('SEARCHAPI_KEY not set in .env');
@@ -32,6 +34,9 @@ async function search(keyword, numResults = 10) {
         q: keyword,
         num: numResults,
         engine: 'google',
+        gl: country.googleGl,
+        hl: country.hl,
+        google_domain: country.googleDomain,
       },
       timeout: 15000,
     });

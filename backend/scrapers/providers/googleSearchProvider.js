@@ -6,6 +6,7 @@
 
 const axios = require('axios');
 const { throttle } = require('../../utils/rateLimiter');
+const { getCountryConfig } = require('../../utils/searchCountry');
 
 const API_URL = 'https://www.googleapis.com/customsearch/v1';
 
@@ -16,9 +17,10 @@ const API_URL = 'https://www.googleapis.com/customsearch/v1';
  * @param {number} numResults
  * @returns {Promise<Array>} Formatted search results
  */
-async function search(keyword, numResults = 10) {
+async function search(keyword, numResults = 10, options = {}) {
   const apiKey = process.env.GOOGLE_SEARCH_API_KEY;
   const cx = process.env.GOOGLE_SEARCH_CX;
+  const country = getCountryConfig(options.country);
 
   if (!apiKey || !cx) {
     throw new Error('GOOGLE_SEARCH_API_KEY and GOOGLE_SEARCH_CX not set in .env');
@@ -33,6 +35,9 @@ async function search(keyword, numResults = 10) {
         key: apiKey,
         cx: cx,
         num: Math.min(numResults, 10), // API max is 10 per request
+        gl: country.googleGl,
+        cr: country.googleCr,
+        hl: country.hl,
       },
       timeout: 15000,
     });

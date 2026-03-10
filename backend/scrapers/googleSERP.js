@@ -12,10 +12,10 @@ const serpApiManager = require('./serpApiManager');
  * @param {number} numResults - Number of results to fetch (max 10)
  * @returns {Promise<Array>} Array of { position, title, url, snippet }
  */
-async function fetchSERPResults(keyword, numResults = 10) {
+async function fetchSERPResults(keyword, numResults = 10, options = {}) {
   try {
     // Use multi-provider SERP API manager
-    return await serpApiManager.search(keyword, numResults);
+    return await serpApiManager.search(keyword, numResults, options);
   } catch (err) {
     console.error('[SERP] Error:', err.message);
     throw new Error(

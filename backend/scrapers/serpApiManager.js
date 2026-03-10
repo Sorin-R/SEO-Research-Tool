@@ -72,7 +72,7 @@ const providers = [
  * @param {number} numResults
  * @returns {Promise<Array>} Search results
  */
-async function search(keyword, numResults = 10) {
+async function search(keyword, numResults = 10, options = {}) {
   if (!keyword || !keyword.trim()) {
     throw new Error('Keyword is required.');
   }
@@ -92,7 +92,7 @@ async function search(keyword, numResults = 10) {
   for (const config of enabledProviders) {
     try {
       console.log(`[SERP] Trying provider: ${config.name}...`);
-      const results = await config.provider.search(keyword, numResults);
+      const results = await config.provider.search(keyword, numResults, options);
 
       if (results && results.length > 0) {
         console.log(`[SERP] ✓ ${config.name} returned ${results.length} results`);

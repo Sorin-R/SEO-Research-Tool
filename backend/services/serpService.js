@@ -2,6 +2,7 @@ const db = require('../database');
 const { analyzeSERP } = require('../analyzers/serpAnalyzer');
 const { calculateDifficulty } = require('../analyzers/keywordDifficulty');
 const localStore = require('../utils/localStore');
+const { getCountryConfig, normalizeCountryCode } = require('../utils/searchCountry');
 
 /**
  * SERP cache duration in milliseconds (6 hours).
@@ -18,28 +19,39 @@ const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
  * @returns {Promise<Object>}
  */
 async function getSERPAnalysis(keyword, options = {}) {
+  const country = normalizeCountryCode(options.country);
+  const countryConfig = getCountryConfig(country);
+  const cacheKey = buildCacheKey(keyword, country);
+
   // Check cache first (unless forced refresh)
   if (!options.forceRefresh) {
-    const cached = await getCachedSERP(keyword);
+    const cached = await getCachedSERP(cacheKey);
     if (cached) {
-      return { ...cached, fromCache: true };
+      return {
+        ...cached,
+        country,
+        countryName: countryConfig.name,
+        fromCache: true,
+      };
     }
   }
 
   // Perform fresh analysis
-  const analysis = await analyzeSERP(keyword);
+  const analysis = await analyzeSERP(keyword, 10, { country });
 
   // Calculate difficulty
   const difficulty = calculateDifficulty(analysis);
 
   const result = {
     ...analysis,
+    country,
+    countryName: countryConfig.name,
     difficulty,
     fromCache: false,
   };
 
   // Cache the results
-  await cacheSERPResults(keyword, result);
+  await cacheSERPResults(cacheKey, result);
 
   return result;
 }
@@ -181,3 +193,7 @@ module.exports = {
   getRankingHistory,
   getLatestRankings,
 };
+
+function buildCacheKey(keyword, country) {
+  return `${normalizeCountryCode(country)}::${keyword.trim().toLowerCase()}`;
+}

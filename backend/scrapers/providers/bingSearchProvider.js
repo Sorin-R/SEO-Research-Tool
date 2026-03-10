@@ -6,6 +6,7 @@
 
 const axios = require('axios');
 const { throttle } = require('../../utils/rateLimiter');
+const { getCountryConfig } = require('../../utils/searchCountry');
 
 const API_URL = 'https://api.bing.microsoft.com/v7.0/search';
 
@@ -16,8 +17,9 @@ const API_URL = 'https://api.bing.microsoft.com/v7.0/search';
  * @param {number} numResults
  * @returns {Promise<Array>} Formatted search results
  */
-async function search(keyword, numResults = 10) {
+async function search(keyword, numResults = 10, options = {}) {
   const apiKey = process.env.BING_SEARCH_KEY;
+  const country = getCountryConfig(options.country);
 
   if (!apiKey) {
     throw new Error('BING_SEARCH_KEY not set in .env');
@@ -30,7 +32,7 @@ async function search(keyword, numResults = 10) {
       params: {
         q: keyword,
         count: Math.min(numResults, 50),
-        mkt: 'en-US',
+        mkt: country.bingMarket,
       },
       headers: {
         'Ocp-Apim-Subscription-Key': apiKey,

@@ -8,9 +8,9 @@ const { fetchSERPResults, scrapePageDetails } = require('../scrapers/googleSERP'
  * @param {number} numResults
  * @returns {Promise<Object>} Full analysis with per-page data and averages
  */
-async function analyzeSERP(keyword, numResults = 10) {
+async function analyzeSERP(keyword, numResults = 10, options = {}) {
   // Step 1: Get SERP listings
-  const serpResults = await fetchSERPResults(keyword, numResults);
+  const serpResults = await fetchSERPResults(keyword, numResults, options);
 
   if (serpResults.length === 0) {
     return {
@@ -39,6 +39,7 @@ async function analyzeSERP(keyword, numResults = 10) {
 
   return {
     keyword,
+    country: options.country || 'US',
     results: detailedResults,
     averages,
     totalResults: detailedResults.length,

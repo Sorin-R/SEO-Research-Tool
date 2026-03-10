@@ -6,6 +6,7 @@
 
 const axios = require('axios');
 const { throttle } = require('../../utils/rateLimiter');
+const { getCountryConfig } = require('../../utils/searchCountry');
 
 const API_URL = 'https://api.zenserp.com/v2/search';
 
@@ -16,8 +17,9 @@ const API_URL = 'https://api.zenserp.com/v2/search';
  * @param {number} numResults
  * @returns {Promise<Array>} Formatted search results
  */
-async function search(keyword, numResults = 10) {
+async function search(keyword, numResults = 10, options = {}) {
   const apiKey = process.env.ZENSERP_KEY;
+  const country = getCountryConfig(options.country);
 
   if (!apiKey) {
     throw new Error('ZENSERP_KEY not set in .env');
@@ -31,6 +33,8 @@ async function search(keyword, numResults = 10) {
         apikey: apiKey,
         q: keyword,
         num: numResults,
+        gl: country.googleGl,
+        hl: country.hl,
       },
       timeout: 15000,
     });

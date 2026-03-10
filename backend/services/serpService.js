@@ -1,6 +1,7 @@
 const db = require('../database');
 const { analyzeSERP } = require('../analyzers/serpAnalyzer');
 const { calculateDifficulty } = require('../analyzers/keywordDifficulty');
+const localStore = require('../utils/localStore');
 
 /**
  * SERP cache duration in milliseconds (6 hours).
@@ -47,13 +48,20 @@ async function getSERPAnalysis(keyword, options = {}) {
  * Check the DB cache for recent SERP results.
  */
 async function getCachedSERP(keyword) {
-  const rows = await db.query(
-    `SELECT results, fetched_at FROM serp_cache
-     WHERE keyword = ?
-     ORDER BY fetched_at DESC
-     LIMIT 1`,
-    [keyword]
-  );
+  let rows;
+
+  try {
+    rows = await db.query(
+      `SELECT results, fetched_at FROM serp_cache
+       WHERE keyword = ?
+       ORDER BY fetched_at DESC
+       LIMIT 1`,
+      [keyword]
+    );
+  } catch (err) {
+    console.warn('[SERPService] DB unavailable, using local store for getCachedSERP:', err.message);
+    return localStore.getCachedSERP(keyword, CACHE_TTL_MS);
+  }
 
   if (rows.length === 0) return null;
 
@@ -79,7 +87,8 @@ async function cacheSERPResults(keyword, results) {
       [keyword, JSON.stringify(results)]
     );
   } catch (err) {
-    console.warn('[SERPService] Cache write failed:', err.message);
+    console.warn('[SERPService] DB unavailable, using local store for cacheSERPResults:', err.message);
+    await localStore.saveSerpCache(keyword, results);
   }
 }
 
@@ -112,13 +121,18 @@ async function trackRanking(keywordId, keyword, targetDomain) {
   const title = match ? match.title : null;
   const today = new Date().toISOString().split('T')[0];
 
-  await db.query(
-    `INSERT INTO rankings (keyword_id, url, position, title, date)
-     VALUES (?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE
-       position = ?, url = ?, title = ?`,
-    [keywordId, url, position, title, today, position, url, title]
-  );
+  try {
+    await db.query(
+      `INSERT INTO rankings (keyword_id, url, position, title, date)
+       VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         position = ?, url = ?, title = ?`,
+      [keywordId, url, position, title, today, position, url, title]
+    );
+  } catch (err) {
+    console.warn('[SERPService] DB unavailable, using local store for trackRanking:', err.message);
+    await localStore.saveRanking({ keywordId, url, position, title, date: today });
+  }
 
   return { keywordId, keyword, position, url, title, date: today };
 }
@@ -127,28 +141,38 @@ async function trackRanking(keywordId, keyword, targetDomain) {
  * Get ranking history for a keyword.
  */
 async function getRankingHistory(keywordId, days = 30) {
-  return db.query(
-    `SELECT * FROM rankings
-     WHERE keyword_id = ?
-       AND date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
-     ORDER BY date ASC`,
-    [keywordId, days]
-  );
+  try {
+    return await db.query(
+      `SELECT * FROM rankings
+       WHERE keyword_id = ?
+         AND date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+       ORDER BY date ASC`,
+      [keywordId, days]
+    );
+  } catch (err) {
+    console.warn('[SERPService] DB unavailable, using local store for getRankingHistory:', err.message);
+    return localStore.getRankingHistory(keywordId, days);
+  }
 }
 
 /**
  * Get the latest ranking for all tracked keywords.
  */
 async function getLatestRankings() {
-  return db.query(
-    `SELECT r.*, k.keyword
-     FROM rankings r
-     INNER JOIN keywords k ON k.id = r.keyword_id
-     WHERE r.date = (
-       SELECT MAX(r2.date) FROM rankings r2 WHERE r2.keyword_id = r.keyword_id
-     )
-     ORDER BY k.keyword`
-  );
+  try {
+    return await db.query(
+      `SELECT r.*, k.keyword
+       FROM rankings r
+       INNER JOIN keywords k ON k.id = r.keyword_id
+       WHERE r.date = (
+         SELECT MAX(r2.date) FROM rankings r2 WHERE r2.keyword_id = r.keyword_id
+       )
+       ORDER BY k.keyword`
+    );
+  } catch (err) {
+    console.warn('[SERPService] DB unavailable, using local store for getLatestRankings:', err.message);
+    return localStore.getLatestRankings();
+  }
 }
 
 module.exports = {

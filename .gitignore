@@ -31,3 +31,4 @@ yarn-error.log*
 # Misc
 .claude/
 *.tmp
+backend/data/runtime-store.json

@@ -1,5 +1,6 @@
 const db = require('../database');
 const { getSuggestions, getExpandedSuggestions } = require('../scrapers/googleAutocomplete');
+const localStore = require('../utils/localStore');
 
 /**
  * Research a keyword: gather autocomplete suggestions, PAA questions,
@@ -49,40 +50,59 @@ async function researchKeyword(keyword, options = {}) {
  * Save a keyword to the tracking list.
  */
 async function saveKeyword(keyword, difficulty = null, searchVolume = null) {
-  const result = await db.query(
-    `INSERT INTO keywords (keyword, difficulty, search_volume)
-     VALUES (?, ?, ?)
-     ON DUPLICATE KEY UPDATE
-       difficulty = COALESCE(?, difficulty),
-       search_volume = COALESCE(?, search_volume),
-       updated_at = CURRENT_TIMESTAMP`,
-    [keyword, difficulty, searchVolume, difficulty, searchVolume]
-  );
-  return result;
+  try {
+    return await db.query(
+      `INSERT INTO keywords (keyword, difficulty, search_volume)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         difficulty = COALESCE(?, difficulty),
+         search_volume = COALESCE(?, search_volume),
+         updated_at = CURRENT_TIMESTAMP`,
+      [keyword, difficulty, searchVolume, difficulty, searchVolume]
+    );
+  } catch (err) {
+    console.warn('[KeywordService] DB unavailable, using local store for saveKeyword:', err.message);
+    return localStore.saveKeyword(keyword, difficulty, searchVolume);
+  }
 }
 
 /**
  * Get all tracked keywords.
  */
 async function getTrackedKeywords() {
-  return db.query(
-    'SELECT * FROM keywords ORDER BY created_at DESC'
-  );
+  try {
+    return await db.query(
+      'SELECT * FROM keywords ORDER BY created_at DESC'
+    );
+  } catch (err) {
+    console.warn('[KeywordService] DB unavailable, using local store for getTrackedKeywords:', err.message);
+    return localStore.getTrackedKeywords();
+  }
 }
 
 /**
  * Get a single tracked keyword by ID.
  */
 async function getKeywordById(id) {
-  const rows = await db.query('SELECT * FROM keywords WHERE id = ?', [id]);
-  return rows[0] || null;
+  try {
+    const rows = await db.query('SELECT * FROM keywords WHERE id = ?', [id]);
+    return rows[0] || null;
+  } catch (err) {
+    console.warn('[KeywordService] DB unavailable, using local store for getKeywordById:', err.message);
+    return localStore.getKeywordById(id);
+  }
 }
 
 /**
  * Delete a tracked keyword.
  */
 async function deleteKeyword(id) {
-  return db.query('DELETE FROM keywords WHERE id = ?', [id]);
+  try {
+    return await db.query('DELETE FROM keywords WHERE id = ?', [id]);
+  } catch (err) {
+    console.warn('[KeywordService] DB unavailable, using local store for deleteKeyword:', err.message);
+    return localStore.deleteKeyword(id);
+  }
 }
 
 module.exports = {

@@ -18,7 +18,7 @@ const API_URL = 'https://api.scaleserp.com/search';
  * @returns {Promise<Array>} Formatted search results
  */
 async function search(keyword, numResults = 10, options = {}) {
-  const apiKey = process.env.SCALESERP_KEY;
+  const apiKey = options.credentials?.SCALESERP_KEY || process.env.SCALESERP_KEY;
   const country = getCountryConfig(options.country);
 
   if (!apiKey) {

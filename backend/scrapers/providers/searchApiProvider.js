@@ -18,7 +18,7 @@ const API_URL = 'https://www.searchapi.io/api/v1/search';
  * @returns {Promise<Array>} Formatted search results
  */
 async function search(keyword, numResults = 10, options = {}) {
-  const apiKey = process.env.SEARCHAPI_KEY;
+  const apiKey = options.credentials?.SEARCHAPI_KEY || process.env.SEARCHAPI_KEY;
   const country = getCountryConfig(options.country);
 
   if (!apiKey) {

@@ -18,7 +18,7 @@ const API_URL = 'https://api.zenserp.com/v2/search';
  * @returns {Promise<Array>} Formatted search results
  */
 async function search(keyword, numResults = 10, options = {}) {
-  const apiKey = process.env.ZENSERP_KEY;
+  const apiKey = options.credentials?.ZENSERP_KEY || process.env.ZENSERP_KEY;
   const country = getCountryConfig(options.country);
 
   if (!apiKey) {

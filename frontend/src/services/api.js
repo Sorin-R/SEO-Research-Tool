@@ -168,6 +168,13 @@ export async function updateSerpProvider(providerId, enabled) {
   return data;
 }
 
+export async function updateSerpProviderCredentials(providerId, credentials) {
+  const { data } = await api.patch(`/serp/providers/${providerId}/credentials`, {
+    credentials,
+  });
+  return data;
+}
+
 // ---- Content Analysis ----
 
 export async function analyzeContent({ keyword, text, url, title, metaDescription, compareToSerp }) {

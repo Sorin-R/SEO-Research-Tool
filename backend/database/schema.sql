@@ -122,3 +122,14 @@ CREATE TABLE IF NOT EXISTS serp_provider_settings (
   is_enabled  TINYINT(1)  NOT NULL DEFAULT 1,
   updated_at  TIMESTAMP   DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
+
+-- --------------------------------------------------------
+-- SERP provider credentials saved from the app UI
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS serp_provider_credentials (
+  provider_id       VARCHAR(64)  NOT NULL,
+  credential_key    VARCHAR(128) NOT NULL,
+  credential_value  TEXT         NOT NULL,
+  updated_at        TIMESTAMP    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (provider_id, credential_key)
+) ENGINE=InnoDB;

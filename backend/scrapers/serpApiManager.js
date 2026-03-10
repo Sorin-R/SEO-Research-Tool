@@ -11,6 +11,7 @@ const searchApiProvider = require('./providers/searchApiProvider');
 const scaleserpProvider = require('./providers/scaleserpProvider');
 const googleSearchProvider = require('./providers/googleSearchProvider');
 const bingSearchProvider = require('./providers/bingSearchProvider');
+const providerCredentialsService = require('../services/providerCredentialsService');
 const providerSettingsService = require('../services/providerSettingsService');
 
 function hasConfiguredValue(value) {
@@ -34,8 +35,9 @@ const providers = [
     quota: '100/month',
     quotaType: 'Monthly',
     setupTime: '2 min',
-    envVars: ['SERPAPI_KEY'],
-    isConfigured: () => hasConfiguredValue(process.env.SERPAPI_KEY),
+    fields: [
+      { key: 'SERPAPI_KEY', label: 'API Key' },
+    ],
   },
   {
     id: 'serpstack',
@@ -45,8 +47,9 @@ const providers = [
     quota: '100/month',
     quotaType: 'Monthly',
     setupTime: '2 min',
-    envVars: ['SERPSTACK_KEY'],
-    isConfigured: () => hasConfiguredValue(process.env.SERPSTACK_KEY),
+    fields: [
+      { key: 'SERPSTACK_KEY', label: 'API Key' },
+    ],
   },
   {
     id: 'zenserp',
@@ -56,8 +59,9 @@ const providers = [
     quota: '100/month',
     quotaType: 'Monthly',
     setupTime: '2 min',
-    envVars: ['ZENSERP_KEY'],
-    isConfigured: () => hasConfiguredValue(process.env.ZENSERP_KEY),
+    fields: [
+      { key: 'ZENSERP_KEY', label: 'API Key' },
+    ],
   },
   {
     id: 'searchapi',
@@ -67,8 +71,9 @@ const providers = [
     quota: '100/month',
     quotaType: 'Monthly',
     setupTime: '2 min',
-    envVars: ['SEARCHAPI_KEY'],
-    isConfigured: () => hasConfiguredValue(process.env.SEARCHAPI_KEY),
+    fields: [
+      { key: 'SEARCHAPI_KEY', label: 'API Key' },
+    ],
   },
   {
     id: 'scaleserp',
@@ -78,8 +83,9 @@ const providers = [
     quota: '100/month',
     quotaType: 'Monthly',
     setupTime: '2 min',
-    envVars: ['SCALESERP_KEY'],
-    isConfigured: () => hasConfiguredValue(process.env.SCALESERP_KEY),
+    fields: [
+      { key: 'SCALESERP_KEY', label: 'API Key' },
+    ],
   },
   {
     id: 'google-custom-search',
@@ -89,10 +95,10 @@ const providers = [
     quota: '100/day',
     quotaType: 'Daily',
     setupTime: '10 min',
-    envVars: ['GOOGLE_SEARCH_API_KEY', 'GOOGLE_SEARCH_CX'],
-    isConfigured: () =>
-      hasConfiguredValue(process.env.GOOGLE_SEARCH_API_KEY) &&
-      hasConfiguredValue(process.env.GOOGLE_SEARCH_CX),
+    fields: [
+      { key: 'GOOGLE_SEARCH_API_KEY', label: 'API Key' },
+      { key: 'GOOGLE_SEARCH_CX', label: 'Search Engine ID' },
+    ],
   },
   {
     id: 'bing-search-api',
@@ -102,8 +108,9 @@ const providers = [
     quota: '~1000/month',
     quotaType: 'Monthly',
     setupTime: '3 min',
-    envVars: ['BING_SEARCH_KEY'],
-    isConfigured: () => hasConfiguredValue(process.env.BING_SEARCH_KEY),
+    fields: [
+      { key: 'BING_SEARCH_KEY', label: 'API Key' },
+    ],
   },
 ];
 
@@ -120,10 +127,8 @@ async function search(keyword, numResults = 10, options = {}) {
     throw new Error('Keyword is required.');
   }
 
-  const settings = await providerSettingsService.getProviderSettingsMap();
-  const enabledProviders = providers.filter((providerConfig) => (
-    providerConfig.isConfigured() && isProviderEnabled(providerConfig.id, settings)
-  ));
+  const providerContexts = await getProviderContexts();
+  const enabledProviders = providerContexts.filter((providerContext) => providerContext.detail.active);
 
   if (enabledProviders.length === 0) {
     throw new Error(
@@ -131,22 +136,27 @@ async function search(keyword, numResults = 10, options = {}) {
     );
   }
 
-  console.log(`[SERP] ${enabledProviders.length} provider(s) configured: ${enabledProviders.map((p) => p.name).join(', ')}`);
+  console.log(
+    `[SERP] ${enabledProviders.length} provider(s) configured: ${enabledProviders.map((providerContext) => providerContext.detail.name).join(', ')}`
+  );
 
   // Try each provider in order
-  for (const config of enabledProviders) {
+  for (const providerContext of enabledProviders) {
     try {
-      console.log(`[SERP] Trying provider: ${config.name}...`);
-      const results = await config.provider.search(keyword, numResults, options);
+      console.log(`[SERP] Trying provider: ${providerContext.detail.name}...`);
+      const results = await providerContext.config.provider.search(keyword, numResults, {
+        ...options,
+        credentials: providerContext.credentials,
+      });
 
       if (results && results.length > 0) {
-        console.log(`[SERP] ✓ ${config.name} returned ${results.length} results`);
+        console.log(`[SERP] ✓ ${providerContext.detail.name} returned ${results.length} results`);
         return results;
       }
 
-      console.warn(`[SERP] ${config.name} returned no results, trying next provider...`);
+      console.warn(`[SERP] ${providerContext.detail.name} returned no results, trying next provider...`);
     } catch (err) {
-      console.warn(`[SERP] ${config.name} failed: ${err.message}, trying next provider...`);
+      console.warn(`[SERP] ${providerContext.detail.name} failed: ${err.message}, trying next provider...`);
     }
   }
 
@@ -161,20 +171,8 @@ async function search(keyword, numResults = 10, options = {}) {
  * Useful for debugging.
  */
 async function getStatus() {
-  const settings = await providerSettingsService.getProviderSettingsMap();
-  const availableProviders = providers.map((providerConfig) => ({
-    id: providerConfig.id,
-    name: providerConfig.name,
-    configured: providerConfig.isConfigured(),
-    enabled: isProviderEnabled(providerConfig.id, settings),
-    active: providerConfig.isConfigured() && isProviderEnabled(providerConfig.id, settings),
-    envVars: providerConfig.envVars,
-    docsUrl: providerConfig.docsUrl,
-    quota: providerConfig.quota,
-    quotaType: providerConfig.quotaType,
-    setupTime: providerConfig.setupTime,
-    updatedAt: settings[providerConfig.id]?.updated_at || null,
-  }));
+  const providerContexts = await getProviderContexts();
+  const availableProviders = providerContexts.map((providerContext) => providerContext.detail);
 
   return {
     configuredProviders: availableProviders
@@ -203,6 +201,35 @@ async function updateProviderState(providerId, isEnabled) {
   return status.availableProviders.find((entry) => entry.id === providerId) || null;
 }
 
+async function updateProviderCredentials(providerId, credentials) {
+  const providerConfig = providers.find((entry) => entry.id === providerId);
+
+  if (!providerConfig) {
+    const error = new Error('Provider not found.');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const allowedFields = new Set(providerConfig.fields.map((field) => field.key));
+  const normalizedCredentials = Object.entries(credentials || {}).reduce((accumulator, [key, value]) => {
+    if (allowedFields.has(key) && hasConfiguredValue(value)) {
+      accumulator[key] = String(value).trim();
+    }
+    return accumulator;
+  }, {});
+
+  if (Object.keys(normalizedCredentials).length === 0) {
+    const error = new Error('At least one credential value is required.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  await providerCredentialsService.updateProviderCredentials(providerId, normalizedCredentials);
+  const status = await getStatus();
+
+  return status.availableProviders.find((entry) => entry.id === providerId) || null;
+}
+
 function isProviderEnabled(providerId, settings = {}) {
   if (!settings[providerId]) {
     return true;
@@ -211,8 +238,91 @@ function isProviderEnabled(providerId, settings = {}) {
   return Boolean(settings[providerId].is_enabled);
 }
 
+async function getProviderContexts() {
+  const [settings, credentialsMap] = await Promise.all([
+    providerSettingsService.getProviderSettingsMap(),
+    providerCredentialsService.getProviderCredentialsMap(),
+  ]);
+
+  return providers.map((providerConfig) => {
+    const detail = buildProviderDetail(providerConfig, settings, credentialsMap[providerConfig.id] || {});
+
+    return {
+      config: providerConfig,
+      detail,
+      credentials: buildResolvedCredentials(providerConfig, credentialsMap[providerConfig.id] || {}),
+    };
+  });
+}
+
+function buildProviderDetail(providerConfig, settings, storedCredentials) {
+  const fields = providerConfig.fields.map((fieldConfig) => {
+    const resolvedCredential = resolveCredential(fieldConfig.key, storedCredentials);
+
+    return {
+      name: fieldConfig.key,
+      label: fieldConfig.label,
+      hasValue: hasConfiguredValue(resolvedCredential.value),
+      source: resolvedCredential.source,
+      updatedAt: resolvedCredential.updatedAt,
+    };
+  });
+
+  const configured = fields.every((field) => field.hasValue);
+  const enabled = isProviderEnabled(providerConfig.id, settings);
+
+  return {
+    id: providerConfig.id,
+    name: providerConfig.name,
+    configured,
+    enabled,
+    active: configured && enabled,
+    envVars: providerConfig.fields.map((field) => field.key),
+    fields,
+    docsUrl: providerConfig.docsUrl,
+    quota: providerConfig.quota,
+    quotaType: providerConfig.quotaType,
+    setupTime: providerConfig.setupTime,
+    updatedAt: settings[providerConfig.id]?.updated_at || null,
+  };
+}
+
+function buildResolvedCredentials(providerConfig, storedCredentials) {
+  return providerConfig.fields.reduce((accumulator, fieldConfig) => {
+    accumulator[fieldConfig.key] = resolveCredential(fieldConfig.key, storedCredentials).value;
+    return accumulator;
+  }, {});
+}
+
+function resolveCredential(fieldKey, storedCredentials) {
+  const saved = storedCredentials?.[fieldKey];
+
+  if (hasConfiguredValue(saved?.value)) {
+    return {
+      value: saved.value,
+      source: 'saved',
+      updatedAt: saved.updated_at || null,
+    };
+  }
+
+  if (hasConfiguredValue(process.env[fieldKey])) {
+    return {
+      value: process.env[fieldKey],
+      source: 'env',
+      updatedAt: null,
+    };
+  }
+
+  return {
+    value: '',
+    source: null,
+    updatedAt: null,
+  };
+}
+
 module.exports = {
   search,
   getStatus,
   updateProviderState,
+  updateProviderCredentials,
 };

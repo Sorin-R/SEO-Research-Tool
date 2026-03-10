@@ -16,8 +16,8 @@ const API_URL = 'http://api.serpstack.com/search';
  * @param {number} numResults
  * @returns {Promise<Array>} Formatted search results
  */
-async function search(keyword, numResults = 10) {
-  const apiKey = process.env.SERPSTACK_KEY;
+async function search(keyword, numResults = 10, options = {}) {
+  const apiKey = options.credentials?.SERPSTACK_KEY || process.env.SERPSTACK_KEY;
 
   if (!apiKey) {
     throw new Error('SERPSTACK_KEY not set in .env');

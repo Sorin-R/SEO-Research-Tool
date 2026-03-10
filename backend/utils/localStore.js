@@ -58,6 +58,7 @@ function createEmptyState() {
       updated_at: null,
     },
     serpProviderSettings: {},
+    serpProviderCredentials: {},
     keywordResearchHistory: [],
     serpAnalysisHistory: [],
     contentAnalysisHistory: [],
@@ -101,6 +102,9 @@ async function readState() {
           },
       serpProviderSettings: parsed.serpProviderSettings && typeof parsed.serpProviderSettings === 'object'
         ? parsed.serpProviderSettings
+        : {},
+      serpProviderCredentials: parsed.serpProviderCredentials && typeof parsed.serpProviderCredentials === 'object'
+        ? parsed.serpProviderCredentials
         : {},
       keywordResearchHistory: Array.isArray(parsed.keywordResearchHistory)
         ? parsed.keywordResearchHistory
@@ -188,6 +192,11 @@ async function getSerpProviderSettings() {
   return { ...(state.serpProviderSettings || {}) };
 }
 
+async function getSerpProviderCredentials() {
+  const state = await readState();
+  return { ...(state.serpProviderCredentials || {}) };
+}
+
 async function updateSerpProviderSetting(providerId, isEnabled) {
   const state = await readState();
   state.serpProviderSettings = {
@@ -199,6 +208,34 @@ async function updateSerpProviderSetting(providerId, isEnabled) {
   };
   await writeState(state);
   return state.serpProviderSettings[providerId];
+}
+
+async function updateSerpProviderCredentials(providerId, credentials = {}) {
+  const state = await readState();
+  const existing = state.serpProviderCredentials?.[providerId] || {};
+  const nextCredentials = { ...existing };
+  const timestamp = nowIso();
+
+  for (const [credentialKey, credentialValue] of Object.entries(credentials)) {
+    const normalizedValue = String(credentialValue || '').trim();
+
+    if (!normalizedValue) {
+      continue;
+    }
+
+    nextCredentials[credentialKey] = {
+      value: normalizedValue,
+      updated_at: timestamp,
+    };
+  }
+
+  state.serpProviderCredentials = {
+    ...(state.serpProviderCredentials || {}),
+    [providerId]: nextCredentials,
+  };
+
+  await writeState(state);
+  return state.serpProviderCredentials[providerId];
 }
 
 async function saveKeyword(keyword, difficulty = null, searchVolume = null) {
@@ -678,7 +715,9 @@ module.exports = {
   getRankTrackerSettings,
   updateRankTrackerSettings,
   getSerpProviderSettings,
+  getSerpProviderCredentials,
   updateSerpProviderSetting,
+  updateSerpProviderCredentials,
   saveWebsite,
   getWebsites,
   getActiveWebsites,

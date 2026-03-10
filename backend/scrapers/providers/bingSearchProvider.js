@@ -18,7 +18,7 @@ const API_URL = 'https://api.bing.microsoft.com/v7.0/search';
  * @returns {Promise<Array>} Formatted search results
  */
 async function search(keyword, numResults = 10, options = {}) {
-  const apiKey = process.env.BING_SEARCH_KEY;
+  const apiKey = options.credentials?.BING_SEARCH_KEY || process.env.BING_SEARCH_KEY;
   const country = getCountryConfig(options.country);
 
   if (!apiKey) {

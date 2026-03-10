@@ -84,6 +84,13 @@ const schemaStatements = [
     is_enabled TINYINT(1) NOT NULL DEFAULT 1,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   ) ENGINE=InnoDB`,
+  `CREATE TABLE IF NOT EXISTS serp_provider_credentials (
+    provider_id VARCHAR(64) NOT NULL,
+    credential_key VARCHAR(128) NOT NULL,
+    credential_value TEXT NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (provider_id, credential_key)
+  ) ENGINE=InnoDB`,
 ];
 
 /**
@@ -139,6 +146,7 @@ async function ensureSchema() {
   await ensureRankingsWebsiteSchema();
   await ensureRankTrackerSettingsSchema();
   await ensureSerpProviderSettingsSchema();
+  await ensureSerpProviderCredentialsSchema();
 
   console.log('[DB] Schema verified.');
 }
@@ -278,6 +286,24 @@ async function ensureSerpProviderSettingsSchema() {
   if (!(await hasColumn('serp_provider_settings', 'is_enabled'))) {
     await pool.query(
       'ALTER TABLE serp_provider_settings ADD COLUMN is_enabled TINYINT(1) NOT NULL DEFAULT 1 AFTER provider_id'
+    );
+  }
+}
+
+async function ensureSerpProviderCredentialsSchema() {
+  if (!(await hasColumn('serp_provider_credentials', 'provider_id'))) {
+    return;
+  }
+
+  if (!(await hasColumn('serp_provider_credentials', 'credential_key'))) {
+    await pool.query(
+      'ALTER TABLE serp_provider_credentials ADD COLUMN credential_key VARCHAR(128) NOT NULL AFTER provider_id'
+    );
+  }
+
+  if (!(await hasColumn('serp_provider_credentials', 'credential_value'))) {
+    await pool.query(
+      'ALTER TABLE serp_provider_credentials ADD COLUMN credential_value TEXT NOT NULL AFTER credential_key'
     );
   }
 }

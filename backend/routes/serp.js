@@ -285,4 +285,20 @@ router.patch('/providers/:providerId', async (req, res) => {
   }
 });
 
+router.patch('/providers/:providerId/credentials', async (req, res) => {
+  const { credentials } = req.body || {};
+
+  if (!credentials || typeof credentials !== 'object' || Array.isArray(credentials)) {
+    return res.status(400).json({ error: 'credentials must be an object.' });
+  }
+
+  try {
+    const provider = await serpApiManager.updateProviderCredentials(req.params.providerId, credentials);
+    res.json(provider);
+  } catch (err) {
+    console.error('[Route /serp/providers/:providerId/credentials PATCH] Error:', err.message);
+    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to update provider credentials.' });
+  }
+});
+
 module.exports = router;

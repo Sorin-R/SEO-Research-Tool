@@ -4,6 +4,7 @@ const trendService = require('./trendService');
 const googleAdsService = require('./googleAdsService');
 const contentAnalysisService = require('./contentAnalysisService');
 const websiteService = require('./websiteService');
+const providerCredentialsService = require('./providerCredentialsService');
 const providerSettingsService = require('./providerSettingsService');
 
 module.exports = {
@@ -13,5 +14,6 @@ module.exports = {
   googleAdsService,
   contentAnalysisService,
   websiteService,
+  providerCredentialsService,
   providerSettingsService,
 };

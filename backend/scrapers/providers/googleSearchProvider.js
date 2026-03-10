@@ -18,8 +18,8 @@ const API_URL = 'https://www.googleapis.com/customsearch/v1';
  * @returns {Promise<Array>} Formatted search results
  */
 async function search(keyword, numResults = 10, options = {}) {
-  const apiKey = process.env.GOOGLE_SEARCH_API_KEY;
-  const cx = process.env.GOOGLE_SEARCH_CX;
+  const apiKey = options.credentials?.GOOGLE_SEARCH_API_KEY || process.env.GOOGLE_SEARCH_API_KEY;
+  const cx = options.credentials?.GOOGLE_SEARCH_CX || process.env.GOOGLE_SEARCH_CX;
   const country = getCountryConfig(options.country);
 
   if (!apiKey || !cx) {

@@ -217,11 +217,23 @@ async function ensureRankingsWebsiteSchema() {
     );
   }
 
+  await clearOrphanedRankingWebsiteIds();
+
   if (!(await hasConstraint('rankings', 'fk_rankings_website'))) {
     await pool.query(
       'ALTER TABLE rankings ADD CONSTRAINT fk_rankings_website FOREIGN KEY (website_id) REFERENCES websites(id) ON DELETE CASCADE'
     );
   }
+}
+
+async function clearOrphanedRankingWebsiteIds() {
+  await pool.query(
+    `UPDATE rankings r
+     LEFT JOIN websites w ON w.id = r.website_id
+     SET r.website_id = NULL
+     WHERE r.website_id IS NOT NULL
+       AND w.id IS NULL`
+  );
 }
 
 async function ensureWebsitesCountrySchema() {

@@ -457,13 +457,14 @@ async function getRankingHistory(keywordId, days = 30, websiteId = null) {
     sql += ' ORDER BY date ASC';
 
     const rows = await db.query(sql, params);
+    const localRows = await getLocalRankingHistoryRows(keywordId, days, websiteId);
 
     if (websiteId == null) {
-      return rows;
+      return mergeRankingHistoryRows(rows, localRows);
     }
 
     const orphanedRows = await getOrphanedRankingHistory(keywordId, days, websiteId);
-    return mergeRankingHistoryRows(rows, orphanedRows);
+    return mergeRankingHistoryRows(rows, mergeRankingHistoryRows(orphanedRows, localRows));
   } catch (err) {
     console.warn('[SERPService] DB unavailable, using local store for getRankingHistory:', err.message);
     return localStore.getRankingHistory(keywordId, days, websiteId);
@@ -494,13 +495,14 @@ async function getLatestRankings(websiteId = null) {
     sql += ' ORDER BY w.domain, k.keyword';
 
     const rows = await db.query(sql, params);
+    const localRows = await getLocalLatestRankingRows(websiteId);
 
     if (websiteId == null) {
-      return rows;
+      return mergeLatestRankingRows(rows, localRows);
     }
 
     const orphanedRows = await getOrphanedLatestRankings(websiteId);
-    return mergeLatestRankingRows(rows, orphanedRows);
+    return mergeLatestRankingRows(rows, mergeLatestRankingRows(orphanedRows, localRows));
   } catch (err) {
     console.warn('[SERPService] DB unavailable, using local store for getLatestRankings:', err.message);
     return localStore.getLatestRankings(websiteId);
@@ -738,11 +740,13 @@ function mergeLatestRankingRows(primaryRows = [], fallbackRows = []) {
   const merged = new Map();
 
   for (const row of fallbackRows) {
-    merged.set(String(row.keyword_id), row);
+    const key = String(row.keyword_id);
+    merged.set(key, pickPreferredRankingRow(merged.get(key), row));
   }
 
   for (const row of primaryRows) {
-    merged.set(String(row.keyword_id), row);
+    const key = String(row.keyword_id);
+    merged.set(key, pickPreferredRankingRow(merged.get(key), row));
   }
 
   return [...merged.values()].sort((left, right) =>
@@ -754,14 +758,75 @@ function mergeRankingHistoryRows(primaryRows = [], fallbackRows = []) {
   const merged = new Map();
 
   for (const row of fallbackRows) {
-    merged.set(String(row.date), row);
+    const key = String(row.date);
+    merged.set(key, pickPreferredRankingRow(merged.get(key), row));
   }
 
   for (const row of primaryRows) {
-    merged.set(String(row.date), row);
+    const key = String(row.date);
+    merged.set(key, pickPreferredRankingRow(merged.get(key), row));
   }
 
   return [...merged.values()].sort((left, right) =>
     new Date(left.date).getTime() - new Date(right.date).getTime()
   );
+}
+
+async function getLocalRankingHistoryRows(keywordId, days, websiteId) {
+  try {
+    return await localStore.getRankingHistory(keywordId, days, websiteId);
+  } catch {
+    return [];
+  }
+}
+
+async function getLocalLatestRankingRows(websiteId) {
+  try {
+    return await localStore.getLatestRankings(websiteId);
+  } catch {
+    return [];
+  }
+}
+
+function pickPreferredRankingRow(existing, candidate) {
+  if (!existing) {
+    return candidate;
+  }
+
+  const freshnessComparison = compareRankingFreshness(existing, candidate);
+
+  if (freshnessComparison > 0) {
+    return candidate;
+  }
+
+  if (freshnessComparison < 0) {
+    return existing;
+  }
+
+  const existingHasPosition = existing.position != null;
+  const candidateHasPosition = candidate.position != null;
+
+  if (candidateHasPosition && !existingHasPosition) {
+    return candidate;
+  }
+
+  return existing;
+}
+
+function compareRankingFreshness(left = {}, right = {}) {
+  const leftDate = new Date(left.date || 0).getTime();
+  const rightDate = new Date(right.date || 0).getTime();
+
+  if (leftDate !== rightDate) {
+    return rightDate - leftDate;
+  }
+
+  const leftCreated = new Date(left.updated_at || left.created_at || 0).getTime();
+  const rightCreated = new Date(right.updated_at || right.created_at || 0).getTime();
+
+  if (leftCreated !== rightCreated) {
+    return rightCreated - leftCreated;
+  }
+
+  return 0;
 }

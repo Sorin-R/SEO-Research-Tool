@@ -12,6 +12,13 @@ const scaleserpProvider = require('./providers/scaleserpProvider');
 const googleSearchProvider = require('./providers/googleSearchProvider');
 const bingSearchProvider = require('./providers/bingSearchProvider');
 
+function hasConfiguredValue(value) {
+  if (!value) return false;
+
+  const normalized = String(value).trim().toLowerCase();
+  return normalized !== '' && normalized !== 'your_key_here';
+}
+
 /**
  * List of SERP providers in priority order.
  * Each provider has a check() method to verify if configured.
@@ -21,37 +28,39 @@ const providers = [
   {
     name: 'SerpAPI',
     provider: serpApiProvider,
-    enabled: () => !!process.env.SERPAPI_KEY,
+    enabled: () => hasConfiguredValue(process.env.SERPAPI_KEY),
   },
   {
     name: 'Serpstack',
     provider: serpstackProvider,
-    enabled: () => !!process.env.SERPSTACK_KEY,
+    enabled: () => hasConfiguredValue(process.env.SERPSTACK_KEY),
   },
   {
     name: 'Zenserp',
     provider: zenserpProvider,
-    enabled: () => !!process.env.ZENSERP_KEY,
+    enabled: () => hasConfiguredValue(process.env.ZENSERP_KEY),
   },
   {
     name: 'SearchAPI',
     provider: searchApiProvider,
-    enabled: () => !!process.env.SEARCHAPI_KEY,
+    enabled: () => hasConfiguredValue(process.env.SEARCHAPI_KEY),
   },
   {
     name: 'ScaleSERP',
     provider: scaleserpProvider,
-    enabled: () => !!process.env.SCALESERP_KEY,
+    enabled: () => hasConfiguredValue(process.env.SCALESERP_KEY),
   },
   {
     name: 'Google Custom Search',
     provider: googleSearchProvider,
-    enabled: () => !!process.env.GOOGLE_SEARCH_API_KEY && !!process.env.GOOGLE_SEARCH_CX,
+    enabled: () =>
+      hasConfiguredValue(process.env.GOOGLE_SEARCH_API_KEY) &&
+      hasConfiguredValue(process.env.GOOGLE_SEARCH_CX),
   },
   {
     name: 'Bing Search API',
     provider: bingSearchProvider,
-    enabled: () => !!process.env.BING_SEARCH_KEY,
+    enabled: () => hasConfiguredValue(process.env.BING_SEARCH_KEY),
   },
 ];
 

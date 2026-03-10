@@ -1,0 +1,16 @@
+{
+  "name": "seo-research-tool",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "start": "npm --workspace backend start",
+    "build": "npm --workspace frontend run build",
+    "postinstall": "npm run build"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}

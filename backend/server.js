@@ -1,4 +1,6 @@
-require('dotenv').config();
+const path = require('path');
+
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const express = require('express');
 const cors = require('cors');
@@ -10,7 +12,6 @@ const { keywordService, serpService } = require('./services');
 
 const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 3001;
-const path = require('path');
 
 // ---- Middleware ----
 

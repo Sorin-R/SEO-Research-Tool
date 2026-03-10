@@ -1,4 +1,4 @@
-const { GoogleAdsApi } = require('google-ads-api');
+const { GoogleAdsApi, ResourceNames } = require('google-ads-api');
 const Cache = require('../utils/cache');
 
 /**
@@ -11,6 +11,7 @@ const ideaCache = new Cache(10 * 60 * 1000);
 
 // Google Ads client initialization
 let client = null;
+let customer = null;
 
 /**
  * Initialize the Google Ads client.
@@ -22,7 +23,7 @@ let client = null;
  *   - GOOGLE_ADS_LOGIN_CUSTOMER_ID
  */
 function initializeClient() {
-  if (client) return client;
+  if (customer) return customer;
 
   const requiredEnvs = [
     'GOOGLE_ADS_CLIENT_ID',
@@ -41,15 +42,25 @@ function initializeClient() {
   }
 
   try {
+    const customerId = normalizeCustomerId(
+      process.env.GOOGLE_ADS_CUSTOMER_ID || process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID
+    );
+    const loginCustomerId = normalizeCustomerId(process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID);
+
     client = new GoogleAdsApi({
       client_id: process.env.GOOGLE_ADS_CLIENT_ID,
       client_secret: process.env.GOOGLE_ADS_CLIENT_SECRET,
       developer_token: process.env.GOOGLE_ADS_DEVELOPER_TOKEN,
+    });
+
+    customer = client.Customer({
+      customer_id: customerId,
+      login_customer_id: loginCustomerId,
       refresh_token: process.env.GOOGLE_ADS_REFRESH_TOKEN,
     });
 
     console.log('[GoogleAdsService] Client initialized successfully.');
-    return client;
+    return customer;
   } catch (err) {
     console.error('[GoogleAdsService] Initialization failed:', err.message);
     return null;
@@ -82,18 +93,20 @@ async function generateKeywordIdeas(keyword, options = {}) {
     }
   }
 
-  const ads = initializeClient();
-  if (!ads) {
+  const adsCustomer = initializeClient();
+  if (!adsCustomer) {
     throw new Error('Google Ads API is not configured. Check your credentials in .env');
   }
 
   try {
-    const loginCustomerId = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID.replace(/-/g, '');
+    const customerId = normalizeCustomerId(
+      process.env.GOOGLE_ADS_CUSTOMER_ID || process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID
+    );
 
-    const response = await ads.customers.generateKeywordIdeas({
-      customer_id: loginCustomerId,
-      language_id: String(languageId),
-      location_ids: [String(locationId)],
+    const response = await adsCustomer.keywordPlanIdeas.generateKeywordIdeas({
+      customer_id: customerId,
+      language: ResourceNames.languageConstant(languageId),
+      geo_target_constants: [ResourceNames.geoTargetConstant(locationId)],
       keyword_seed: {
         keywords: [keyword],
       },
@@ -125,9 +138,22 @@ async function generateKeywordIdeas(keyword, options = {}) {
 
     return { ...result, fromCache: false };
   } catch (err) {
-    console.error('[GoogleAdsService] generateKeywordIdeas error:', err.message);
-    throw new Error(`Google Ads API error: ${err.message}`);
+    const message = getGoogleAdsErrorMessage(err);
+    console.error('[GoogleAdsService] generateKeywordIdeas error:', message);
+    throw new Error(`Google Ads API error: ${message}`);
   }
+}
+
+function normalizeCustomerId(customerId) {
+  return String(customerId || '').replace(/-/g, '').trim();
+}
+
+function getGoogleAdsErrorMessage(err) {
+  if (Array.isArray(err?.errors) && err.errors.length > 0) {
+    return err.errors.map((error) => error.message).filter(Boolean).join(' | ');
+  }
+
+  return err?.details || err?.message || 'Unknown Google Ads error';
 }
 
 /**

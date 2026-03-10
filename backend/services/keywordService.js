@@ -1,6 +1,5 @@
 const db = require('../database');
 const { getSuggestions, getExpandedSuggestions } = require('../scrapers/googleAutocomplete');
-const { getPeopleAlsoAsk } = require('../scrapers/peopleAlsoAsk');
 
 /**
  * Research a keyword: gather autocomplete suggestions, PAA questions,
@@ -16,6 +15,7 @@ async function researchKeyword(keyword, options = {}) {
 
   let paaQuestions = [];
   try {
+    const { getPeopleAlsoAsk } = require('../scrapers/peopleAlsoAsk');
     paaQuestions = await getPeopleAlsoAsk(keyword);
   } catch (err) {
     console.warn('[KeywordService] PAA fetch failed:', err.message);

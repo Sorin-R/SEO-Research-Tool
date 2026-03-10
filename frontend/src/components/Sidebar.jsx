@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: '📊' },
   { to: '/keywords', label: 'Keyword Research', icon: '🔑' },
+  { to: '/competitor-keywords', label: 'Competitor Keywords', icon: '🕵️' },
   { to: '/google-ads', label: 'Google Ads Keywords', icon: '💰' },
   { to: '/serp', label: 'SERP Analyzer', icon: '🔍' },
   { to: '/analyze', label: 'Content Analyzer', icon: '📝' },

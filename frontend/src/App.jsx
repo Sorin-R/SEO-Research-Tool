@@ -10,6 +10,7 @@ import RankTracker from './pages/RankTracker';
 import ProviderStatus from './pages/ProviderStatus';
 import AIProviderStatus from './pages/AIProviderStatus';
 import SiteAudit from './pages/SiteAudit';
+import CompetitorKeywords from './pages/CompetitorKeywords';
 
 export default function App() {
   return (
@@ -17,6 +18,7 @@ export default function App() {
       <Route element={<Layout />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/keywords" element={<KeywordResearch />} />
+        <Route path="/competitor-keywords" element={<CompetitorKeywords />} />
         <Route path="/google-ads" element={<GoogleAdsKeywordResearch />} />
         <Route path="/serp" element={<SERPAnalyzer />} />
         <Route path="/analyze" element={<ContentAnalyzer />} />

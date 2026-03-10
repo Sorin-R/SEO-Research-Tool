@@ -57,6 +57,11 @@ export default function Dashboard() {
           description="Discover new keyword opportunities with Google Autocomplete."
         />
         <QuickAction
+          to="/competitor-keywords"
+          title="Competitor Keywords"
+          description="Extract keyword ideas directly from competitor sites and pages."
+        />
+        <QuickAction
           to="/google-ads"
           title="Google Ads Keywords"
           description="Get PPC metrics: search volume, competition, CPC."

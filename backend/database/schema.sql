@@ -103,6 +103,18 @@ CREATE TABLE IF NOT EXISTS keyword_research_history (
 ) ENGINE=InnoDB;
 
 -- --------------------------------------------------------
+-- Saved keyword lists
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS keyword_lists (
+  id         INT AUTO_INCREMENT PRIMARY KEY,
+  name       VARCHAR(255) NOT NULL,
+  items      JSON         NOT NULL,
+  created_at TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_keyword_list_name (name)
+) ENGINE=InnoDB;
+
+-- --------------------------------------------------------
 -- Saved SERP analysis history
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS serp_analysis_history (

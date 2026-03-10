@@ -71,6 +71,14 @@ const schemaStatements = [
     INDEX idx_keyword_history_updated (keyword(255), updated_at),
     INDEX idx_keyword_history_created (created_at)
   ) ENGINE=InnoDB`,
+  `CREATE TABLE IF NOT EXISTS keyword_lists (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    items JSON NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_keyword_list_name (name)
+  ) ENGINE=InnoDB`,
   `CREATE TABLE IF NOT EXISTS serp_analysis_history (
     id INT AUTO_INCREMENT PRIMARY KEY,
     keyword VARCHAR(500) NOT NULL,

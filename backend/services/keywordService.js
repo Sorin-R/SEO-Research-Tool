@@ -4,10 +4,30 @@ const {
   getExpandedSuggestions,
   categoriseSuggestions,
 } = require('../scrapers/googleAutocomplete');
+const { fetchSERPResults } = require('../scrapers/googleSERP');
 const { filterKeywordsWithAI, DEFAULT_AI_FILTER_PROMPT } = require('./aiKeywordFilterService');
+const trendService = require('./trendService');
 const localStore = require('../utils/localStore');
+const { getCountryConfig, normalizeCountryCode } = require('../utils/searchCountry');
+const {
+  applyKeywordFilters,
+  buildClusters,
+  buildCompetitorGapSummary,
+  buildCsvRows,
+  buildKeywordObjects,
+  buildResearchSummary,
+  canonicalizeKeyword,
+  getRootDomain,
+  isForumDomain,
+  isWeakDomain,
+  normalizeKeywordText,
+  parseListInput,
+  uniqueStrings,
+  updateKeywordScoresWithSignals,
+} = require('./keywordResearchEnhancer');
 
 const MAX_RESEARCH_HISTORY_ENTRIES = 12;
+const MAX_KEYWORD_LISTS = 20;
 
 function clampLimit(limit, min, max) {
   return Math.min(Math.max(Number.parseInt(limit, 10) || min, min), max);
@@ -22,6 +42,210 @@ function parseStoredResult(value) {
   } catch {
     return null;
   }
+}
+
+function parseStoredItems(value) {
+  const parsed = parseStoredResult(value);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function normaliseResearchOptions(options = {}) {
+  const country = normalizeCountryCode(options.country);
+  const enrichTopN = clampLimit(options.enrichTopN || 0, 0, 20);
+  const trendTopN = clampLimit(options.trendTopN || 0, 0, 10);
+  const expand = options.expand !== false && options.expand !== 'false';
+
+  return {
+    expand,
+    country,
+    countryName: getCountryConfig(country).name,
+    targetCount: clampLimit(options.targetCount || 1000, 50, 1500),
+    enrichTopN,
+    includeTrends: options.includeTrends === true || options.includeTrends === 'true',
+    trendTopN,
+    goalPrompt: String(options.goalPrompt || '').trim(),
+    includeTerms: parseListInput(options.includeTerms),
+    excludeTerms: parseListInput(options.excludeTerms),
+    modifierTerms: parseListInput(options.modifierTerms),
+    brandTerms: parseListInput(options.brandTerms),
+    localCities: parseListInput(options.localCities),
+    localServices: parseListInput(options.localServices),
+    competitorDomains: parseListInput(options.competitorDomains).map((domain) => getRootDomain(domain)).filter(Boolean),
+    targetDomain: getRootDomain(options.targetDomain),
+    questionsOnly: options.questionsOnly === true || options.questionsOnly === 'true',
+    intents: Array.isArray(options.intents) ? options.intents.filter(Boolean) : [],
+    minWords: Number.parseInt(options.minWords, 10) || 0,
+    maxWords: Number.parseInt(options.maxWords, 10) || 0,
+    brandedMode: String(options.brandedMode || 'all'),
+    targetAudience: String(options.targetAudience || '').trim(),
+  };
+}
+
+function average(values) {
+  if (!Array.isArray(values) || values.length === 0) {
+    return 0;
+  }
+
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function buildLocalVariants(seedKeyword, options) {
+  if (options.localCities.length === 0) {
+    return [];
+  }
+
+  const baseServices = options.localServices.length > 0 ? options.localServices : [seedKeyword];
+  const results = [];
+
+  for (const service of baseServices) {
+    for (const city of options.localCities) {
+      results.push(`${service} ${city}`);
+      results.push(`${service} in ${city}`);
+      results.push(`${service} near me`);
+      results.push(`best ${service} ${city}`);
+    }
+  }
+
+  return uniqueStrings(results);
+}
+
+async function getPaaQuestions(keyword) {
+  try {
+    const { getPeopleAlsoAsk } = require('../scrapers/peopleAlsoAsk');
+    return await getPeopleAlsoAsk(keyword);
+  } catch (err) {
+    console.warn('[KeywordService] PAA fetch failed:', err.message);
+    return [];
+  }
+}
+
+async function addTrendOverlay(keywords, options) {
+  if (!options.includeTrends || options.trendTopN <= 0 || keywords.length === 0) {
+    return {
+      enabled: false,
+      processed: 0,
+      failed: 0,
+    };
+  }
+
+  let processed = 0;
+  let failed = 0;
+
+  for (const item of keywords.slice(0, options.trendTopN)) {
+    try {
+      const trend = await trendService.getInterestOverTime(item.keyword, {
+        geo: options.country,
+      });
+      const values = trend.timelineData.map((point) => Number(point.value) || 0).filter((value) => value >= 0);
+      const recentAverage = average(values.slice(-4));
+      const previousAverage = average(values.slice(-8, -4));
+      const delta = recentAverage - previousAverage;
+
+      item.trend = {
+        direction: delta > 4 ? 'rising' : delta < -4 ? 'falling' : 'flat',
+        score: Math.round(recentAverage),
+        recentAverage: Math.round(recentAverage),
+        previousAverage: Math.round(previousAverage),
+        samplePoints: values.length,
+      };
+      processed += 1;
+    } catch (err) {
+      item.trend = {
+        direction: 'unknown',
+        score: 50,
+        error: err.message,
+      };
+      failed += 1;
+    }
+  }
+
+  return {
+    enabled: true,
+    processed,
+    failed,
+  };
+}
+
+function matchesDomain(resultUrl, targetDomain) {
+  if (!targetDomain) {
+    return false;
+  }
+
+  const hostname = getRootDomain(resultUrl);
+  return hostname === targetDomain || hostname.endsWith(`.${targetDomain}`);
+}
+
+async function addSerpEnrichment(keywords, options) {
+  if (options.enrichTopN <= 0 || keywords.length === 0) {
+    return {
+      enabled: false,
+      processed: 0,
+      failed: 0,
+    };
+  }
+
+  let processed = 0;
+  let failed = 0;
+
+  for (const item of keywords.slice(0, options.enrichTopN)) {
+    try {
+      const results = await fetchSERPResults(item.keyword, 10, { country: options.country });
+      const titleMatchCount = results.filter((result) => String(result.title || '').toLowerCase().includes(item.keyword.toLowerCase())).length;
+      const weakDomainCount = results.filter((result) => isWeakDomain(getRootDomain(result.url))).length;
+      const forumCount = results.filter((result) => isForumDomain(getRootDomain(result.url))).length;
+      const redditCount = results.filter((result) => getRootDomain(result.url).includes('reddit.com')).length;
+      const matchedCompetitors = options.competitorDomains.filter((domain) =>
+        results.some((result) => matchesDomain(result.url, domain))
+      );
+      const targetMatch = options.targetDomain
+        ? results.find((result) => matchesDomain(result.url, options.targetDomain))
+        : null;
+
+      item.enrichment = {
+        weakDomainCount,
+        forumCount,
+        redditCount,
+        titleMatchRatio: results.length ? Math.round((titleMatchCount / results.length) * 100) : 0,
+        matchedCompetitors,
+        targetPosition: targetMatch?.position ?? null,
+        targetPresent: !!targetMatch,
+        resultSample: results.slice(0, 3).map((result) => ({
+          position: result.position,
+          title: result.title,
+          domain: getRootDomain(result.url),
+        })),
+      };
+
+      item.competitorGap = {
+        isGap: matchedCompetitors.length > 0 && !!options.targetDomain && !targetMatch,
+        matchedCompetitors,
+      };
+
+      processed += 1;
+    } catch (err) {
+      item.enrichment = {
+        error: err.message,
+        weakDomainCount: 0,
+        forumCount: 0,
+        redditCount: 0,
+        titleMatchRatio: 0,
+        matchedCompetitors: [],
+        targetPosition: null,
+        targetPresent: false,
+      };
+      item.competitorGap = {
+        isGap: false,
+        matchedCompetitors: [],
+      };
+      failed += 1;
+    }
+  }
+
+  return {
+    enabled: true,
+    processed,
+    failed,
+  };
 }
 
 async function persistResearchHistory(result) {
@@ -102,52 +326,97 @@ async function persistResearchHistory(result) {
   }
 }
 
-/**
- * Research a keyword: gather autocomplete suggestions, PAA questions,
- * and optionally expand with alphabet technique.
- *
- * @param {string} keyword
- * @param {Object} [options]
- * @param {boolean} [options.expand] - Use alphabet expansion (slower, more results)
- * @returns {Promise<Object>}
- */
-async function researchKeyword(keyword, options = {}) {
+async function researchKeyword(keyword, inputOptions = {}) {
+  const seedKeyword = normalizeKeywordText(keyword);
+  const options = normaliseResearchOptions(inputOptions);
   const expansion = options.expand
-    ? await getExpandedSuggestions(keyword, {
-        targetCount: options.targetCount || 1000,
+    ? await getExpandedSuggestions(seedKeyword, {
+        targetCount: options.targetCount,
+        country: options.country,
+        localCities: options.localCities,
+        localServices: options.localServices,
       })
     : null;
+
   const baseSuggestions = expansion
-    ? categoriseSuggestions(keyword, expansion.suggestions)
-    : await getSuggestions(keyword);
+    ? categoriseSuggestions(seedKeyword, expansion.suggestions)
+    : await getSuggestions(seedKeyword, {
+        country: options.country,
+      });
 
-  let paaQuestions = [];
-  try {
-    const { getPeopleAlsoAsk } = require('../scrapers/peopleAlsoAsk');
-    paaQuestions = await getPeopleAlsoAsk(keyword);
-  } catch (err) {
-    console.warn('[KeywordService] PAA fetch failed:', err.message);
-  }
+  const paaQuestions = await getPaaQuestions(seedKeyword);
+  const localVariants = buildLocalVariants(seedKeyword, options);
+  const rawSuggestions = uniqueStrings([
+    ...(expansion ? expansion.suggestions : baseSuggestions.all),
+    ...paaQuestions,
+    ...localVariants,
+  ]);
 
-  // Merge PAA questions into the questions list
-  const allQuestions = [
-    ...baseSuggestions.questions,
-    ...paaQuestions.filter((q) => !baseSuggestions.questions.includes(q)),
-  ];
-  const allSuggestions = expansion ? expansion.suggestions : baseSuggestions.all;
+  let keywords = buildKeywordObjects(seedKeyword, rawSuggestions, options);
+  const serpEnrichment = await addSerpEnrichment(keywords, options);
+  const trendOverlay = await addTrendOverlay(keywords, options);
+  keywords = updateKeywordScoresWithSignals(keywords);
+
+  const filteredKeywords = applyKeywordFilters(keywords, options);
+  const clusters = buildClusters(seedKeyword, filteredKeywords, options);
+  const summary = buildResearchSummary(seedKeyword, filteredKeywords, clusters);
+
+  const questionKeywords = filteredKeywords.filter((item) => item.isQuestion).map((item) => item.keyword);
+  const longTailKeywords = filteredKeywords.filter((item) => !item.isQuestion && item.wordCount >= 4).map((item) => item.keyword);
+  const relatedKeywords = filteredKeywords.filter((item) => !item.isQuestion && item.wordCount < 4).map((item) => item.keyword);
 
   const result = {
-    keyword,
-    related: baseSuggestions.related,
-    longTail: baseSuggestions.longTail,
-    questions: allQuestions,
-    allSuggestions,
-    expanded: allSuggestions,
+    keyword: seedKeyword,
+    country: options.country,
+    countryName: options.countryName,
+    related: relatedKeywords,
+    longTail: longTailKeywords,
+    questions: questionKeywords,
+    allSuggestions: filteredKeywords.map((item) => item.keyword),
+    rawSuggestions,
+    keywords: filteredKeywords,
+    clusters,
+    summary,
+    competitorGapSummary: buildCompetitorGapSummary(filteredKeywords),
+    csvRows: buildCsvRows(filteredKeywords),
     paaQuestions,
-    totalSuggestions: allSuggestions.length,
+    totalSuggestions: filteredKeywords.length,
+    rawSuggestionCount: rawSuggestions.length,
     deepScan: !!options.expand,
     reachedTarget: expansion?.reachedTarget || false,
     requestCount: expansion?.requestCount || 1,
+    filtersApplied: {
+      includeTerms: options.includeTerms,
+      excludeTerms: options.excludeTerms,
+      modifierTerms: options.modifierTerms,
+      intents: options.intents,
+      minWords: options.minWords || null,
+      maxWords: options.maxWords || null,
+      brandedMode: options.brandedMode,
+      questionsOnly: options.questionsOnly,
+    },
+    localSeo: {
+      cities: options.localCities,
+      services: options.localServices,
+      generatedCount: localVariants.length,
+    },
+    competitorMode: {
+      competitorDomains: options.competitorDomains,
+      targetDomain: options.targetDomain || null,
+    },
+    serpEnrichment,
+    trendOverlay,
+    researchOptions: {
+      expand: options.expand,
+      targetCount: options.targetCount,
+      country: options.country,
+      goalPrompt: options.goalPrompt,
+      brandTerms: options.brandTerms,
+      targetAudience: options.targetAudience,
+      includeTrends: options.includeTrends,
+      trendTopN: options.trendTopN,
+      enrichTopN: options.enrichTopN,
+    },
   };
 
   try {
@@ -164,9 +433,6 @@ async function researchKeyword(keyword, options = {}) {
 
 // ---- Database operations for tracked keywords ----
 
-/**
- * Save a keyword to the tracking list.
- */
 async function saveKeyword(keyword, difficulty = null, searchVolume = null) {
   try {
     return await db.query(
@@ -184,23 +450,15 @@ async function saveKeyword(keyword, difficulty = null, searchVolume = null) {
   }
 }
 
-/**
- * Get all tracked keywords.
- */
 async function getTrackedKeywords() {
   try {
-    return await db.query(
-      'SELECT * FROM keywords ORDER BY created_at DESC'
-    );
+    return await db.query('SELECT * FROM keywords ORDER BY created_at DESC');
   } catch (err) {
     console.warn('[KeywordService] DB unavailable, using local store for getTrackedKeywords:', err.message);
     return localStore.getTrackedKeywords();
   }
 }
 
-/**
- * Get a single tracked keyword by ID.
- */
 async function getKeywordById(id) {
   try {
     const rows = await db.query('SELECT * FROM keywords WHERE id = ?', [id]);
@@ -211,9 +469,6 @@ async function getKeywordById(id) {
   }
 }
 
-/**
- * Delete a tracked keyword.
- */
 async function deleteKeyword(id) {
   try {
     return await db.query('DELETE FROM keywords WHERE id = ?', [id]);
@@ -278,6 +533,219 @@ async function deleteKeywordResearchHistoryItem(id) {
   }
 }
 
+async function getKeywordLists() {
+  try {
+    const rows = await db.query(
+      `SELECT id, name, items, created_at, updated_at
+       FROM keyword_lists
+       ORDER BY updated_at DESC`
+    );
+
+    return rows.map((row) => {
+      const items = parseStoredItems(row.items);
+      return {
+        id: row.id,
+        name: row.name,
+        items,
+        itemCount: items.length,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+      };
+    });
+  } catch (err) {
+    console.warn('[KeywordService] DB unavailable, using local store for getKeywordLists:', err.message);
+    return localStore.getKeywordLists();
+  }
+}
+
+async function createKeywordList(name) {
+  const normalizedName = normalizeKeywordText(name);
+
+  if (!normalizedName) {
+    throw new Error('List name is required.');
+  }
+
+  try {
+    const existing = await db.query(
+      `SELECT id, name, items, created_at, updated_at
+       FROM keyword_lists
+       WHERE LOWER(name) = LOWER(?)
+       LIMIT 1`,
+      [normalizedName]
+    );
+
+    if (existing.length > 0) {
+      const row = existing[0];
+      const items = parseStoredItems(row.items);
+      return {
+        id: row.id,
+        name: row.name,
+        items,
+        itemCount: items.length,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+      };
+    }
+
+    const totalRows = await db.query('SELECT COUNT(*) AS total FROM keyword_lists');
+    if ((totalRows[0]?.total || 0) >= MAX_KEYWORD_LISTS) {
+      throw new Error(`You can save up to ${MAX_KEYWORD_LISTS} keyword lists.`);
+    }
+
+    const insertResult = await db.query(
+      `INSERT INTO keyword_lists (name, items)
+       VALUES (?, ?)`,
+      [normalizedName, JSON.stringify([])]
+    );
+
+    return {
+      id: insertResult.insertId,
+      name: normalizedName,
+      items: [],
+      itemCount: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+  } catch (err) {
+    if (/You can save up to/.test(err.message)) {
+      throw err;
+    }
+
+    console.warn('[KeywordService] DB unavailable, using local store for createKeywordList:', err.message);
+    return localStore.createKeywordList(normalizedName, MAX_KEYWORD_LISTS);
+  }
+}
+
+async function addKeywordsToList(listId, items = []) {
+  const normalizedItems = (Array.isArray(items) ? items : [])
+    .map((item) => ({
+      keyword: normalizeKeywordText(item.keyword),
+      intent: item.intent || null,
+      clusterLabel: item.clusterLabel || null,
+      priorityScore: item.priorityScore ?? null,
+      recommendedPageType: item.recommendedPageType || null,
+      notes: Array.isArray(item.notes) ? item.notes : [],
+      sourceKeyword: item.sourceKeyword || null,
+    }))
+    .filter((item) => item.keyword);
+
+  if (normalizedItems.length === 0) {
+    throw new Error('At least one keyword is required.');
+  }
+
+  try {
+    const rows = await db.query(
+      `SELECT id, name, items, created_at, updated_at
+       FROM keyword_lists
+       WHERE id = ?
+       LIMIT 1`,
+      [listId]
+    );
+    const row = rows[0];
+
+    if (!row) {
+      throw new Error('Keyword list not found.');
+    }
+
+    const existingItems = parseStoredItems(row.items);
+    const maxItemId = existingItems.reduce((max, item) => Math.max(max, Number(item.id) || 0), 0);
+    let nextItemId = maxItemId + 1;
+    const mergedByKeyword = new Map(
+      existingItems.map((item) => [canonicalizeKeyword(item.keyword), item])
+    );
+
+    for (const item of normalizedItems) {
+      const key = canonicalizeKeyword(item.keyword);
+      const existing = mergedByKeyword.get(key);
+
+      if (existing) {
+        mergedByKeyword.set(key, {
+          ...existing,
+          ...item,
+          notes: uniqueStrings([...(existing.notes || []), ...(item.notes || [])]),
+        });
+      } else {
+        mergedByKeyword.set(key, {
+          id: nextItemId,
+          ...item,
+        });
+        nextItemId += 1;
+      }
+    }
+
+    const mergedItems = [...mergedByKeyword.values()].sort((a, b) => {
+      const scoreA = Number(a.priorityScore) || 0;
+      const scoreB = Number(b.priorityScore) || 0;
+      return scoreB - scoreA || a.keyword.localeCompare(b.keyword);
+    });
+
+    await db.query(
+      `UPDATE keyword_lists
+       SET items = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [JSON.stringify(mergedItems), listId]
+    );
+
+    return {
+      id: row.id,
+      name: row.name,
+      items: mergedItems,
+      itemCount: mergedItems.length,
+      created_at: row.created_at,
+      updated_at: new Date().toISOString(),
+    };
+  } catch (err) {
+    if (err.message === 'Keyword list not found.') {
+      throw err;
+    }
+
+    console.warn('[KeywordService] DB unavailable, using local store for addKeywordsToList:', err.message);
+    return localStore.addKeywordsToList(listId, normalizedItems);
+  }
+}
+
+async function deleteKeywordList(id) {
+  try {
+    await db.query('DELETE FROM keyword_lists WHERE id = ?', [id]);
+  } catch (err) {
+    console.warn('[KeywordService] DB unavailable, using local store for deleteKeywordList:', err.message);
+    await localStore.deleteKeywordList(id);
+  }
+}
+
+async function deleteKeywordListItem(listId, itemId) {
+  try {
+    const rows = await db.query(
+      `SELECT id, name, items, created_at, updated_at
+       FROM keyword_lists
+       WHERE id = ?
+       LIMIT 1`,
+      [listId]
+    );
+    const row = rows[0];
+
+    if (!row) {
+      throw new Error('Keyword list not found.');
+    }
+
+    const items = parseStoredItems(row.items).filter((item) => String(item.id) !== String(itemId));
+
+    await db.query(
+      `UPDATE keyword_lists
+       SET items = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [JSON.stringify(items), listId]
+    );
+  } catch (err) {
+    if (err.message === 'Keyword list not found.') {
+      throw err;
+    }
+
+    console.warn('[KeywordService] DB unavailable, using local store for deleteKeywordListItem:', err.message);
+    await localStore.deleteKeywordListItem(listId, itemId);
+  }
+}
+
 module.exports = {
   DEFAULT_AI_FILTER_PROMPT,
   filterKeywordsWithAI,
@@ -289,4 +757,9 @@ module.exports = {
   getKeywordResearchHistory,
   getKeywordResearchHistoryItem,
   deleteKeywordResearchHistoryItem,
+  getKeywordLists,
+  createKeywordList,
+  addKeywordsToList,
+  deleteKeywordList,
+  deleteKeywordListItem,
 };

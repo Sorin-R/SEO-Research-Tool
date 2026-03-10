@@ -60,6 +60,7 @@ function createEmptyState() {
     serpProviderSettings: {},
     serpProviderCredentials: {},
     keywordResearchHistory: [],
+    keywordLists: [],
     serpAnalysisHistory: [],
     contentAnalysisHistory: [],
     siteAuditHistory: [],
@@ -109,6 +110,9 @@ async function readState() {
         : {},
       keywordResearchHistory: Array.isArray(parsed.keywordResearchHistory)
         ? parsed.keywordResearchHistory
+        : [],
+      keywordLists: Array.isArray(parsed.keywordLists)
+        ? parsed.keywordLists
         : [],
       serpAnalysisHistory: Array.isArray(parsed.serpAnalysisHistory)
         ? parsed.serpAnalysisHistory
@@ -553,6 +557,147 @@ async function deleteKeywordResearchHistoryItem(id) {
   }
 }
 
+function normalizeKeywordListName(name) {
+  return String(name || '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizeListKeyword(keyword) {
+  return String(keyword || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+async function getKeywordLists() {
+  const state = await readState();
+
+  return state.keywordLists
+    .map((list) => ({
+      id: list.id,
+      name: list.name,
+      items: Array.isArray(list.items) ? list.items : [],
+      itemCount: Array.isArray(list.items) ? list.items.length : 0,
+      created_at: list.created_at,
+      updated_at: list.updated_at,
+    }))
+    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+}
+
+async function createKeywordList(name, maxLists = 20) {
+  const state = await readState();
+  const normalizedName = normalizeKeywordListName(name);
+
+  if (!normalizedName) {
+    throw new Error('List name is required.');
+  }
+
+  const existing = state.keywordLists.find((list) => list.name.toLowerCase() === normalizedName.toLowerCase());
+  if (existing) {
+    return {
+      ...existing,
+      itemCount: Array.isArray(existing.items) ? existing.items.length : 0,
+    };
+  }
+
+  if (state.keywordLists.length >= maxLists) {
+    throw new Error(`You can save up to ${maxLists} keyword lists.`);
+  }
+
+  const timestamp = nowIso();
+  const list = {
+    id: nextId(state.keywordLists),
+    name: normalizedName,
+    items: [],
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+
+  state.keywordLists.push(list);
+  await writeState(state);
+
+  return {
+    ...list,
+    itemCount: 0,
+  };
+}
+
+async function addKeywordsToList(listId, items = []) {
+  const state = await readState();
+  const list = state.keywordLists.find((entry) => String(entry.id) === String(listId));
+
+  if (!list) {
+    throw new Error('Keyword list not found.');
+  }
+
+  list.items = Array.isArray(list.items) ? list.items : [];
+  let nextItemId = list.items.reduce((max, item) => Math.max(max, Number(item.id) || 0), 0) + 1;
+
+  for (const item of items) {
+    const normalizedKeyword = String(item.keyword || '').replace(/\s+/g, ' ').trim();
+    if (!normalizedKeyword) continue;
+
+    const existing = list.items.find((entry) => normalizeListKeyword(entry.keyword) === normalizeListKeyword(normalizedKeyword));
+
+    if (existing) {
+      existing.intent = item.intent || existing.intent || null;
+      existing.clusterLabel = item.clusterLabel || existing.clusterLabel || null;
+      existing.priorityScore = item.priorityScore ?? existing.priorityScore ?? null;
+      existing.recommendedPageType = item.recommendedPageType || existing.recommendedPageType || null;
+      existing.sourceKeyword = item.sourceKeyword || existing.sourceKeyword || null;
+      existing.notes = [...new Set([...(existing.notes || []), ...(item.notes || [])])];
+    } else {
+      list.items.push({
+        id: nextItemId,
+        keyword: normalizedKeyword,
+        intent: item.intent || null,
+        clusterLabel: item.clusterLabel || null,
+        priorityScore: item.priorityScore ?? null,
+        recommendedPageType: item.recommendedPageType || null,
+        sourceKeyword: item.sourceKeyword || null,
+        notes: Array.isArray(item.notes) ? item.notes : [],
+      });
+      nextItemId += 1;
+    }
+  }
+
+  list.items = list.items.sort((a, b) => {
+    const scoreA = Number(a.priorityScore) || 0;
+    const scoreB = Number(b.priorityScore) || 0;
+    return scoreB - scoreA || a.keyword.localeCompare(b.keyword);
+  });
+  list.updated_at = nowIso();
+  await writeState(state);
+
+  return {
+    ...list,
+    itemCount: list.items.length,
+  };
+}
+
+async function deleteKeywordList(id) {
+  const state = await readState();
+  const beforeCount = state.keywordLists.length;
+  state.keywordLists = state.keywordLists.filter((entry) => String(entry.id) !== String(id));
+
+  if (state.keywordLists.length !== beforeCount) {
+    await writeState(state);
+  }
+}
+
+async function deleteKeywordListItem(listId, itemId) {
+  const state = await readState();
+  const list = state.keywordLists.find((entry) => String(entry.id) === String(listId));
+
+  if (!list) {
+    throw new Error('Keyword list not found.');
+  }
+
+  const beforeCount = Array.isArray(list.items) ? list.items.length : 0;
+  list.items = (list.items || []).filter((entry) => String(entry.id) !== String(itemId));
+
+  if (list.items.length !== beforeCount) {
+    list.updated_at = nowIso();
+    await writeState(state);
+  }
+}
+
 async function saveSerpAnalysisHistory(result, maxEntries = 12) {
   const state = await readState();
   const timestamp = nowIso();
@@ -804,6 +949,11 @@ module.exports = {
   getKeywordResearchHistory,
   getKeywordResearchHistoryItem,
   deleteKeywordResearchHistoryItem,
+  getKeywordLists,
+  createKeywordList,
+  addKeywordsToList,
+  deleteKeywordList,
+  deleteKeywordListItem,
   saveSerpAnalysisHistory,
   getSerpAnalysisHistory,
   getSerpAnalysisHistoryItem,

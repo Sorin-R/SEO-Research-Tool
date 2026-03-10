@@ -7,7 +7,7 @@ const { keywordService } = require('../services');
  * Research a keyword: autocomplete suggestions, PAA questions, categorized results.
  */
 router.get('/', async (req, res) => {
-  const { q, expand } = req.query;
+  const { q, expand, country, includeTerms, excludeTerms, modifierTerms, minWords, maxWords, questionsOnly, brandedMode } = req.query;
 
   if (!q || !q.trim()) {
     return res.status(400).json({ error: 'Query parameter "q" is required.' });
@@ -16,10 +16,34 @@ router.get('/', async (req, res) => {
   try {
     const result = await keywordService.researchKeyword(q.trim(), {
       expand: expand === 'true',
+      country,
+      includeTerms,
+      excludeTerms,
+      modifierTerms,
+      minWords,
+      maxWords,
+      questionsOnly,
+      brandedMode,
     });
     res.json(result);
   } catch (err) {
     console.error('[Route /keywords] Error:', err.message);
+    res.status(500).json({ error: 'Keyword research failed.', details: err.message });
+  }
+});
+
+router.post('/research', async (req, res) => {
+  const { keyword, options } = req.body || {};
+
+  if (!keyword || !String(keyword).trim()) {
+    return res.status(400).json({ error: 'Keyword is required.' });
+  }
+
+  try {
+    const result = await keywordService.researchKeyword(String(keyword).trim(), options || {});
+    res.json(result);
+  } catch (err) {
+    console.error('[Route /keywords/research] Error:', err.message);
     res.status(500).json({ error: 'Keyword research failed.', details: err.message });
   }
 });
@@ -96,6 +120,60 @@ router.delete('/history/:id', async (req, res) => {
   } catch (err) {
     console.error('[Route /keywords/history/:id DELETE] Error:', err.message);
     res.status(500).json({ error: 'Failed to delete keyword research history item.' });
+  }
+});
+
+router.get('/lists', async (req, res) => {
+  try {
+    const lists = await keywordService.getKeywordLists();
+    res.json(lists);
+  } catch (err) {
+    console.error('[Route /keywords/lists] Error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch keyword lists.' });
+  }
+});
+
+router.post('/lists', async (req, res) => {
+  try {
+    const list = await keywordService.createKeywordList(req.body?.name);
+    res.json(list);
+  } catch (err) {
+    console.error('[Route /keywords/lists POST] Error:', err.message);
+    res.status(400).json({ error: err.message || 'Failed to create keyword list.' });
+  }
+});
+
+router.post('/lists/:id/items', async (req, res) => {
+  try {
+    const list = await keywordService.addKeywordsToList(req.params.id, req.body?.items);
+    res.json(list);
+  } catch (err) {
+    console.error('[Route /keywords/lists/:id/items POST] Error:', err.message);
+    res.status(err.message === 'Keyword list not found.' ? 404 : 400).json({
+      error: err.message || 'Failed to add keywords to list.',
+    });
+  }
+});
+
+router.delete('/lists/:id', async (req, res) => {
+  try {
+    await keywordService.deleteKeywordList(req.params.id);
+    res.json({ message: 'Keyword list deleted.' });
+  } catch (err) {
+    console.error('[Route /keywords/lists/:id DELETE] Error:', err.message);
+    res.status(500).json({ error: 'Failed to delete keyword list.' });
+  }
+});
+
+router.delete('/lists/:listId/items/:itemId', async (req, res) => {
+  try {
+    await keywordService.deleteKeywordListItem(req.params.listId, req.params.itemId);
+    res.json({ message: 'Keyword list item deleted.' });
+  } catch (err) {
+    console.error('[Route /keywords/lists/:listId/items/:itemId DELETE] Error:', err.message);
+    res.status(err.message === 'Keyword list not found.' ? 404 : 500).json({
+      error: err.message || 'Failed to delete keyword list item.',
+    });
   }
 });
 

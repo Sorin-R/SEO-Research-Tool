@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { getCountryConfig, normalizeCountryCode } = require('../utils/searchCountry');
 
 const AUTOCOMPLETE_URL =
   'https://suggestqueries.google.com/complete/search';
@@ -6,7 +7,7 @@ const AUTOCOMPLETE_DELAY_MS = parseInt(process.env.AUTOCOMPLETE_DELAY_MS, 10) ||
 const DEFAULT_TARGET_COUNT = 1000;
 const DEFAULT_MAX_REQUESTS = 140;
 const DEFAULT_FOLLOWUP_BUDGET = 60;
-const questionWords = ['how', 'what', 'why', 'when', 'where', 'who', 'which', 'can', 'does', 'is', 'are'];
+const questionWords = ['how', 'what', 'why', 'when', 'where', 'who', 'which', 'can', 'does', 'is', 'are', 'should'];
 
 let lastAutocompleteRequestTime = 0;
 
@@ -60,7 +61,20 @@ function categoriseSuggestions(keyword, suggestions, paaQuestions = []) {
   };
 }
 
-function buildSeedQueries(keyword) {
+function parseListInput(value) {
+  if (Array.isArray(value)) {
+    return uniqueStrings(value);
+  }
+
+  return uniqueStrings(
+    String(value || '')
+      .split(/[\n,]/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+  );
+}
+
+function buildSeedQueries(keyword, options = {}) {
   const suffixAlphabet = 'abcdefghijklmnopqrstuvwxyz'.split('');
   const suffixDigits = '0123456789'.split('');
   const suffixModifiers = [
@@ -79,6 +93,13 @@ function buildSeedQueries(keyword) {
     'course',
     'guide',
     'checklist',
+    'vs',
+    'pricing',
+    'cost',
+    'near me',
+    'alternative',
+    'alternatives',
+    'comparison',
   ];
   const prefixModifiers = [
     'best',
@@ -96,7 +117,25 @@ function buildSeedQueries(keyword) {
     'benefits of',
     'types of',
     'alternatives to',
+    'pricing for',
+    'cost of',
+    'compare',
+    'vs',
+    'case studies for',
   ];
+  const localCities = parseListInput(options.localCities);
+  const localServices = parseListInput(options.localServices);
+  const localSeedCombos = [];
+  const serviceSeed = localServices.length > 0 ? localServices : [keyword];
+
+  for (const service of serviceSeed) {
+    for (const city of localCities) {
+      localSeedCombos.push(`${service} ${city}`);
+      localSeedCombos.push(`${service} in ${city}`);
+      localSeedCombos.push(`${service} near ${city}`);
+      localSeedCombos.push(`best ${service} ${city}`);
+    }
+  }
 
   return uniqueStrings([
     keyword,
@@ -104,6 +143,7 @@ function buildSeedQueries(keyword) {
     ...suffixDigits.map((token) => `${keyword} ${token}`),
     ...suffixModifiers.map((token) => `${keyword} ${token}`),
     ...prefixModifiers.map((token) => `${token} ${keyword}`),
+    ...localSeedCombos,
   ]);
 }
 
@@ -137,11 +177,18 @@ function uniqueStrings(values) {
   return results;
 }
 
-async function fetchRawSuggestions(query) {
+async function fetchRawSuggestions(query, options = {}) {
   await throttleAutocomplete();
+  const country = normalizeCountryCode(options.country);
+  const countryConfig = getCountryConfig(country);
 
   const { data } = await axios.get(AUTOCOMPLETE_URL, {
-    params: { client: 'firefox', q: query },
+    params: {
+      client: 'firefox',
+      q: query,
+      gl: countryConfig.googleGl,
+      hl: countryConfig.hl,
+    },
     headers: {
       'User-Agent':
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
@@ -159,8 +206,8 @@ async function fetchRawSuggestions(query) {
  * @param {string} keyword - The seed keyword
  * @returns {Promise<Object>} { related, longTail, questions }
  */
-async function getSuggestions(keyword) {
-  const suggestions = await fetchRawSuggestions(keyword);
+async function getSuggestions(keyword, options = {}) {
+  const suggestions = await fetchRawSuggestions(keyword, options);
   return categoriseSuggestions(keyword, suggestions);
 }
 
@@ -175,7 +222,7 @@ async function getExpandedSuggestions(keyword, options = {}) {
   const targetCount = Math.max(100, options.targetCount || DEFAULT_TARGET_COUNT);
   const maxRequests = Math.max(1, options.maxRequests || DEFAULT_MAX_REQUESTS);
   const followupBudget = Math.max(0, options.followupBudget || DEFAULT_FOLLOWUP_BUDGET);
-  const queue = buildSeedQueries(keyword);
+  const queue = buildSeedQueries(keyword, options);
   const seenQueries = new Set(queue.map((query) => query.toLowerCase()));
   const seenSuggestions = new Set();
   const results = [];
@@ -187,7 +234,7 @@ async function getExpandedSuggestions(keyword, options = {}) {
 
     try {
       requestCount += 1;
-      const suggestions = await fetchRawSuggestions(query);
+      const suggestions = await fetchRawSuggestions(query, options);
 
       for (const suggestion of suggestions) {
         const key = suggestion.toLowerCase();

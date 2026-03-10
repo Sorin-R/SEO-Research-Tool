@@ -7,9 +7,13 @@ const api = axios.create({
 
 // ---- Keywords ----
 
-export async function researchKeyword(keyword, expand = true) {
-  const { data } = await api.get('/keywords', {
-    params: { q: keyword, expand },
+export async function researchKeyword(keyword, options = {}) {
+  const { data } = await api.post('/keywords/research', {
+    keyword,
+    options: {
+      expand: options.expand ?? true,
+      ...options,
+    },
   });
   return data;
 }
@@ -28,6 +32,31 @@ export async function getKeywordResearchHistoryItem(id) {
 
 export async function deleteKeywordResearchHistoryItem(id) {
   const { data } = await api.delete(`/keywords/history/${id}`);
+  return data;
+}
+
+export async function getKeywordLists() {
+  const { data } = await api.get('/keywords/lists');
+  return data;
+}
+
+export async function createKeywordList(name) {
+  const { data } = await api.post('/keywords/lists', { name });
+  return data;
+}
+
+export async function addKeywordsToList(listId, items) {
+  const { data } = await api.post(`/keywords/lists/${listId}/items`, { items });
+  return data;
+}
+
+export async function deleteKeywordList(id) {
+  const { data } = await api.delete(`/keywords/lists/${id}`);
+  return data;
+}
+
+export async function deleteKeywordListItem(listId, itemId) {
+  const { data } = await api.delete(`/keywords/lists/${listId}/items/${itemId}`);
   return data;
 }
 

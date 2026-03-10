@@ -460,6 +460,7 @@ async function researchKeyword(keyword, inputOptions = {}) {
           selectedCount: aiResearch.selectedCount,
           model: aiResearch.model,
           prompt: aiResearch.prompt,
+          keywords: aiResearch.keywords,
         }
       : {
           enabled: false,
@@ -467,6 +468,7 @@ async function researchKeyword(keyword, inputOptions = {}) {
           selectedCount: 0,
           model: null,
           prompt: options.aiResearchPrompt || '',
+          keywords: [],
         },
     researchOptions: {
       expand: options.expand,

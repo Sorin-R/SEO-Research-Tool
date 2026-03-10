@@ -1237,6 +1237,27 @@ export default function KeywordResearch() {
             </Panel>
           </div>
 
+          {data.aiResearch?.enabled && (data.aiResearch.keywords || []).length > 0 && (
+            <Panel title="AI First-Pass Keywords" description="These are the raw AI-generated seed keywords before the main scoring layer blends them into the full research set.">
+              <AIKeywordSection
+                data={data.aiResearch}
+                sourceKeywords={data.keywords || []}
+                tracked={tracked}
+                onTrack={handleTrack}
+                onSaveToList={(keywords) =>
+                  saveItemsToSelectedList(
+                    (Array.isArray(keywords) ? keywords : [keywords]).map((keyword) => ({
+                      keyword,
+                      sourceKeyword: data.keyword,
+                    }))
+                  )
+                }
+                canSave={!!selectedListId}
+                savingList={savingList}
+              />
+            </Panel>
+          )}
+
           <Panel title="Intent Clusters and Page Targets" description="Clusters show which keywords should live on one page, what page type to build, and a ready-made content brief.">
             <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
               <div className="space-y-2">

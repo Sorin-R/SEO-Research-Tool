@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { serpService } = require('../services');
+const { serpService, websiteService } = require('../services');
 const { serpApiManager } = require('../scrapers');
 const { normalizeCountryCode } = require('../utils/searchCountry');
 
@@ -66,7 +66,7 @@ router.get('/history/:id', async (req, res) => {
  */
 router.get('/rankings', async (req, res) => {
   try {
-    const rankings = await serpService.getLatestRankings();
+    const rankings = await serpService.getLatestRankings(req.query.websiteId || null);
     res.json(rankings);
   } catch (err) {
     console.error('[Route /serp/rankings] Error:', err.message);
@@ -83,7 +83,7 @@ router.get('/rankings/:keywordId', async (req, res) => {
   const days = parseInt(req.query.days, 10) || 30;
 
   try {
-    const history = await serpService.getRankingHistory(keywordId, days);
+    const history = await serpService.getRankingHistory(keywordId, days, req.query.websiteId || null);
     res.json(history);
   } catch (err) {
     console.error('[Route /serp/rankings/:id] Error:', err.message);
@@ -97,20 +97,90 @@ router.get('/rankings/:keywordId', async (req, res) => {
  * Body: { keywordId, keyword, targetDomain }
  */
 router.post('/track', async (req, res) => {
-  const { keywordId, keyword, targetDomain } = req.body;
+  const { keywordId, keyword, websiteId, targetDomain } = req.body;
 
-  if (!keywordId || !keyword || !targetDomain) {
+  if (!keywordId || !keyword) {
     return res.status(400).json({
-      error: 'keywordId, keyword, and targetDomain are required.',
+      error: 'keywordId and keyword are required.',
     });
   }
 
   try {
-    const result = await serpService.trackRanking(keywordId, keyword, targetDomain);
+    let resolvedTargetDomain = targetDomain;
+
+    if (!resolvedTargetDomain && websiteId) {
+      const website = await websiteService.getWebsiteById(websiteId);
+
+      if (!website) {
+        return res.status(404).json({ error: 'Website not found.' });
+      }
+
+      resolvedTargetDomain = website.domain;
+    }
+
+    if (!resolvedTargetDomain) {
+      return res.status(400).json({
+        error: 'websiteId or targetDomain is required.',
+      });
+    }
+
+    const result = await serpService.trackRanking(keywordId, keyword, resolvedTargetDomain, websiteId || null);
     res.json(result);
   } catch (err) {
     console.error('[Route /serp/track] Error:', err.message);
     res.status(500).json({ error: 'Rank tracking failed.', details: err.message });
+  }
+});
+
+router.get('/websites', async (_req, res) => {
+  try {
+    const websites = await websiteService.getWebsites();
+    res.json(websites);
+  } catch (err) {
+    console.error('[Route /serp/websites] Error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch tracked websites.' });
+  }
+});
+
+router.post('/websites', async (req, res) => {
+  const { name, domain } = req.body || {};
+
+  if (!domain || !String(domain).trim()) {
+    return res.status(400).json({ error: 'Website domain is required.' });
+  }
+
+  try {
+    const website = await websiteService.createWebsite({ name, domain, isActive: true });
+    res.status(201).json(website);
+  } catch (err) {
+    console.error('[Route /serp/websites POST] Error:', err.message);
+    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to create website.' });
+  }
+});
+
+router.patch('/websites/:id', async (req, res) => {
+  const { name, domain, isActive } = req.body || {};
+
+  try {
+    const website = await websiteService.updateWebsite(req.params.id, {
+      name,
+      domain,
+      isActive,
+    });
+    res.json(website);
+  } catch (err) {
+    console.error('[Route /serp/websites/:id PATCH] Error:', err.message);
+    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to update website.' });
+  }
+});
+
+router.delete('/websites/:id', async (req, res) => {
+  try {
+    await websiteService.deleteWebsite(req.params.id);
+    res.json({ message: 'Website deleted.' });
+  } catch (err) {
+    console.error('[Route /serp/websites/:id DELETE] Error:', err.message);
+    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to delete website.' });
   }
 });
 

@@ -8,7 +8,7 @@ const rateLimit = require('express-rate-limit');
 const cron = require('node-cron');
 const { testConnection, ensureSchema } = require('./database');
 const apiRoutes = require('./routes');
-const { keywordService, serpService } = require('./services');
+const { keywordService, serpService, websiteService } = require('./services');
 
 const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 3001;
@@ -54,21 +54,23 @@ cron.schedule('0 6 * * *', async () => {
 
   try {
     const keywords = await keywordService.getTrackedKeywords();
-    const targetDomain = process.env.TARGET_DOMAIN || '';
+    const websites = await websiteService.getActiveWebsites();
 
-    if (!targetDomain) {
-      console.warn('[Cron] TARGET_DOMAIN not set in .env — skipping rank tracking.');
+    if (websites.length === 0) {
+      console.warn('[Cron] No active websites configured — skipping rank tracking.');
       return;
     }
 
-    for (const kw of keywords) {
-      try {
-        const result = await serpService.trackRanking(kw.id, kw.keyword, targetDomain);
-        console.log(
-          `[Cron] Tracked "${kw.keyword}": position ${result.position ?? 'not found'}`
-        );
-      } catch (err) {
-        console.error(`[Cron] Failed to track "${kw.keyword}":`, err.message);
+    for (const website of websites) {
+      for (const kw of keywords) {
+        try {
+          const result = await serpService.trackRanking(kw.id, kw.keyword, website.domain, website.id);
+          console.log(
+            `[Cron] Tracked "${kw.keyword}" for ${website.domain}: position ${result.position ?? 'not found'}`
+          );
+        } catch (err) {
+          console.error(`[Cron] Failed to track "${kw.keyword}" for ${website.domain}:`, err.message);
+        }
       }
     }
 
@@ -102,6 +104,7 @@ async function start() {
   try {
     await testConnection();
     await ensureSchema();
+    await websiteService.ensureLegacyDefaultWebsite();
   } catch (error) {
     console.warn('[Server] MySQL not available or schema setup failed — DB features will fail. Continuing anyway...');
     if (error?.message) {

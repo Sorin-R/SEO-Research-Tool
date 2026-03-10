@@ -76,24 +76,50 @@ export async function getSERPAnalysisHistoryItem(id) {
   return data;
 }
 
-export async function getLatestRankings() {
-  const { data } = await api.get('/serp/rankings');
-  return data;
-}
-
-export async function getRankingHistory(keywordId, days = 30) {
-  const { data } = await api.get(`/serp/rankings/${keywordId}`, {
-    params: { days },
+export async function getLatestRankings(websiteId = null) {
+  const { data } = await api.get('/serp/rankings', {
+    params: websiteId ? { websiteId } : undefined,
   });
   return data;
 }
 
-export async function manualTrackRank(keywordId, keyword, targetDomain) {
+export async function getRankingHistory(keywordId, days = 30, websiteId = null) {
+  const { data } = await api.get(`/serp/rankings/${keywordId}`, {
+    params: websiteId ? { days, websiteId } : { days },
+  });
+  return data;
+}
+
+export async function manualTrackRank(keywordId, keyword, targetDomain, websiteId = null) {
   const { data } = await api.post('/serp/track', {
     keywordId,
     keyword,
     targetDomain,
+    websiteId,
   });
+  return data;
+}
+
+export async function getTrackedWebsites() {
+  const { data } = await api.get('/serp/websites');
+  return data;
+}
+
+export async function createTrackedWebsite({ name, domain }) {
+  const { data } = await api.post('/serp/websites', {
+    name,
+    domain,
+  });
+  return data;
+}
+
+export async function updateTrackedWebsite(id, updates) {
+  const { data } = await api.patch(`/serp/websites/${id}`, updates);
+  return data;
+}
+
+export async function deleteTrackedWebsite(id) {
+  const { data } = await api.delete(`/serp/websites/${id}`);
   return data;
 }
 

@@ -1,6 +1,15 @@
 const mysql = require('mysql2/promise');
 
 const schemaStatements = [
+  `CREATE TABLE IF NOT EXISTS websites (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    domain VARCHAR(255) NOT NULL,
+    is_active TINYINT(1) DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_website_domain (domain)
+  ) ENGINE=InnoDB`,
   `CREATE TABLE IF NOT EXISTS keywords (
     id INT AUTO_INCREMENT PRIMARY KEY,
     keyword VARCHAR(500) NOT NULL,
@@ -12,14 +21,17 @@ const schemaStatements = [
   ) ENGINE=InnoDB`,
   `CREATE TABLE IF NOT EXISTS rankings (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    website_id INT NULL,
     keyword_id INT NOT NULL,
     url VARCHAR(2048) DEFAULT NULL,
     position INT DEFAULT NULL,
     title VARCHAR(1000) DEFAULT NULL,
     date DATE NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (keyword_id) REFERENCES keywords(id) ON DELETE CASCADE,
-    UNIQUE KEY uq_keyword_date (keyword_id, date)
+    KEY idx_rankings_website (website_id),
+    CONSTRAINT fk_rankings_keyword FOREIGN KEY (keyword_id) REFERENCES keywords(id) ON DELETE CASCADE,
+    CONSTRAINT fk_rankings_website FOREIGN KEY (website_id) REFERENCES websites(id) ON DELETE CASCADE,
+    UNIQUE KEY uq_website_keyword_date (website_id, keyword_id, date)
   ) ENGINE=InnoDB`,
   `CREATE TABLE IF NOT EXISTS serp_cache (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -109,7 +121,77 @@ async function ensureSchema() {
     await pool.query(statement);
   }
 
+  await ensureRankingsWebsiteSchema();
+
   console.log('[DB] Schema verified.');
+}
+
+async function hasColumn(tableName, columnName) {
+  const [rows] = await pool.query(
+    `SELECT COLUMN_NAME
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?
+       AND COLUMN_NAME = ?
+     LIMIT 1`,
+    [tableName, columnName]
+  );
+
+  return rows.length > 0;
+}
+
+async function hasIndex(tableName, indexName) {
+  const [rows] = await pool.query(
+    `SELECT INDEX_NAME
+     FROM INFORMATION_SCHEMA.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?
+       AND INDEX_NAME = ?
+     LIMIT 1`,
+    [tableName, indexName]
+  );
+
+  return rows.length > 0;
+}
+
+async function hasConstraint(tableName, constraintName) {
+  const [rows] = await pool.query(
+    `SELECT CONSTRAINT_NAME
+     FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?
+       AND CONSTRAINT_NAME = ?
+     LIMIT 1`,
+    [tableName, constraintName]
+  );
+
+  return rows.length > 0;
+}
+
+async function ensureRankingsWebsiteSchema() {
+  if (!(await hasColumn('rankings', 'website_id'))) {
+    await pool.query('ALTER TABLE rankings ADD COLUMN website_id INT NULL AFTER keyword_id');
+  }
+
+  if (!(await hasIndex('rankings', 'idx_rankings_website'))) {
+    await pool.query('ALTER TABLE rankings ADD INDEX idx_rankings_website (website_id)');
+  }
+
+  if (await hasIndex('rankings', 'uq_keyword_date')) {
+    await pool.query('ALTER TABLE rankings DROP INDEX uq_keyword_date');
+  }
+
+  if (!(await hasIndex('rankings', 'uq_website_keyword_date'))) {
+    await pool.query(
+      'ALTER TABLE rankings ADD UNIQUE KEY uq_website_keyword_date (website_id, keyword_id, date)'
+    );
+  }
+
+  if (!(await hasConstraint('rankings', 'fk_rankings_website'))) {
+    await pool.query(
+      'ALTER TABLE rankings ADD CONSTRAINT fk_rankings_website FOREIGN KEY (website_id) REFERENCES websites(id) ON DELETE CASCADE'
+    );
+  }
 }
 
 module.exports = { pool, query, testConnection, ensureSchema };

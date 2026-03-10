@@ -5,6 +5,7 @@ const storePath = path.join(__dirname, '../data/runtime-store.json');
 
 function createEmptyState() {
   return {
+    websites: [],
     keywords: [],
     rankings: [],
     serpCache: [],
@@ -32,6 +33,7 @@ async function readState() {
     const parsed = JSON.parse(raw);
 
     return {
+      websites: Array.isArray(parsed.websites) ? parsed.websites : [],
       keywords: Array.isArray(parsed.keywords) ? parsed.keywords : [],
       rankings: Array.isArray(parsed.rankings) ? parsed.rankings : [],
       serpCache: Array.isArray(parsed.serpCache) ? parsed.serpCache : [],
@@ -119,6 +121,87 @@ async function saveKeyword(keyword, difficulty = null, searchVolume = null) {
   await writeState(state);
 }
 
+async function saveWebsite(website) {
+  const state = await readState();
+  const timestamp = nowIso();
+  const domain = String(website.domain || '').trim().toLowerCase();
+  const existing = state.websites.find((item) => item.domain === domain);
+
+  if (existing) {
+    existing.name = website.name || existing.name;
+    existing.domain = domain;
+    existing.is_active = website.is_active != null ? !!website.is_active : existing.is_active;
+    existing.updated_at = timestamp;
+    await writeState(state);
+    return existing;
+  }
+
+  const nextWebsite = {
+    id: nextId(state.websites),
+    name: website.name || domain,
+    domain,
+    is_active: website.is_active != null ? !!website.is_active : true,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+
+  state.websites.push(nextWebsite);
+  await writeState(state);
+  return nextWebsite;
+}
+
+async function getWebsites() {
+  const state = await readState();
+  return [...state.websites].sort((left, right) => {
+    if (Boolean(left.is_active) !== Boolean(right.is_active)) {
+      return left.is_active ? -1 : 1;
+    }
+
+    return new Date(right.updated_at || right.created_at) - new Date(left.updated_at || left.created_at);
+  });
+}
+
+async function getActiveWebsites() {
+  const websites = await getWebsites();
+  return websites.filter((item) => item.is_active);
+}
+
+async function getWebsiteById(id) {
+  const state = await readState();
+  return state.websites.find((item) => String(item.id) === String(id)) || null;
+}
+
+async function updateWebsite(id, updates = {}) {
+  const state = await readState();
+  const website = state.websites.find((item) => String(item.id) === String(id));
+
+  if (!website) {
+    return null;
+  }
+
+  const timestamp = nowIso();
+  const nextDomain = updates.domain != null
+    ? String(updates.domain).trim().toLowerCase()
+    : website.domain;
+
+  website.name = updates.name != null ? updates.name : website.name;
+  website.domain = nextDomain;
+  if (updates.is_active != null) {
+    website.is_active = !!updates.is_active;
+  }
+  website.updated_at = timestamp;
+
+  await writeState(state);
+  return website;
+}
+
+async function deleteWebsite(id) {
+  const state = await readState();
+  state.websites = state.websites.filter((item) => String(item.id) !== String(id));
+  state.rankings = state.rankings.filter((item) => String(item.website_id) !== String(id));
+  await writeState(state);
+}
+
 async function getTrackedKeywords() {
   const state = await readState();
   return [...state.keywords].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
@@ -136,11 +219,14 @@ async function deleteKeyword(id) {
   await writeState(state);
 }
 
-async function saveRanking({ keywordId, url, position, title, date }) {
+async function saveRanking({ keywordId, websiteId = null, url, position, title, date }) {
   const state = await readState();
   const timestamp = nowIso();
   const existing = state.rankings.find(
-    (item) => String(item.keyword_id) === String(keywordId) && item.date === date
+    (item) =>
+      String(item.keyword_id) === String(keywordId) &&
+      String(item.website_id ?? '') === String(websiteId ?? '') &&
+      item.date === date
   );
 
   if (existing) {
@@ -150,6 +236,7 @@ async function saveRanking({ keywordId, url, position, title, date }) {
   } else {
     state.rankings.push({
       id: nextId(state.rankings),
+      website_id: websiteId != null ? Number(websiteId) : null,
       keyword_id: Number(keywordId),
       url,
       position,
@@ -162,7 +249,7 @@ async function saveRanking({ keywordId, url, position, title, date }) {
   await writeState(state);
 }
 
-async function getRankingHistory(keywordId, days = 30) {
+async function getRankingHistory(keywordId, days = 30, websiteId = null) {
   const state = await readState();
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - days);
@@ -171,30 +258,40 @@ async function getRankingHistory(keywordId, days = 30) {
     .filter(
       (item) =>
         String(item.keyword_id) === String(keywordId) &&
+        (websiteId == null || String(item.website_id ?? '') === String(websiteId)) &&
         new Date(item.date) >= cutoff
     )
     .sort((a, b) => new Date(a.date) - new Date(b.date));
 }
 
-async function getLatestRankings() {
+async function getLatestRankings(websiteId = null) {
   const state = await readState();
   const latestByKeyword = new Map();
 
   for (const ranking of state.rankings) {
-    const current = latestByKeyword.get(ranking.keyword_id);
+    if (websiteId != null && String(ranking.website_id ?? '') !== String(websiteId)) {
+      continue;
+    }
+
+    const key = `${ranking.website_id ?? 'none'}::${ranking.keyword_id}`;
+    const current = latestByKeyword.get(key);
 
     if (!current || new Date(ranking.date) > new Date(current.date)) {
-      latestByKeyword.set(ranking.keyword_id, ranking);
+      latestByKeyword.set(key, ranking);
     }
   }
 
   return [...latestByKeyword.values()]
     .map((ranking) => ({
       ...ranking,
-      keyword:
-        state.keywords.find((item) => String(item.id) === String(ranking.keyword_id))?.keyword || '',
+      keyword: state.keywords.find((item) => String(item.id) === String(ranking.keyword_id))?.keyword || '',
+      website_name: state.websites.find((item) => String(item.id) === String(ranking.website_id))?.name || null,
+      website_domain: state.websites.find((item) => String(item.id) === String(ranking.website_id))?.domain || null,
     }))
-    .sort((a, b) => a.keyword.localeCompare(b.keyword));
+    .sort((a, b) => {
+      const websiteOrder = (a.website_domain || '').localeCompare(b.website_domain || '');
+      return websiteOrder !== 0 ? websiteOrder : a.keyword.localeCompare(b.keyword);
+    });
 }
 
 async function saveKeywordResearchHistory(result, maxEntries = 12) {
@@ -403,6 +500,12 @@ async function getContentAnalysisHistoryItem(id) {
 module.exports = {
   getCachedSERP,
   saveSerpCache,
+  saveWebsite,
+  getWebsites,
+  getActiveWebsites,
+  getWebsiteById,
+  updateWebsite,
+  deleteWebsite,
   saveKeyword,
   getTrackedKeywords,
   getKeywordById,

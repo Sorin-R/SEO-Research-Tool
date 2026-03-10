@@ -205,7 +205,7 @@ async function cacheSERPResults(keyword, results) {
  * @param {string} targetDomain - The user's domain to track position for
  * @returns {Promise<Object>} Ranking record
  */
-async function trackRanking(keywordId, keyword, targetDomain) {
+async function trackRanking(keywordId, keyword, targetDomain, websiteId = null) {
   const analysis = await analyzeSERP(keyword, 10);
 
   // Find the target domain in results
@@ -226,55 +226,75 @@ async function trackRanking(keywordId, keyword, targetDomain) {
 
   try {
     await db.query(
-      `INSERT INTO rankings (keyword_id, url, position, title, date)
-       VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO rankings (website_id, keyword_id, url, position, title, date)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          position = ?, url = ?, title = ?`,
-      [keywordId, url, position, title, today, position, url, title]
+      [websiteId, keywordId, url, position, title, today, position, url, title]
     );
   } catch (err) {
     console.warn('[SERPService] DB unavailable, using local store for trackRanking:', err.message);
-    await localStore.saveRanking({ keywordId, url, position, title, date: today });
+    await localStore.saveRanking({ keywordId, websiteId, url, position, title, date: today });
   }
 
-  return { keywordId, keyword, position, url, title, date: today };
+  return { keywordId, websiteId, keyword, position, url, title, date: today };
 }
 
 /**
  * Get ranking history for a keyword.
  */
-async function getRankingHistory(keywordId, days = 30) {
+async function getRankingHistory(keywordId, days = 30, websiteId = null) {
   try {
-    return await db.query(
-      `SELECT * FROM rankings
+    const params = [keywordId, days];
+    let sql = `SELECT r.*, k.keyword, w.name AS website_name, w.domain AS website_domain
+       FROM rankings r
+       INNER JOIN keywords k ON k.id = r.keyword_id
+       LEFT JOIN websites w ON w.id = r.website_id
        WHERE keyword_id = ?
          AND date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
-       ORDER BY date ASC`,
-      [keywordId, days]
-    );
+    `;
+
+    if (websiteId != null) {
+      sql += ' AND r.website_id = ?';
+      params.push(websiteId);
+    }
+
+    sql += ' ORDER BY date ASC';
+
+    return await db.query(sql, params);
   } catch (err) {
     console.warn('[SERPService] DB unavailable, using local store for getRankingHistory:', err.message);
-    return localStore.getRankingHistory(keywordId, days);
+    return localStore.getRankingHistory(keywordId, days, websiteId);
   }
 }
 
 /**
  * Get the latest ranking for all tracked keywords.
  */
-async function getLatestRankings() {
+async function getLatestRankings(websiteId = null) {
   try {
-    return await db.query(
-      `SELECT r.*, k.keyword
+    const params = [];
+    let sql = `SELECT r.*, k.keyword, w.name AS website_name, w.domain AS website_domain
        FROM rankings r
        INNER JOIN keywords k ON k.id = r.keyword_id
+       LEFT JOIN websites w ON w.id = r.website_id
        WHERE r.date = (
          SELECT MAX(r2.date) FROM rankings r2 WHERE r2.keyword_id = r.keyword_id
+           AND COALESCE(r2.website_id, 0) = COALESCE(r.website_id, 0)
        )
-       ORDER BY k.keyword`
-    );
+    `;
+
+    if (websiteId != null) {
+      sql += ' AND r.website_id = ?';
+      params.push(websiteId);
+    }
+
+    sql += ' ORDER BY w.domain, k.keyword';
+
+    return await db.query(sql, params);
   } catch (err) {
     console.warn('[SERPService] DB unavailable, using local store for getLatestRankings:', err.message);
-    return localStore.getLatestRankings();
+    return localStore.getLatestRankings(websiteId);
   }
 }
 

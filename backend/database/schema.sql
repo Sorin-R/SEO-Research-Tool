@@ -5,6 +5,19 @@
 -- Run it against the database already created by your hosting provider.
 
 -- --------------------------------------------------------
+-- Tracked websites
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS websites (
+  id         INT AUTO_INCREMENT PRIMARY KEY,
+  name       VARCHAR(255) NOT NULL,
+  domain     VARCHAR(255) NOT NULL,
+  is_active  TINYINT(1)   DEFAULT 1,
+  created_at TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_website_domain (domain)
+) ENGINE=InnoDB;
+
+-- --------------------------------------------------------
 -- Tracked keywords
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS keywords (
@@ -22,14 +35,17 @@ CREATE TABLE IF NOT EXISTS keywords (
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS rankings (
   id         INT AUTO_INCREMENT PRIMARY KEY,
-  keyword_id INT          NOT NULL,
+  website_id INT           DEFAULT NULL,
+  keyword_id INT           NOT NULL,
   url        VARCHAR(2048) DEFAULT NULL,
-  position   INT          DEFAULT NULL,
+  position   INT           DEFAULT NULL,
   title      VARCHAR(1000) DEFAULT NULL,
-  date       DATE         NOT NULL,
-  created_at TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (keyword_id) REFERENCES keywords(id) ON DELETE CASCADE,
-  UNIQUE KEY uq_keyword_date (keyword_id, date)
+  date       DATE          NOT NULL,
+  created_at TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_rankings_website (website_id),
+  CONSTRAINT fk_rankings_website FOREIGN KEY (website_id) REFERENCES websites(id) ON DELETE CASCADE,
+  CONSTRAINT fk_rankings_keyword FOREIGN KEY (keyword_id) REFERENCES keywords(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_website_keyword_date (website_id, keyword_id, date)
 ) ENGINE=InnoDB;
 
 -- --------------------------------------------------------

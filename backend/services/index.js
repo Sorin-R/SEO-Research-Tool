@@ -3,5 +3,13 @@ const serpService = require('./serpService');
 const trendService = require('./trendService');
 const googleAdsService = require('./googleAdsService');
 const contentAnalysisService = require('./contentAnalysisService');
+const websiteService = require('./websiteService');
 
-module.exports = { keywordService, serpService, trendService, googleAdsService, contentAnalysisService };
+module.exports = {
+  keywordService,
+  serpService,
+  trendService,
+  googleAdsService,
+  contentAnalysisService,
+  websiteService,
+};

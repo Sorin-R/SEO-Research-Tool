@@ -9,6 +9,10 @@ function createEmptyState() {
     keywords: [],
     rankings: [],
     serpCache: [],
+    rankTrackerSettings: {
+      schedule_time: '06:00',
+      updated_at: null,
+    },
     keywordResearchHistory: [],
     serpAnalysisHistory: [],
     contentAnalysisHistory: [],
@@ -37,6 +41,17 @@ async function readState() {
       keywords: Array.isArray(parsed.keywords) ? parsed.keywords : [],
       rankings: Array.isArray(parsed.rankings) ? parsed.rankings : [],
       serpCache: Array.isArray(parsed.serpCache) ? parsed.serpCache : [],
+      rankTrackerSettings: parsed.rankTrackerSettings && typeof parsed.rankTrackerSettings === 'object'
+        ? {
+            schedule_time: typeof parsed.rankTrackerSettings.schedule_time === 'string'
+              ? parsed.rankTrackerSettings.schedule_time
+              : '06:00',
+            updated_at: parsed.rankTrackerSettings.updated_at || null,
+          }
+        : {
+            schedule_time: '06:00',
+            updated_at: null,
+          },
       keywordResearchHistory: Array.isArray(parsed.keywordResearchHistory)
         ? parsed.keywordResearchHistory
         : [],
@@ -96,6 +111,24 @@ async function saveSerpCache(keyword, results) {
   }
 
   await writeState(state);
+}
+
+async function getRankTrackerSettings() {
+  const state = await readState();
+  return {
+    schedule_time: state.rankTrackerSettings?.schedule_time || '06:00',
+    updated_at: state.rankTrackerSettings?.updated_at || null,
+  };
+}
+
+async function updateRankTrackerSettings(scheduleTime) {
+  const state = await readState();
+  state.rankTrackerSettings = {
+    schedule_time: scheduleTime,
+    updated_at: nowIso(),
+  };
+  await writeState(state);
+  return state.rankTrackerSettings;
 }
 
 async function saveKeyword(keyword, difficulty = null, searchVolume = null) {
@@ -532,6 +565,8 @@ async function deleteContentAnalysisHistoryItem(id) {
 module.exports = {
   getCachedSERP,
   saveSerpCache,
+  getRankTrackerSettings,
+  updateRankTrackerSettings,
   saveWebsite,
   getWebsites,
   getActiveWebsites,

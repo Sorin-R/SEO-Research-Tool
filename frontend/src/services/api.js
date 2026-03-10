@@ -62,9 +62,21 @@ export async function deleteTrackedKeyword(id) {
 
 // ---- SERP ----
 
-export async function analyzeSERP(keyword, refresh = false, country = 'US') {
+export async function analyzeSERP(keyword, refresh = false, country = 'US', syncTrackedRankings = true) {
   const { data } = await api.get('/serp', {
-    params: { q: keyword, refresh, country },
+    params: { q: keyword, refresh, country, syncTrackedRankings },
+  });
+  return data;
+}
+
+export async function getRankTrackerSchedule() {
+  const { data } = await api.get('/serp/schedule');
+  return data;
+}
+
+export async function updateRankTrackerSchedule(scheduleTime) {
+  const { data } = await api.patch('/serp/schedule', {
+    scheduleTime,
   });
   return data;
 }

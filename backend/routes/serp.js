@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const { serpService, websiteService } = require('../services');
+const rankTrackerSettingsService = require('../services/rankTrackerSettingsService');
+const { rescheduleRankTrackerScheduler } = require('../services/rankTrackerScheduler');
 const { serpApiManager } = require('../scrapers');
 const { normalizeCountryCode } = require('../utils/searchCountry');
 
@@ -9,21 +11,53 @@ const { normalizeCountryCode } = require('../utils/searchCountry');
  * Get full SERP analysis with difficulty score.
  */
 router.get('/', async (req, res) => {
-  const { q, refresh, country } = req.query;
+  const { q, refresh, country, syncTrackedRankings } = req.query;
 
   if (!q || !q.trim()) {
     return res.status(400).json({ error: 'Query parameter "q" is required.' });
   }
 
   try {
+    const normalizedCountry = normalizeCountryCode(country);
     const result = await serpService.getSERPAnalysis(q.trim(), {
       forceRefresh: refresh === 'true',
-      country: normalizeCountryCode(country),
+      country: normalizedCountry,
     });
+
+    if (syncTrackedRankings !== 'false') {
+      result.rankTrackerSync = await serpService.syncTrackedRankingsFromResults(
+        result.keyword,
+        result.results || [],
+        normalizedCountry
+      );
+    }
+
     res.json(result);
   } catch (err) {
     console.error('[Route /serp] Error:', err.message);
     res.status(500).json({ error: 'SERP analysis failed.', details: err.message });
+  }
+});
+
+router.get('/schedule', async (_req, res) => {
+  try {
+    const settings = await rankTrackerSettingsService.getRankTrackerSchedule();
+    res.json(settings);
+  } catch (err) {
+    console.error('[Route /serp/schedule GET] Error:', err.message);
+    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to load rank tracker schedule.' });
+  }
+});
+
+router.patch('/schedule', async (req, res) => {
+  const { scheduleTime } = req.body || {};
+
+  try {
+    const settings = await rescheduleRankTrackerScheduler(scheduleTime);
+    res.json(settings);
+  } catch (err) {
+    console.error('[Route /serp/schedule PATCH] Error:', err.message);
+    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to update rank tracker schedule.' });
   }
 });
 

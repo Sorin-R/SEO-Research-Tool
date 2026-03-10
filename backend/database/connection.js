@@ -71,6 +71,11 @@ const schemaStatements = [
     INDEX idx_serp_history_lookup (keyword(255), country, updated_at),
     INDEX idx_serp_history_created (created_at)
   ) ENGINE=InnoDB`,
+  `CREATE TABLE IF NOT EXISTS rank_tracker_settings (
+    id TINYINT NOT NULL PRIMARY KEY,
+    schedule_time CHAR(5) NOT NULL DEFAULT '06:00',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB`,
 ];
 
 /**

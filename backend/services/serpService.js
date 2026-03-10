@@ -195,6 +195,90 @@ async function cacheSERPResults(keyword, results) {
   }
 }
 
+function findResultForDomain(results, targetDomain) {
+  const domainLower = String(targetDomain || '').toLowerCase();
+
+  return results.find((result) => {
+    try {
+      const hostname = new URL(result.url).hostname.replace(/^www\./, '').toLowerCase();
+      return hostname.includes(domainLower);
+    } catch {
+      return false;
+    }
+  });
+}
+
+async function persistRankingRecord({ keywordId, websiteId = null, url, position, title, date }) {
+  try {
+    await db.query(
+      `INSERT INTO rankings (website_id, keyword_id, url, position, title, date)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         position = ?, url = ?, title = ?`,
+      [websiteId, keywordId, url, position, title, date, position, url, title]
+    );
+  } catch (err) {
+    console.warn('[SERPService] DB unavailable, using local store for persistRankingRecord:', err.message);
+    await localStore.saveRanking({ keywordId, websiteId, url, position, title, date });
+  }
+}
+
+async function trackRankingFromResults(keywordId, keyword, targetDomain, websiteId = null, results = [], date = null) {
+  const match = findResultForDomain(results, targetDomain);
+  const position = match ? match.position : null;
+  const url = match ? match.url : null;
+  const title = match ? match.title : null;
+  const rankingDate = date || new Date().toISOString().split('T')[0];
+
+  await persistRankingRecord({
+    keywordId,
+    websiteId,
+    url,
+    position,
+    title,
+    date: rankingDate,
+  });
+
+  return {
+    keywordId,
+    websiteId,
+    keyword,
+    position,
+    url,
+    title,
+    date: rankingDate,
+  };
+}
+
+async function getTrackedKeywordByText(keyword) {
+  try {
+    const rows = await db.query(
+      `SELECT *
+       FROM keywords
+       WHERE LOWER(keyword) = LOWER(?)
+       LIMIT 1`,
+      [keyword]
+    );
+
+    return rows[0] || null;
+  } catch (err) {
+    console.warn('[SERPService] DB unavailable, using local store for getTrackedKeywordByText:', err.message);
+    const keywords = await localStore.getTrackedKeywords();
+    return keywords.find((item) => String(item.keyword).toLowerCase() === String(keyword).toLowerCase()) || null;
+  }
+}
+
+async function getActiveTrackedWebsites() {
+  try {
+    return await db.query(
+      'SELECT * FROM websites WHERE is_active = 1 ORDER BY updated_at DESC, created_at DESC'
+    );
+  } catch (err) {
+    console.warn('[SERPService] DB unavailable, using local store for getActiveTrackedWebsites:', err.message);
+    return localStore.getActiveWebsites();
+  }
+}
+
 // ---- Rank tracking ----
 
 /**
@@ -207,37 +291,7 @@ async function cacheSERPResults(keyword, results) {
  */
 async function trackRanking(keywordId, keyword, targetDomain, websiteId = null) {
   const analysis = await analyzeSERP(keyword, 10);
-
-  // Find the target domain in results
-  const domainLower = targetDomain.toLowerCase();
-  const match = analysis.results.find((r) => {
-    try {
-      const hostname = new URL(r.url).hostname.replace(/^www\./, '').toLowerCase();
-      return hostname.includes(domainLower);
-    } catch {
-      return false;
-    }
-  });
-
-  const position = match ? match.position : null;
-  const url = match ? match.url : null;
-  const title = match ? match.title : null;
-  const today = new Date().toISOString().split('T')[0];
-
-  try {
-    await db.query(
-      `INSERT INTO rankings (website_id, keyword_id, url, position, title, date)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         position = ?, url = ?, title = ?`,
-      [websiteId, keywordId, url, position, title, today, position, url, title]
-    );
-  } catch (err) {
-    console.warn('[SERPService] DB unavailable, using local store for trackRanking:', err.message);
-    await localStore.saveRanking({ keywordId, websiteId, url, position, title, date: today });
-  }
-
-  return { keywordId, websiteId, keyword, position, url, title, date: today };
+  return trackRankingFromResults(keywordId, keyword, targetDomain, websiteId, analysis.results);
 }
 
 /**
@@ -369,9 +423,63 @@ async function deleteSERPAnalysisHistoryItem(id) {
   }
 }
 
+async function syncTrackedRankingsFromResults(keyword, results, country = 'US') {
+  const trackedKeyword = await getTrackedKeywordByText(keyword);
+
+  if (!trackedKeyword) {
+    return {
+      tracked: false,
+      updated: 0,
+      matched: 0,
+      country,
+    };
+  }
+
+  const websites = await getActiveTrackedWebsites();
+
+  if (websites.length === 0) {
+    return {
+      tracked: true,
+      keywordId: trackedKeyword.id,
+      updated: 0,
+      matched: 0,
+      country,
+      websites: [],
+    };
+  }
+
+  const updates = [];
+
+  for (const website of websites) {
+    const ranking = await trackRankingFromResults(
+      trackedKeyword.id,
+      trackedKeyword.keyword,
+      website.domain,
+      website.id,
+      results
+    );
+
+    updates.push({
+      websiteId: website.id,
+      websiteDomain: website.domain,
+      position: ranking.position,
+    });
+  }
+
+  return {
+    tracked: true,
+    keywordId: trackedKeyword.id,
+    updated: updates.length,
+    matched: updates.filter((item) => item.position != null).length,
+    country,
+    websites: updates,
+  };
+}
+
 module.exports = {
   getSERPAnalysis,
   trackRanking,
+  syncTrackedRankingsFromResults,
   getRankingHistory,
   getLatestRankings,
   getSERPAnalysisHistory,

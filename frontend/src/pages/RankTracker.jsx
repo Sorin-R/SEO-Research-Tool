@@ -10,9 +10,11 @@ import {
   deleteTrackedWebsite,
   getLatestRankings,
   getRankingHistory,
+  getRankTrackerSchedule,
   getTrackedKeywords,
   getTrackedWebsites,
   trackKeyword,
+  updateRankTrackerSchedule,
   updateTrackedWebsite,
 } from '../services/api';
 
@@ -28,10 +30,13 @@ export default function RankTracker() {
   const [newKeyword, setNewKeyword] = useState('');
   const [websiteName, setWebsiteName] = useState('');
   const [websiteDomain, setWebsiteDomain] = useState('');
+  const [scheduleTime, setScheduleTime] = useState('06:00');
+  const [scheduleInfo, setScheduleInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [rankingsLoading, setRankingsLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [websiteSubmitting, setWebsiteSubmitting] = useState(false);
+  const [scheduleSaving, setScheduleSaving] = useState(false);
   const [websiteBusyId, setWebsiteBusyId] = useState(null);
   const [error, setError] = useState(null);
   const [restoreNotice, setRestoreNotice] = useState(null);
@@ -216,13 +221,16 @@ export default function RankTracker() {
     setError(null);
 
     try {
-      const [trackedKeywords, trackedWebsites] = await Promise.all([
+      const [trackedKeywords, trackedWebsites, trackedSchedule] = await Promise.all([
         getTrackedKeywords(),
         getTrackedWebsites(),
+        getRankTrackerSchedule(),
       ]);
 
       setKeywords(trackedKeywords);
       setWebsites(trackedWebsites);
+      setScheduleTime(trackedSchedule.scheduleTime || '06:00');
+      setScheduleInfo(trackedSchedule);
     } catch (err) {
       setError(err.response?.data?.error || err.message);
     } finally {
@@ -325,6 +333,30 @@ export default function RankTracker() {
     }
   }
 
+  async function handleSaveSchedule(event) {
+    event.preventDefault();
+
+    if (!scheduleTime) {
+      return;
+    }
+
+    setScheduleSaving(true);
+    setError(null);
+
+    try {
+      const updatedSchedule = await updateRankTrackerSchedule(scheduleTime);
+      setScheduleTime(updatedSchedule.scheduleTime || scheduleTime);
+      setScheduleInfo(updatedSchedule);
+      setRestoreNotice(
+        `Daily rank checks will run at ${updatedSchedule.scheduleTime} (${updatedSchedule.serverTimeZone}).`
+      );
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+    } finally {
+      setScheduleSaving(false);
+    }
+  }
+
   async function handleToggleWebsite(website) {
     setWebsiteBusyId(website.id);
     setError(null);
@@ -411,6 +443,34 @@ export default function RankTracker() {
             Rank tracking runs only for active websites. Add as many domains as you need and switch between them below.
           </p>
         </div>
+
+        <form
+          onSubmit={handleSaveSchedule}
+          className="rounded-lg border border-gray-200 bg-gray-50 p-4 grid grid-cols-1 gap-3 lg:grid-cols-[220px_auto_1fr]"
+        >
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Daily Check Time</label>
+            <input
+              type="time"
+              step="60"
+              value={scheduleTime}
+              onChange={(event) => setScheduleTime(event.target.value)}
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={scheduleSaving || !scheduleTime}
+            className="px-6 py-2.5 bg-white border border-indigo-200 text-indigo-700 text-sm font-medium rounded-lg hover:border-indigo-300 hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors self-end"
+          >
+            {scheduleSaving ? 'Saving...' : 'Save Timer'}
+          </button>
+          <div className="text-sm text-gray-500 self-center">
+            Automatic rank checks run once per day using the server timezone.
+            {scheduleInfo?.serverTimeZone ? ` Current timezone: ${scheduleInfo.serverTimeZone}.` : ''}
+            {scheduleInfo?.updatedAt ? ` Updated ${formatSavedAt(scheduleInfo.updatedAt)}.` : ''}
+          </div>
+        </form>
 
         <form onSubmit={handleAddWebsite} className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_1.2fr_auto]">
           <input
@@ -647,4 +707,18 @@ function sortWebsites(websites) {
 
     return new Date(right.updated_at || right.created_at) - new Date(left.updated_at || left.created_at);
   });
+}
+
+function formatSavedAt(value) {
+  if (!value) {
+    return 'recently';
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return 'recently';
+  }
+
+  return date.toLocaleString();
 }

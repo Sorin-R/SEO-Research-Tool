@@ -22,6 +22,7 @@ export default function SERPAnalyzer() {
   const [country, setCountry] = useState('US');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [liveRefreshing, setLiveRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -127,22 +128,26 @@ export default function SERPAnalyzer() {
     }
   }
 
-  async function handleSearch(searchKeyword = keyword.trim()) {
+  async function handleSearch(searchKeyword = keyword.trim(), options = {}) {
     if (!searchKeyword) return;
 
+    const forceRefresh = !!options.forceRefresh;
     setLoading(true);
+    setLiveRefreshing(forceRefresh);
     setError(null);
     setRestoreNotice(null);
     try {
-      const result = await analyzeSERP(searchKeyword, false, country);
+      const result = await analyzeSERP(searchKeyword, forceRefresh, country, true);
       setData(result);
       setKeyword(result.keyword || searchKeyword);
       setCountry(result.country || country);
+      setRestoreNotice(buildSERPNotice(result, forceRefresh));
       await refreshHistory();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
     } finally {
       setLoading(false);
+      setLiveRefreshing(false);
     }
   }
 
@@ -233,7 +238,15 @@ export default function SERPAnalyzer() {
           disabled={loading || !keyword.trim()}
           className="px-6 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          {loading ? 'Searching...' : 'Search'}
+          {loading && !liveRefreshing ? 'Searching...' : 'Search'}
+        </button>
+        <button
+          type="button"
+          onClick={() => handleSearch(keyword.trim(), { forceRefresh: true })}
+          disabled={loading || !keyword.trim()}
+          className="px-6 py-2.5 bg-white border border-emerald-200 text-emerald-700 text-sm font-medium rounded-lg hover:border-emerald-300 hover:bg-emerald-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {loading && liveRefreshing ? 'Refreshing...' : 'Live Refresh'}
         </button>
       </form>
 
@@ -422,4 +435,27 @@ function formatSavedAt(value) {
   }
 
   return date.toLocaleString();
+}
+
+function buildSERPNotice(result, forceRefresh) {
+  const sync = result?.rankTrackerSync;
+
+  if (sync?.tracked && sync.updated > 0) {
+    const websiteLabel = `${sync.updated} active website${sync.updated === 1 ? '' : 's'}`;
+    const matchedLabel = sync.matched > 0
+      ? ` ${sync.matched} matched the tracked domain in ${sync.country || 'that'} SERP results.`
+      : ' No tracked domains were found in the latest top results.';
+
+    return `${forceRefresh ? 'Fetched live SERP data.' : 'SERP analysis complete.'} Rank Tracker updated for ${websiteLabel}.${matchedLabel}`;
+  }
+
+  if (sync?.tracked) {
+    return 'This keyword is in Rank Tracker, but there are no active websites available to update.';
+  }
+
+  if (forceRefresh) {
+    return 'Fetched live SERP data.';
+  }
+
+  return null;
 }

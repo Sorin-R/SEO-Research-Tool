@@ -118,8 +118,21 @@ function normalizeExtractionOptions(input = {}) {
   };
 }
 
+function splitCompetitorInputs(inputSites) {
+  if (Array.isArray(inputSites)) {
+    return inputSites
+      .map((item) => String(item || '').trim())
+      .filter(Boolean);
+  }
+
+  return String(inputSites || '')
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function normalizeCompetitorSites(inputSites, maxSites) {
-  const values = Array.isArray(inputSites) ? inputSites : parseListInput(inputSites);
+  const values = splitCompetitorInputs(inputSites);
   const seen = new Set();
   const normalized = [];
 

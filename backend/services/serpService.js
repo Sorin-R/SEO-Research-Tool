@@ -10,6 +10,7 @@ const { getCountryConfig, normalizeCountryCode } = require('../utils/searchCount
  */
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const MAX_SERP_HISTORY_ENTRIES = 12;
+let rankingsSchemaRepairPromise = null;
 
 function clampLimit(limit, min, max) {
   return Math.min(Math.max(Number.parseInt(limit, 10) || min, min), max);
@@ -275,31 +276,72 @@ function normalizePathname(pathname) {
 
 async function persistRankingRecord({ keywordId, websiteId = null, url, position, title, date }) {
   try {
-    await db.query(
-      `INSERT INTO rankings (website_id, keyword_id, url, position, title, date)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         position = ?, url = ?, title = ?`,
-      [websiteId, keywordId, url, position, title, date, position, url, title]
-    );
+    await upsertRankingRecord({ keywordId, websiteId, url, position, title, date });
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') {
       try {
-        await db.query(
-          `UPDATE rankings
-           SET website_id = ?, position = ?, url = ?, title = ?
-           WHERE keyword_id = ? AND date = ?`,
-          [websiteId, position, url, title, keywordId, date]
-        );
-        return;
-      } catch (updateErr) {
-        console.warn('[SERPService] Failed to repair legacy ranking row after duplicate insert:', updateErr.message);
+        const repaired = await ensureRankingsSchemaForWrites();
+
+        if (repaired) {
+          await upsertRankingRecord({ keywordId, websiteId, url, position, title, date });
+          return;
+        }
+      } catch (repairErr) {
+        console.warn('[SERPService] Failed to repair rankings schema after duplicate insert:', repairErr.message);
       }
     }
 
     console.warn('[SERPService] DB unavailable, using local store for persistRankingRecord:', err.message);
     await localStore.saveRanking({ keywordId, websiteId, url, position, title, date });
   }
+}
+
+async function upsertRankingRecord({ keywordId, websiteId = null, url, position, title, date }) {
+  const existingRows = await db.query(
+    `SELECT id
+     FROM rankings
+     WHERE website_id <=> ?
+       AND keyword_id = ?
+       AND date = ?
+     LIMIT 1`,
+    [websiteId, keywordId, date]
+  );
+
+  if (existingRows.length > 0) {
+    await db.query(
+      `UPDATE rankings
+       SET position = ?, url = ?, title = ?
+       WHERE id = ?`,
+      [position, url, title, existingRows[0].id]
+    );
+    return;
+  }
+
+  await db.query(
+    `INSERT INTO rankings (website_id, keyword_id, url, position, title, date)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [websiteId, keywordId, url, position, title, date]
+  );
+}
+
+async function ensureRankingsSchemaForWrites() {
+  if (typeof db.ensureRankingsWebsiteSchema !== 'function') {
+    return false;
+  }
+
+  if (!rankingsSchemaRepairPromise) {
+    rankingsSchemaRepairPromise = db.ensureRankingsWebsiteSchema()
+      .then(() => true)
+      .catch((err) => {
+        console.warn('[SERPService] Rankings schema repair failed:', err.message);
+        return false;
+      })
+      .finally(() => {
+        rankingsSchemaRepairPromise = null;
+      });
+  }
+
+  return rankingsSchemaRepairPromise;
 }
 
 async function trackRankingFromResults(keywordId, keyword, targetDomain, websiteId = null, results = [], date = null) {
@@ -402,11 +444,12 @@ async function getRankingHistory(keywordId, days = 30, websiteId = null) {
 
     const rows = await db.query(sql, params);
 
-    if (rows.length > 0 || websiteId == null) {
+    if (websiteId == null) {
       return rows;
     }
 
-    return getOrphanedRankingHistory(keywordId, days, websiteId);
+    const orphanedRows = await getOrphanedRankingHistory(keywordId, days, websiteId);
+    return mergeRankingHistoryRows(rows, orphanedRows);
   } catch (err) {
     console.warn('[SERPService] DB unavailable, using local store for getRankingHistory:', err.message);
     return localStore.getRankingHistory(keywordId, days, websiteId);
@@ -438,11 +481,12 @@ async function getLatestRankings(websiteId = null) {
 
     const rows = await db.query(sql, params);
 
-    if (rows.length > 0 || websiteId == null) {
+    if (websiteId == null) {
       return rows;
     }
 
-    return getOrphanedLatestRankings(websiteId);
+    const orphanedRows = await getOrphanedLatestRankings(websiteId);
+    return mergeLatestRankingRows(rows, orphanedRows);
   } catch (err) {
     console.warn('[SERPService] DB unavailable, using local store for getLatestRankings:', err.message);
     return localStore.getLatestRankings(websiteId);
@@ -672,5 +716,37 @@ async function getOrphanedLatestRankings(websiteId) {
 
   return [...latestByKeyword.values()].sort((left, right) =>
     String(left.keyword || '').localeCompare(String(right.keyword || ''))
+  );
+}
+
+function mergeLatestRankingRows(primaryRows = [], fallbackRows = []) {
+  const merged = new Map();
+
+  for (const row of fallbackRows) {
+    merged.set(String(row.keyword_id), row);
+  }
+
+  for (const row of primaryRows) {
+    merged.set(String(row.keyword_id), row);
+  }
+
+  return [...merged.values()].sort((left, right) =>
+    String(left.keyword || '').localeCompare(String(right.keyword || ''))
+  );
+}
+
+function mergeRankingHistoryRows(primaryRows = [], fallbackRows = []) {
+  const merged = new Map();
+
+  for (const row of fallbackRows) {
+    merged.set(String(row.date), row);
+  }
+
+  for (const row of primaryRows) {
+    merged.set(String(row.date), row);
+  }
+
+  return [...merged.values()].sort((left, right) =>
+    new Date(left.date).getTime() - new Date(right.date).getTime()
   );
 }

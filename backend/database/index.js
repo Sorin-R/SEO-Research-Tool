@@ -1,3 +1,15 @@
-const { pool, query, testConnection, ensureSchema } = require('./connection');
+const {
+  pool,
+  query,
+  testConnection,
+  ensureSchema,
+  ensureRankingsWebsiteSchema,
+} = require('./connection');
 
-module.exports = { pool, query, testConnection, ensureSchema };
+module.exports = {
+  pool,
+  query,
+  testConnection,
+  ensureSchema,
+  ensureRankingsWebsiteSchema,
+};

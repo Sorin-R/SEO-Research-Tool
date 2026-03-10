@@ -236,4 +236,10 @@ async function ensureWebsitesTargetUrlSchema() {
   }
 }
 
-module.exports = { pool, query, testConnection, ensureSchema };
+module.exports = {
+  pool,
+  query,
+  testConnection,
+  ensureSchema,
+  ensureRankingsWebsiteSchema,
+};

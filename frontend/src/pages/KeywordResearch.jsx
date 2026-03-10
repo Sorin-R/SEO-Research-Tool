@@ -1,11 +1,19 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import SearchBar from '../components/SearchBar';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorAlert from '../components/ErrorAlert';
-import { filterKeywordsWithAI, researchKeyword, trackKeyword } from '../services/api';
+import {
+  filterKeywordsWithAI,
+  getKeywordResearchHistory,
+  getKeywordResearchHistoryItem,
+  researchKeyword,
+  trackKeyword,
+} from '../services/api';
 
 const DEFAULT_AI_PROMPT =
   'Keep only the keywords that are the closest match to the seed keyword. Remove broad, weak, or loosely related phrases.';
+const STORAGE_KEY = 'seo-tool:keyword-research:last-session';
+const HISTORY_LIMIT = 10;
 
 export default function KeywordResearch() {
   const [data, setData] = useState(null);
@@ -17,15 +25,124 @@ export default function KeywordResearch() {
   const [aiData, setAiData] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState(null);
+  const [searchValue, setSearchValue] = useState('');
+  const [restoreNotice, setRestoreNotice] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState(null);
+  const [loadingHistoryId, setLoadingHistoryId] = useState(null);
+  const [storageHydrated, setStorageHydrated] = useState(false);
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(STORAGE_KEY);
+
+      if (!stored) {
+        return;
+      }
+
+      const parsed = JSON.parse(stored);
+
+      if (parsed?.data) {
+        setData(parsed.data);
+        setSearchValue(parsed.data.keyword || '');
+        setRestoreNotice('Restored your last keyword research from this browser.');
+      }
+
+      if (parsed?.aiData) {
+        setAiData(parsed.aiData);
+      }
+
+      if (typeof parsed?.aiPrompt === 'string' && parsed.aiPrompt.trim()) {
+        setAiPrompt(parsed.aiPrompt);
+      }
+
+      if (parsed?.aiMaxResults) {
+        setAiMaxResults(parsed.aiMaxResults);
+      }
+    } catch {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } finally {
+      setStorageHydrated(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadHistory() {
+      setHistoryLoading(true);
+      setHistoryError(null);
+
+      try {
+        const result = await getKeywordResearchHistory(HISTORY_LIMIT);
+
+        if (!cancelled) {
+          setHistory(result);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setHistoryError(err.response?.data?.error || err.message);
+        }
+      } finally {
+        if (!cancelled) {
+          setHistoryLoading(false);
+        }
+      }
+    }
+
+    loadHistory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!storageHydrated) {
+      return;
+    }
+
+    if (!data) {
+      window.localStorage.removeItem(STORAGE_KEY);
+      return;
+    }
+
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        data,
+        aiData,
+        aiPrompt,
+        aiMaxResults,
+        savedAt: new Date().toISOString(),
+      })
+    );
+  }, [data, aiData, aiPrompt, aiMaxResults, storageHydrated]);
+
+  async function refreshHistory() {
+    try {
+      const result = await getKeywordResearchHistory(HISTORY_LIMIT);
+      setHistory(result);
+      setHistoryError(null);
+    } catch (err) {
+      setHistoryError(err.response?.data?.error || err.message);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
 
   async function handleSearch(keyword) {
     setLoading(true);
     setError(null);
     setAiData(null);
     setAiError(null);
+    setRestoreNotice(null);
     try {
       const result = await researchKeyword(keyword);
       setData(result);
+      setSearchValue(result.keyword || keyword);
+      await refreshHistory();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
     } finally {
@@ -65,6 +182,24 @@ export default function KeywordResearch() {
     }
   }
 
+  async function handleLoadHistory(id) {
+    setLoadingHistoryId(id);
+    setError(null);
+    setAiError(null);
+
+    try {
+      const result = await getKeywordResearchHistoryItem(id);
+      setData(result);
+      setAiData(null);
+      setSearchValue(result.keyword || '');
+      setRestoreNotice('Loaded a saved keyword research result from history.');
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+    } finally {
+      setLoadingHistoryId(null);
+    }
+  }
+
   return (
     <div>
       <h2 className="text-2xl font-bold text-gray-900 mb-1">Keyword Research</h2>
@@ -72,17 +207,72 @@ export default function KeywordResearch() {
         Discover related keywords, long-tail variations, and questions people ask.
       </p>
 
-      <SearchBar onSearch={handleSearch} loading={loading} placeholder="Enter a seed keyword..." />
+      <SearchBar
+        onSearch={handleSearch}
+        loading={loading}
+        placeholder="Enter a seed keyword..."
+        initialValue={searchValue}
+      />
+
+      <div className="mt-6 bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+        <div className="flex flex-col gap-1">
+          <h3 className="font-semibold text-gray-900">Recent Saved Searches</h3>
+          <p className="text-sm text-gray-500">
+            Your latest keyword research is restored after refresh in this browser, and recent searches are also saved to the backend.
+          </p>
+        </div>
+
+        {historyLoading && <p className="text-sm text-gray-500">Loading saved searches...</p>}
+        {historyError && <ErrorAlert message={historyError} />}
+
+        {!historyLoading && !historyError && history.length === 0 && (
+          <p className="text-sm text-gray-500">No saved keyword research yet. Run a search and it will appear here.</p>
+        )}
+
+        {!historyLoading && history.length > 0 && (
+          <div className="space-y-2">
+            {history.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleLoadHistory(item.id)}
+                disabled={loadingHistoryId === item.id}
+                className="w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-left hover:border-indigo-300 hover:bg-indigo-50 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+              >
+                <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <div className="font-medium text-gray-900">{item.keyword}</div>
+                    <div className="text-xs text-gray-500">
+                      {item.total_suggestions || 0} suggestions
+                      {item.deep_scan ? ' • deep scan' : ''}
+                    </div>
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {loadingHistoryId === item.id ? 'Loading...' : formatSavedAt(item.updated_at || item.created_at)}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       {loading && <LoadingSpinner message="Fetching keyword suggestions..." />}
       {error && <div className="mt-6"><ErrorAlert message={error} onRetry={() => handleSearch(data?.keyword)} /></div>}
 
       {data && !loading && (
         <div className="mt-8 space-y-8">
+          {restoreNotice && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-5 py-4 text-sm text-emerald-900">
+              {restoreNotice}
+            </div>
+          )}
+
           <div className="bg-white rounded-lg border border-gray-200 px-5 py-4 text-sm text-gray-600">
             Found <span className="font-semibold text-gray-900">{data.totalSuggestions || data.allSuggestions?.length || 0}</span> keyword suggestions
             {data.deepScan ? ' using deep scan' : ''}
             {data.reachedTarget ? ' (1000+ target reached).' : '.'}
+            {data.savedAt ? ` Saved ${formatSavedAt(data.savedAt)}.` : ''}
           </div>
 
           <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
@@ -284,4 +474,18 @@ function AIKeywordSection({ data, onTrack, tracked }) {
       </div>
     </div>
   );
+}
+
+function formatSavedAt(value) {
+  if (!value) {
+    return 'Saved recently';
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Saved recently';
+  }
+
+  return date.toLocaleString();
 }

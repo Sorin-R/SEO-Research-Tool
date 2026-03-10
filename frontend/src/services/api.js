@@ -14,6 +14,18 @@ export async function researchKeyword(keyword, expand = true) {
   return data;
 }
 
+export async function getKeywordResearchHistory(limit = 10) {
+  const { data } = await api.get('/keywords/history', {
+    params: { limit },
+  });
+  return data;
+}
+
+export async function getKeywordResearchHistoryItem(id) {
+  const { data } = await api.get(`/keywords/history/${id}`);
+  return data;
+}
+
 export async function filterKeywordsWithAI({ keyword, keywords, prompt, maxResults }) {
   const { data } = await api.post('/keywords/filter', {
     keyword,

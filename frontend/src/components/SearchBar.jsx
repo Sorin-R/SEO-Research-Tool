@@ -1,7 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
-export default function SearchBar({ onSearch, placeholder = 'Enter a keyword...', loading = false }) {
-  const [query, setQuery] = useState('');
+export default function SearchBar({
+  onSearch,
+  placeholder = 'Enter a keyword...',
+  loading = false,
+  initialValue = '',
+}) {
+  const [query, setQuery] = useState(initialValue);
+
+  useEffect(() => {
+    setQuery(initialValue || '');
+  }, [initialValue]);
 
   function handleSubmit(e) {
     e.preventDefault();

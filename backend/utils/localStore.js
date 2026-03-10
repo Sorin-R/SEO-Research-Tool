@@ -8,6 +8,7 @@ function createEmptyState() {
     keywords: [],
     rankings: [],
     serpCache: [],
+    keywordResearchHistory: [],
   };
 }
 
@@ -32,6 +33,9 @@ async function readState() {
       keywords: Array.isArray(parsed.keywords) ? parsed.keywords : [],
       rankings: Array.isArray(parsed.rankings) ? parsed.rankings : [],
       serpCache: Array.isArray(parsed.serpCache) ? parsed.serpCache : [],
+      keywordResearchHistory: Array.isArray(parsed.keywordResearchHistory)
+        ? parsed.keywordResearchHistory
+        : [],
     };
   } catch {
     return createEmptyState();
@@ -185,6 +189,71 @@ async function getLatestRankings() {
     .sort((a, b) => a.keyword.localeCompare(b.keyword));
 }
 
+async function saveKeywordResearchHistory(result, maxEntries = 12) {
+  const state = await readState();
+  const timestamp = nowIso();
+  const keywordKey = String(result.keyword || '').trim().toLowerCase();
+  const existing = state.keywordResearchHistory.find((item) => item.keyword_key === keywordKey);
+
+  if (existing) {
+    existing.keyword = result.keyword;
+    existing.total_suggestions = result.totalSuggestions || result.allSuggestions?.length || 0;
+    existing.deep_scan = !!result.deepScan;
+    existing.result = result;
+    existing.updated_at = timestamp;
+  } else {
+    state.keywordResearchHistory.push({
+      id: nextId(state.keywordResearchHistory),
+      keyword: result.keyword,
+      keyword_key: keywordKey,
+      total_suggestions: result.totalSuggestions || result.allSuggestions?.length || 0,
+      deep_scan: !!result.deepScan,
+      result,
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+  }
+
+  state.keywordResearchHistory = state.keywordResearchHistory
+    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+    .slice(0, maxEntries);
+
+  await writeState(state);
+
+  return state.keywordResearchHistory.find((item) => item.keyword_key === keywordKey)?.id || null;
+}
+
+async function getKeywordResearchHistory(limit = 10) {
+  const state = await readState();
+
+  return state.keywordResearchHistory
+    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+    .slice(0, Math.max(1, Number(limit) || 10))
+    .map((item) => ({
+      id: item.id,
+      keyword: item.keyword,
+      total_suggestions: item.total_suggestions,
+      deep_scan: item.deep_scan,
+      created_at: item.created_at,
+      updated_at: item.updated_at,
+    }));
+}
+
+async function getKeywordResearchHistoryItem(id) {
+  const state = await readState();
+  const item = state.keywordResearchHistory.find((entry) => String(entry.id) === String(id));
+
+  if (!item) {
+    return null;
+  }
+
+  return {
+    ...item.result,
+    historyId: item.id,
+    savedAt: item.updated_at,
+  };
+}
+
 module.exports = {
   getCachedSERP,
   saveSerpCache,
@@ -195,4 +264,7 @@ module.exports = {
   saveRanking,
   getRankingHistory,
   getLatestRankings,
+  saveKeywordResearchHistory,
+  getKeywordResearchHistory,
+  getKeywordResearchHistoryItem,
 };

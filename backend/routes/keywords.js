@@ -57,6 +57,39 @@ router.post('/filter', async (req, res) => {
 });
 
 /**
+ * GET /api/keywords/history?limit=10
+ * Get recent saved keyword research runs.
+ */
+router.get('/history', async (req, res) => {
+  try {
+    const history = await keywordService.getKeywordResearchHistory(req.query.limit);
+    res.json(history);
+  } catch (err) {
+    console.error('[Route /keywords/history] Error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch keyword research history.' });
+  }
+});
+
+/**
+ * GET /api/keywords/history/:id
+ * Restore a saved keyword research result.
+ */
+router.get('/history/:id', async (req, res) => {
+  try {
+    const item = await keywordService.getKeywordResearchHistoryItem(req.params.id);
+
+    if (!item) {
+      return res.status(404).json({ error: 'Keyword research history item not found.' });
+    }
+
+    res.json(item);
+  } catch (err) {
+    console.error('[Route /keywords/history/:id] Error:', err.message);
+    res.status(500).json({ error: 'Failed to load keyword research history item.' });
+  }
+});
+
+/**
  * GET /api/keywords/tracked
  * Get all tracked keywords from the database.
  */

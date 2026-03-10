@@ -38,6 +38,17 @@ const schemaStatements = [
     analysis_data JSON DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   ) ENGINE=InnoDB`,
+  `CREATE TABLE IF NOT EXISTS keyword_research_history (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    keyword VARCHAR(500) NOT NULL,
+    result JSON NOT NULL,
+    total_suggestions INT DEFAULT NULL,
+    deep_scan TINYINT(1) DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_keyword_history_updated (keyword(255), updated_at),
+    INDEX idx_keyword_history_created (created_at)
+  ) ENGINE=InnoDB`,
 ];
 
 /**

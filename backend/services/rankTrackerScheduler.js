@@ -33,7 +33,7 @@ async function runRankTrackerJob(source = 'Cron') {
         const result = await serpService.trackRanking(
           keyword.id,
           keyword.keyword,
-          website.domain,
+          website.target_url || website.domain,
           website.id,
           website.country || 'US'
         );
@@ -42,10 +42,10 @@ async function runRankTrackerJob(source = 'Cron') {
           matched += 1;
         }
         console.log(
-          `${prefix} Tracked "${keyword.keyword}" for ${website.domain}: position ${result.position ?? 'not found'}`
+          `${prefix} Tracked "${keyword.keyword}" for ${website.target_url || website.domain}: position ${result.position ?? 'not found'}`
         );
       } catch (err) {
-        console.error(`${prefix} Failed to track "${keyword.keyword}" for ${website.domain}:`, err.message);
+        console.error(`${prefix} Failed to track "${keyword.keyword}" for ${website.target_url || website.domain}:`, err.message);
       }
     }
   }

@@ -5,6 +5,7 @@ const schemaStatements = [
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     domain VARCHAR(255) NOT NULL,
+    target_url VARCHAR(2048) DEFAULT NULL,
     country CHAR(2) NOT NULL DEFAULT 'US',
     is_active TINYINT(1) DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -127,6 +128,7 @@ async function ensureSchema() {
     await pool.query(statement);
   }
 
+  await ensureWebsitesTargetUrlSchema();
   await ensureWebsitesCountrySchema();
   await ensureRankingsWebsiteSchema();
 
@@ -207,6 +209,12 @@ async function ensureWebsitesCountrySchema() {
   }
 
   await pool.query(`UPDATE websites SET country = 'US' WHERE country IS NULL OR country = ''`);
+}
+
+async function ensureWebsitesTargetUrlSchema() {
+  if (!(await hasColumn('websites', 'target_url'))) {
+    await pool.query('ALTER TABLE websites ADD COLUMN target_url VARCHAR(2048) DEFAULT NULL AFTER domain');
+  }
 }
 
 module.exports = { pool, query, testConnection, ensureSchema };

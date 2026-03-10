@@ -4,6 +4,42 @@ const { normalizeCountryCode } = require('./searchCountry');
 
 const storePath = path.join(__dirname, '../data/runtime-store.json');
 
+function normalizePathname(pathname) {
+  const value = String(pathname || '/').trim();
+  if (!value || value === '/') {
+    return '/';
+  }
+
+  const normalized = value.startsWith('/') ? value : `/${value}`;
+  return normalized.replace(/\/+$/, '') || '/';
+}
+
+function normalizeStoredTargetUrl(targetUrl, fallbackDomain = '') {
+  if (!targetUrl || !String(targetUrl).trim()) {
+    return null;
+  }
+
+  let value = String(targetUrl).trim();
+
+  if (!/^https?:\/\//i.test(value)) {
+    value = `https://${value}`;
+  }
+
+  try {
+    const parsedUrl = new URL(value);
+    const hostname = parsedUrl.hostname.replace(/^www\./, '').trim().toLowerCase() || fallbackDomain;
+    const pathname = normalizePathname(parsedUrl.pathname);
+
+    if (!hostname || pathname === '/') {
+      return null;
+    }
+
+    return `https://${hostname}${pathname}`;
+  } catch {
+    return null;
+  }
+}
+
 function createEmptyState() {
   return {
     websites: [],
@@ -159,23 +195,30 @@ async function saveWebsite(website) {
   const state = await readState();
   const timestamp = nowIso();
   const domain = String(website.domain || '').trim().toLowerCase();
+  const targetUrl = normalizeStoredTargetUrl(website.target_url, domain);
   const country = normalizeCountryCode(website.country);
   const existing = state.websites.find((item) => item.domain === domain);
 
   if (existing) {
     existing.name = website.name || existing.name;
     existing.domain = domain;
+    existing.target_url = targetUrl;
     existing.country = country;
     existing.is_active = website.is_active != null ? !!website.is_active : existing.is_active;
     existing.updated_at = timestamp;
     await writeState(state);
-    return { ...existing, country: normalizeCountryCode(existing.country) };
+    return {
+      ...existing,
+      target_url: normalizeStoredTargetUrl(existing.target_url, existing.domain),
+      country: normalizeCountryCode(existing.country),
+    };
   }
 
   const nextWebsite = {
     id: nextId(state.websites),
     name: website.name || domain,
     domain,
+    target_url: targetUrl,
     country,
     is_active: website.is_active != null ? !!website.is_active : true,
     created_at: timestamp,
@@ -184,13 +227,18 @@ async function saveWebsite(website) {
 
   state.websites.push(nextWebsite);
   await writeState(state);
-  return { ...nextWebsite, country: normalizeCountryCode(nextWebsite.country) };
+  return {
+    ...nextWebsite,
+    target_url: normalizeStoredTargetUrl(nextWebsite.target_url, nextWebsite.domain),
+    country: normalizeCountryCode(nextWebsite.country),
+  };
 }
 
 async function getWebsites() {
   const state = await readState();
   return [...state.websites].map((item) => ({
     ...item,
+    target_url: normalizeStoredTargetUrl(item.target_url, item.domain),
     country: normalizeCountryCode(item.country),
   })).sort((left, right) => {
     if (Boolean(left.is_active) !== Boolean(right.is_active)) {
@@ -209,7 +257,11 @@ async function getActiveWebsites() {
 async function getWebsiteById(id) {
   const state = await readState();
   const website = state.websites.find((item) => String(item.id) === String(id));
-  return website ? { ...website, country: normalizeCountryCode(website.country) } : null;
+  return website ? {
+    ...website,
+    target_url: normalizeStoredTargetUrl(website.target_url, website.domain),
+    country: normalizeCountryCode(website.country),
+  } : null;
 }
 
 async function updateWebsite(id, updates = {}) {
@@ -227,6 +279,11 @@ async function updateWebsite(id, updates = {}) {
 
   website.name = updates.name != null ? updates.name : website.name;
   website.domain = nextDomain;
+  if (Object.prototype.hasOwnProperty.call(updates, 'target_url')) {
+    website.target_url = normalizeStoredTargetUrl(updates.target_url, nextDomain);
+  } else if (!website.target_url) {
+    website.target_url = null;
+  }
   if (updates.country != null) {
     website.country = normalizeCountryCode(updates.country);
   } else if (!website.country) {
@@ -238,7 +295,11 @@ async function updateWebsite(id, updates = {}) {
   website.updated_at = timestamp;
 
   await writeState(state);
-  return { ...website, country: normalizeCountryCode(website.country) };
+  return {
+    ...website,
+    target_url: normalizeStoredTargetUrl(website.target_url, website.domain),
+    country: normalizeCountryCode(website.country),
+  };
 }
 
 async function deleteWebsite(id) {

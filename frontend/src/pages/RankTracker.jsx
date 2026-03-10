@@ -398,7 +398,8 @@ export default function RankTracker() {
 
       const trackedWebsites = await getTrackedWebsites();
       const persistedWebsite = trackedWebsites.find((item) => String(item.id) === String(website.id))
-        || trackedWebsites.find((item) => item.domain === website.domain);
+        || trackedWebsites.find((item) => item.domain === website.domain)
+        || trackedWebsites.find((item) => item.target_url === website.target_url);
 
       if (!persistedWebsite) {
         throw new Error('The website was not saved by the server. Check the runtime log and try again.');
@@ -407,7 +408,7 @@ export default function RankTracker() {
       setWebsites(sortWebsites(trackedWebsites));
       setSelectedWebsiteId(persistedWebsite.id);
       setRestoreNotice(
-        `Added ${persistedWebsite.domain} to rank tracking for ${getCountryName(persistedWebsite.country)}.`
+        `Added ${getTrackingTargetLabel(persistedWebsite)} to rank tracking for ${getCountryName(persistedWebsite.country)}.`
       );
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -539,14 +540,14 @@ export default function RankTracker() {
     <div>
       <h2 className="text-2xl font-bold text-gray-900 mb-1">Rank Tracker</h2>
       <p className="text-sm text-gray-500 mb-6">
-        Add one or more websites, choose the tracking country for each one, pause or resume tracking with the slider, and monitor keyword positions per site.
+        Add one or more websites or landing pages, choose the tracking country for each one, pause or resume tracking with the slider, and monitor keyword positions per site.
       </p>
 
       <div className="mb-8 bg-white rounded-lg border border-gray-200 p-6 space-y-4">
         <div className="flex flex-col gap-1">
           <h3 className="font-semibold text-gray-900">Tracked Websites</h3>
           <p className="text-sm text-gray-500">
-            Rank tracking runs only for active websites. Add as many domains as you need and switch between them below.
+            Rank tracking runs only for active websites. Add domains or full page URLs, then switch between them below.
           </p>
         </div>
 
@@ -590,7 +591,7 @@ export default function RankTracker() {
             type="text"
             value={websiteDomain}
             onChange={(event) => setWebsiteDomain(event.target.value)}
-            placeholder="example.com"
+            placeholder="example.com or https://example.com/service-page"
             className="px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
           <select
@@ -648,6 +649,11 @@ export default function RankTracker() {
                     >
                       <div className="font-medium text-gray-900">{website.name || website.domain}</div>
                       <div className="text-sm text-gray-500">{website.domain}</div>
+                      {website.target_url && (
+                        <div className="mt-1 text-xs text-gray-500">
+                          Tracking page: {formatTrackingPage(website.target_url)}
+                        </div>
+                      )}
                       <div className="mt-1 text-xs text-gray-500">
                         {website.is_active ? 'Tracking enabled' : 'Tracking paused'}
                         {` · ${getCountryName(website.country)}`}
@@ -735,7 +741,7 @@ export default function RankTracker() {
                   <h3 className="font-semibold text-gray-900">Tracked Keywords ({keywords.length})</h3>
                   <p className="text-xs text-gray-500 mt-1">
                     {selectedWebsite
-                      ? `Showing latest rankings for ${selectedWebsite.domain}`
+                      ? `Showing latest rankings for ${getTrackingTargetLabel(selectedWebsite)}`
                       : 'Select or add a website to view rankings.'}
                   </p>
                 </div>
@@ -806,6 +812,7 @@ export default function RankTracker() {
               </h3>
               <p className="text-sm text-gray-500 mb-4">
                 Website: {selectedWebsite.domain}
+                {selectedWebsite.target_url ? ` · Page: ${formatTrackingPage(selectedWebsite.target_url)}` : ''}
                 {` · Country: ${getCountryName(selectedWebsite.country)}`}
                 {!selectedWebsite.is_active ? ' · Tracking paused' : ''}
               </p>
@@ -828,12 +835,12 @@ export default function RankTracker() {
                 </>
               ) : (
                 <div className="text-center py-16 text-gray-400 text-sm">
-                  No ranking history yet for this keyword on {selectedWebsite.domain}. Daily tracking only runs while the website is active.
+                  No ranking history yet for this keyword on {getTrackingTargetLabel(selectedWebsite)}. Daily tracking only runs while the website is active.
                 </div>
               )
             ) : (
               <div className="text-center py-16 text-gray-400 text-sm">
-                Select a keyword to view ranking history for {selectedWebsite.domain}.
+                Select a keyword to view ranking history for {getTrackingTargetLabel(selectedWebsite)}.
               </div>
             )}
           </div>
@@ -844,7 +851,8 @@ export default function RankTracker() {
 }
 
 function getWebsiteLabel(websites, websiteId) {
-  return websites.find((item) => String(item.id) === String(websiteId))?.domain || 'the selected website';
+  const website = websites.find((item) => String(item.id) === String(websiteId));
+  return website ? getTrackingTargetLabel(website) : 'the selected website';
 }
 
 function sortWebsites(websites) {
@@ -859,6 +867,26 @@ function sortWebsites(websites) {
 
 function getCountryName(countryCode) {
   return SERP_COUNTRIES.find((item) => item.code === String(countryCode || 'US').toUpperCase())?.name || 'United States';
+}
+
+function getTrackingTargetLabel(website) {
+  if (!website) {
+    return 'the selected website';
+  }
+
+  return website.target_url || website.domain;
+}
+
+function formatTrackingPage(targetUrl) {
+  if (!targetUrl) {
+    return '';
+  }
+
+  try {
+    return new URL(targetUrl).pathname || '/';
+  } catch {
+    return targetUrl;
+  }
 }
 
 function formatSavedAt(value) {

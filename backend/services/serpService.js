@@ -196,16 +196,81 @@ async function cacheSERPResults(keyword, results) {
 }
 
 function findResultForDomain(results, targetDomain) {
-  const domainLower = String(targetDomain || '').toLowerCase();
+  const target = parseTrackingTarget(targetDomain);
+
+  if (!target) {
+    return null;
+  }
 
   return results.find((result) => {
     try {
-      const hostname = new URL(result.url).hostname.replace(/^www\./, '').toLowerCase();
-      return hostname.includes(domainLower);
+      const resultUrl = new URL(result.url);
+      const hostname = resultUrl.hostname.replace(/^www\./, '').toLowerCase();
+
+      if (target.type === 'page') {
+        return buildComparablePageUrl(resultUrl) === target.value;
+      }
+
+      return hostname === target.value || hostname.endsWith(`.${target.value}`);
     } catch {
       return false;
     }
   });
+}
+
+function parseTrackingTarget(targetValue) {
+  const raw = String(targetValue || '').trim();
+
+  if (!raw) {
+    return null;
+  }
+
+  let normalized = raw;
+
+  if (!/^https?:\/\//i.test(normalized)) {
+    normalized = `https://${normalized}`;
+  }
+
+  try {
+    const parsedUrl = new URL(normalized);
+    const hostname = parsedUrl.hostname.replace(/^www\./, '').toLowerCase();
+    const pathname = normalizePathname(parsedUrl.pathname);
+
+    if (!hostname) {
+      return null;
+    }
+
+    if (pathname !== '/') {
+      return {
+        type: 'page',
+        value: `https://${hostname}${pathname}`,
+      };
+    }
+
+    return {
+      type: 'domain',
+      value: hostname,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function buildComparablePageUrl(value) {
+  const parsedUrl = value instanceof URL ? value : new URL(value);
+  const hostname = parsedUrl.hostname.replace(/^www\./, '').toLowerCase();
+  return `https://${hostname}${normalizePathname(parsedUrl.pathname)}`;
+}
+
+function normalizePathname(pathname) {
+  const value = String(pathname || '/').trim();
+
+  if (!value || value === '/') {
+    return '/';
+  }
+
+  const normalized = value.startsWith('/') ? value : `/${value}`;
+  return normalized.replace(/\/+$/, '') || '/';
 }
 
 async function persistRankingRecord({ keywordId, websiteId = null, url, position, title, date }) {
@@ -466,7 +531,7 @@ async function syncTrackedRankingsFromResults(keyword, results, country = 'US') 
     const ranking = await trackRankingFromResults(
       trackedKeyword.id,
       trackedKeyword.keyword,
-      website.domain,
+      website.target_url || website.domain,
       website.id,
       results
     );

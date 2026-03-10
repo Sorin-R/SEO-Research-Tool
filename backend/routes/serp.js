@@ -160,7 +160,7 @@ router.post('/track', async (req, res) => {
         return res.status(404).json({ error: 'Website not found.' });
       }
 
-      resolvedTargetDomain = website.domain;
+      resolvedTargetDomain = website.target_url || website.domain;
       resolvedCountry = normalizeCountryCode(website.country);
     }
 

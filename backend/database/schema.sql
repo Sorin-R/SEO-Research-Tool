@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS websites (
   id         INT AUTO_INCREMENT PRIMARY KEY,
   name       VARCHAR(255) NOT NULL,
   domain     VARCHAR(255) NOT NULL,
+  target_url VARCHAR(2048) DEFAULT NULL,
   country    CHAR(2)      NOT NULL DEFAULT 'US',
   is_active  TINYINT(1)   DEFAULT 1,
   created_at TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,

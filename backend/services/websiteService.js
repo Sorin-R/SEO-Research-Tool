@@ -38,7 +38,7 @@ function shouldUseLocalFallback(err) {
 
 function normalizeDomain(domain) {
   if (!domain || !domain.trim()) {
-    throw createServiceError('Website domain is required.');
+    throw createServiceError('Website domain or URL is required.');
   }
 
   let value = domain.trim().toLowerCase();
@@ -52,16 +52,88 @@ function normalizeDomain(domain) {
   try {
     parsedUrl = new URL(value);
   } catch {
-    throw createServiceError('Enter a valid website domain.');
+    throw createServiceError('Enter a valid website domain or URL.');
   }
 
   const hostname = parsedUrl.hostname.replace(/^www\./, '').trim();
 
   if (!hostname) {
-    throw createServiceError('Enter a valid website domain.');
+    throw createServiceError('Enter a valid website domain or URL.');
   }
 
   return hostname;
+}
+
+function normalizePathname(pathname) {
+  const value = String(pathname || '/').trim();
+  if (!value || value === '/') {
+    return '/';
+  }
+
+  const normalized = value.startsWith('/') ? value : `/${value}`;
+  return normalized.replace(/\/+$/, '') || '/';
+}
+
+function normalizeTargetUrl(targetUrl, fallbackDomain = '') {
+  if (!targetUrl || !String(targetUrl).trim()) {
+    return null;
+  }
+
+  let value = String(targetUrl).trim();
+
+  if (!/^https?:\/\//i.test(value)) {
+    value = `https://${value}`;
+  }
+
+  let parsedUrl;
+
+  try {
+    parsedUrl = new URL(value);
+  } catch {
+    return null;
+  }
+
+  const hostname = parsedUrl.hostname.replace(/^www\./, '').trim().toLowerCase() || fallbackDomain;
+  const pathname = normalizePathname(parsedUrl.pathname);
+
+  if (!hostname || pathname === '/') {
+    return null;
+  }
+
+  return `https://${hostname}${pathname}`;
+}
+
+function normalizeTrackingTarget(domain) {
+  if (!domain || !domain.trim()) {
+    throw createServiceError('Website domain or URL is required.');
+  }
+
+  let value = domain.trim().toLowerCase();
+
+  if (!/^https?:\/\//.test(value)) {
+    value = `https://${value}`;
+  }
+
+  let parsedUrl;
+
+  try {
+    parsedUrl = new URL(value);
+  } catch {
+    throw createServiceError('Enter a valid website domain or URL.');
+  }
+
+  const hostname = parsedUrl.hostname.replace(/^www\./, '').trim();
+
+  if (!hostname) {
+    throw createServiceError('Enter a valid website domain or URL.');
+  }
+
+  const normalizedPath = normalizePathname(parsedUrl.pathname);
+
+  return {
+    domain: hostname,
+    targetUrl: normalizedPath === '/' ? null : `https://${hostname}${normalizedPath}`,
+  };
 }
 
 function normalizeName(name, domain) {
@@ -76,6 +148,7 @@ function sanitizeWebsiteRecord(record) {
 
   return {
     ...record,
+    target_url: normalizeTargetUrl(record.target_url, record.domain),
     country: normalizeCountryCode(record.country),
   };
 }
@@ -127,15 +200,15 @@ async function getActiveWebsites() {
 }
 
 async function createWebsite({ name, domain, country = 'US', isActive = true }) {
-  const normalizedDomain = normalizeDomain(domain);
+  const { domain: normalizedDomain, targetUrl: normalizedTargetUrl } = normalizeTrackingTarget(domain);
   const normalizedName = normalizeName(name, normalizedDomain);
   const normalizedCountry = normalizeCountryCode(country);
 
   try {
     const result = await db.query(
-      `INSERT INTO websites (name, domain, country, is_active)
-       VALUES (?, ?, ?, ?)`,
-      [normalizedName, normalizedDomain, normalizedCountry, isActive ? 1 : 0]
+      `INSERT INTO websites (name, domain, target_url, country, is_active)
+       VALUES (?, ?, ?, ?, ?)`,
+      [normalizedName, normalizedDomain, normalizedTargetUrl, normalizedCountry, isActive ? 1 : 0]
     );
 
     return getWebsiteById(result.insertId);
@@ -152,6 +225,7 @@ async function createWebsite({ name, domain, country = 'US', isActive = true }) 
     return localStore.saveWebsite({
       name: normalizedName,
       domain: normalizedDomain,
+      target_url: normalizedTargetUrl,
       country: normalizedCountry,
       is_active: !!isActive,
     });
@@ -165,9 +239,14 @@ async function updateWebsite(id, updates = {}) {
     throw createServiceError('Website not found.', 404);
   }
 
-  const normalizedDomain = updates.domain != null
-    ? normalizeDomain(updates.domain)
-    : existing.domain;
+  const nextTrackingTarget = updates.domain != null
+    ? normalizeTrackingTarget(updates.domain)
+    : {
+        domain: existing.domain,
+        targetUrl: normalizeTargetUrl(existing.target_url, existing.domain),
+      };
+  const normalizedDomain = nextTrackingTarget.domain;
+  const normalizedTargetUrl = nextTrackingTarget.targetUrl;
   const normalizedName = updates.name != null
     ? normalizeName(updates.name, normalizedDomain)
     : existing.name;
@@ -181,9 +260,9 @@ async function updateWebsite(id, updates = {}) {
   try {
     await db.query(
       `UPDATE websites
-       SET name = ?, domain = ?, country = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
+       SET name = ?, domain = ?, target_url = ?, country = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [normalizedName, normalizedDomain, normalizedCountry, isActive ? 1 : 0, id]
+      [normalizedName, normalizedDomain, normalizedTargetUrl, normalizedCountry, isActive ? 1 : 0, id]
     );
 
     return getWebsiteById(id);
@@ -200,6 +279,7 @@ async function updateWebsite(id, updates = {}) {
     return localStore.updateWebsite(id, {
       name: normalizedName,
       domain: normalizedDomain,
+      target_url: normalizedTargetUrl,
       country: normalizedCountry,
       is_active: !!isActive,
     });
@@ -252,5 +332,6 @@ module.exports = {
   getWebsiteById,
   getWebsites,
   normalizeDomain,
+  normalizeTargetUrl,
   updateWebsite,
 };

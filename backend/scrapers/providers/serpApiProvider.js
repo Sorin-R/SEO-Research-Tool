@@ -8,7 +8,7 @@ const axios = require('axios');
 const { throttle } = require('../../utils/rateLimiter');
 const { getCountryConfig } = require('../../utils/searchCountry');
 
-const API_URL = 'https://api.serpapi.com/search';
+const API_URL = 'https://serpapi.com/search';
 
 /**
  * Search using SerpAPI

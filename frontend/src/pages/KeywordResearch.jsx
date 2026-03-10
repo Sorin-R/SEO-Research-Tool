@@ -165,6 +165,59 @@ function buildCsvRowsFromKeywords(keywords = []) {
   }));
 }
 
+function buildCsvRowsFromAiKeywords(aiKeywords = [], sourceKeywords = []) {
+  const sourceMap = new Map(
+    (Array.isArray(sourceKeywords) ? sourceKeywords : []).map((item) => [String(item.keyword || '').toLowerCase(), item])
+  );
+
+  return (Array.isArray(aiKeywords) ? aiKeywords : []).map((item) => {
+    const sourceItem = sourceMap.get(String(item.keyword || '').toLowerCase());
+
+    return {
+      keyword: item.keyword,
+      aiScore: item.score ?? '',
+      reason: item.reason || '',
+      intent: sourceItem?.intent || item.intent || '',
+      cluster: sourceItem?.clusterLabel || item.clusterLabel || '',
+      recommendedPageType: sourceItem?.recommendedPageType || item.recommendedPageType || '',
+      priorityScore: sourceItem?.priorityScore ?? '',
+      opportunityScore: sourceItem?.opportunityScore ?? '',
+      difficultyEstimate: sourceItem?.difficultyEstimate ?? '',
+    };
+  });
+}
+
+function buildCsvRowsFromListItems(items = [], listName = '') {
+  return (Array.isArray(items) ? items : []).map((item) => ({
+    listName,
+    keyword: item.keyword || '',
+    intent: item.intent || '',
+    cluster: item.clusterLabel || '',
+    priorityScore: item.priorityScore ?? '',
+    recommendedPageType: item.recommendedPageType || '',
+    notes: Array.isArray(item.notes) ? item.notes.join(' | ') : '',
+    sourceKeyword: item.sourceKeyword || '',
+  }));
+}
+
+function buildCsvRowsFromAllLists(lists = []) {
+  return (Array.isArray(lists) ? lists : []).flatMap((list) =>
+    buildCsvRowsFromListItems(list.items, list.name)
+  );
+}
+
+function buildClusterSummaryCsvRows(clusters = []) {
+  return (Array.isArray(clusters) ? clusters : []).map((cluster) => ({
+    cluster: cluster.label || '',
+    primaryKeyword: cluster.primaryKeyword || '',
+    intent: cluster.intent || '',
+    recommendedPageType: cluster.recommendedPageType || '',
+    keywordCount: cluster.keywordCount ?? 0,
+    averagePriorityScore: cluster.averagePriorityScore ?? cluster.averageScore ?? '',
+    keywords: (cluster.keywords || []).map((item) => item.keyword).join(' | '),
+  }));
+}
+
 function buildAiClusters(aiKeywords = [], sourceKeywords = []) {
   const sourceMap = new Map(
     (Array.isArray(sourceKeywords) ? sourceKeywords : []).map((item) => [String(item.keyword || '').toLowerCase(), item])
@@ -1051,6 +1104,17 @@ export default function KeywordResearch() {
         <Panel
           title="Saved Lists"
           description="Move winning keywords into reusable lists like Blog ideas, Money pages, low competition, or client-specific buckets."
+          actions={
+            keywordLists.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => downloadCsv('saved-keyword-lists.csv', buildCsvRowsFromAllLists(keywordLists))}
+                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:border-indigo-300 hover:text-indigo-700"
+              >
+                Export all lists CSV
+              </button>
+            ) : null
+          }
         >
           <div className="flex flex-col gap-3 sm:flex-row">
             <input
@@ -1092,23 +1156,38 @@ export default function KeywordResearch() {
 
               <div className="space-y-3">
                 {keywordLists.map((list) => (
-                  <div key={list.id} className="rounded-lg border border-gray-200">
-                    <div className="flex items-center justify-between gap-3 border-b border-gray-200 px-4 py-3">
-                      <div>
-                        <div className="font-medium text-gray-900">{list.name}</div>
-                        <div className="text-xs text-gray-500">
-                          {list.itemCount} saved keyword{list.itemCount === 1 ? '' : 's'}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteList(list.id)}
-                        disabled={deletingListId === list.id}
-                        className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-semibold text-gray-500 hover:border-red-300 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {deletingListId === list.id ? '...' : 'X'}
-                      </button>
-                    </div>
+	                  <div key={list.id} className="rounded-lg border border-gray-200">
+	                    <div className="flex items-center justify-between gap-3 border-b border-gray-200 px-4 py-3">
+	                      <div>
+	                        <div className="font-medium text-gray-900">{list.name}</div>
+	                        <div className="text-xs text-gray-500">
+	                          {list.itemCount} saved keyword{list.itemCount === 1 ? '' : 's'}
+	                        </div>
+	                      </div>
+	                      <div className="flex items-center gap-2">
+	                        <button
+	                          type="button"
+	                          onClick={() =>
+	                            downloadCsv(
+	                              `${list.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-list.csv`,
+	                              buildCsvRowsFromListItems(list.items, list.name)
+	                            )
+	                          }
+	                          disabled={!list.items?.length}
+	                          className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-semibold text-gray-500 hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+	                        >
+	                          Export CSV
+	                        </button>
+	                        <button
+	                          type="button"
+	                          onClick={() => handleDeleteList(list.id)}
+	                          disabled={deletingListId === list.id}
+	                          className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-semibold text-gray-500 hover:border-red-300 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+	                        >
+	                          {deletingListId === list.id ? '...' : 'X'}
+	                        </button>
+	                      </div>
+	                    </div>
                     <div className="px-4 py-3 space-y-2">
                       {list.items?.length ? (
                         list.items.slice(0, 8).map((item) => (
@@ -1170,7 +1249,7 @@ export default function KeywordResearch() {
                 onClick={() => downloadCsv(`${data.keyword.replace(/\s+/g, '-')}-keywords.csv`, data.csvRows || [])}
                 className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:border-indigo-300 hover:text-indigo-700"
               >
-                Export CSV
+                Export full results CSV
               </button>
               <button
                 type="button"
@@ -1261,29 +1340,63 @@ export default function KeywordResearch() {
               {aiError && <ErrorAlert message={aiError} />}
               {aiLoading && <LoadingSpinner message="Filtering keywords with AI..." />}
               {aiData && !aiLoading && (
-                <AIKeywordSection
-                  data={aiData}
-                  sourceKeywords={data.keywords || []}
-                  tracked={tracked}
-                  onTrack={handleTrack}
-                  onSaveToList={(keywords) =>
-                    openSaveListDialog(
-                      (Array.isArray(keywords) ? keywords : [keywords]).map((keyword) => ({
-                        keyword,
-                        sourceKeyword: data.keyword,
-                      })),
-                      'Save AI shortlist to list'
-                    )
-                  }
-                  canSave={keywordLists.length > 0}
-                  savingList={savingList}
-                />
+                <div className="space-y-4">
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        downloadCsv(
+                          `${data.keyword.replace(/\s+/g, '-')}-ai-filter.csv`,
+                          buildCsvRowsFromAiKeywords(aiData.keywords, data.keywords || [])
+                        )
+                      }
+                      className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:border-indigo-300 hover:text-indigo-700"
+                    >
+                      Export AI filter CSV
+                    </button>
+                  </div>
+                  
+                  <AIKeywordSection
+                    data={aiData}
+                    sourceKeywords={data.keywords || []}
+                    tracked={tracked}
+                    onTrack={handleTrack}
+                    onSaveToList={(keywords) =>
+                      openSaveListDialog(
+                        (Array.isArray(keywords) ? keywords : [keywords]).map((keyword) => ({
+                          keyword,
+                          sourceKeyword: data.keyword,
+                        })),
+                        'Save AI shortlist to list'
+                      )
+                    }
+                    canSave={keywordLists.length > 0}
+                    savingList={savingList}
+                  />
+                </div>
               )}
             </div>
           </Panel>
 
           {data.aiResearch?.enabled && (data.aiResearch.keywords || []).length > 0 && (
-            <Panel title="AI First-Pass Keywords" description="These are the raw AI-generated seed keywords before the main scoring layer blends them into the full research set.">
+            <Panel
+              title="AI First-Pass Keywords"
+              description="These are the raw AI-generated seed keywords before the main scoring layer blends them into the full research set."
+              actions={
+                <button
+                  type="button"
+                  onClick={() =>
+                    downloadCsv(
+                      `${data.keyword.replace(/\s+/g, '-')}-ai-first-pass.csv`,
+                      buildCsvRowsFromAiKeywords(data.aiResearch.keywords, data.keywords || [])
+                    )
+                  }
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:border-indigo-300 hover:text-indigo-700"
+                >
+                  Export AI first-pass CSV
+                </button>
+              }
+            >
               <AIKeywordSection
                 data={data.aiResearch}
                 sourceKeywords={data.keywords || []}
@@ -1305,7 +1418,24 @@ export default function KeywordResearch() {
           )}
 
           <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-            <Panel title="Top Opportunities" description="Priority score blends relevance, business intent, difficulty estimate, trend signal, SERP opportunity, and AI-first research when enabled.">
+            <Panel
+              title="Top Opportunities"
+              description="Priority score blends relevance, business intent, difficulty estimate, trend signal, SERP opportunity, and AI-first research when enabled."
+              actions={
+                <button
+                  type="button"
+                  onClick={() =>
+                    downloadCsv(
+                      `${data.keyword.replace(/\s+/g, '-')}-top-opportunities.csv`,
+                      buildCsvRowsFromKeywords((data.keywords || []).slice(0, 20))
+                    )
+                  }
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:border-indigo-300 hover:text-indigo-700"
+                >
+                  Export top opportunities CSV
+                </button>
+              }
+            >
               <KeywordRows
                 keywords={(data.keywords || []).slice(0, 20)}
                 tracked={tracked}
@@ -1359,7 +1489,24 @@ export default function KeywordResearch() {
             </Panel>
           </div>
 
-          <Panel title="Intent Clusters and Page Targets" description="Clusters show which keywords should live on one page, what page type to build, and a ready-made content brief.">
+          <Panel
+            title="Intent Clusters and Page Targets"
+            description="Clusters show which keywords should live on one page, what page type to build, and a ready-made content brief."
+            actions={
+              <button
+                type="button"
+                onClick={() =>
+                  downloadCsv(
+                    `${data.keyword.replace(/\s+/g, '-')}-cluster-summary.csv`,
+                    buildClusterSummaryCsvRows(data.clusters || [])
+                  )
+                }
+                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:border-indigo-300 hover:text-indigo-700"
+              >
+                Export cluster summary CSV
+              </button>
+            }
+          >
             <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
               <div className="space-y-2">
                 {data.clusters?.map((cluster) => (
@@ -1448,7 +1595,24 @@ export default function KeywordResearch() {
             </div>
           </Panel>
 
-          <Panel title="All Scored Keywords" description="Includes intent, cluster, trend, competitor gap, recommended page type, and save/track actions.">
+          <Panel
+            title="All Scored Keywords"
+            description="Includes intent, cluster, trend, competitor gap, recommended page type, and save/track actions."
+            actions={
+              <button
+                type="button"
+                onClick={() =>
+                  downloadCsv(
+                    `${data.keyword.replace(/\s+/g, '-')}-all-scored-keywords.csv`,
+                    data.csvRows || []
+                  )
+                }
+                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:border-indigo-300 hover:text-indigo-700"
+              >
+                Export all scored CSV
+              </button>
+            }
+          >
             <div className="space-y-4">
               <KeywordRows
                 keywords={visibleKeywords}
@@ -1507,12 +1671,15 @@ function mapKeywordToListItem(sourceKeyword) {
   });
 }
 
-function Panel({ title, description, children }) {
+function Panel({ title, description, actions, children }) {
   return (
     <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
-      <div className="flex flex-col gap-1">
-        <h3 className="font-semibold text-gray-900">{title}</h3>
-        {description && <p className="text-sm text-gray-500">{description}</p>}
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="flex flex-col gap-1">
+          <h3 className="font-semibold text-gray-900">{title}</h3>
+          {description && <p className="text-sm text-gray-500">{description}</p>}
+        </div>
+        {actions ? <div className="shrink-0">{actions}</div> : null}
       </div>
       {children}
     </div>
@@ -1858,6 +2025,18 @@ function AIKeywordSection({ data, sourceKeywords, tracked, onTrack, onSaveToList
                 className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:border-indigo-300 hover:text-indigo-700"
               >
                 {showAllClusterKeywords ? 'Show less keywords' : `Show all keywords (${selectedCluster.keywordCount})`}
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  downloadCsv(
+                    `${data.keyword.replace(/\s+/g, '-')}-${selectedCluster.label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-ai-cluster.csv`,
+                    buildCsvRowsFromAiKeywords(selectedCluster.keywords, sourceKeywords)
+                  )
+                }
+                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:border-indigo-300 hover:text-indigo-700"
+              >
+                Export AI cluster CSV
               </button>
             </div>
 

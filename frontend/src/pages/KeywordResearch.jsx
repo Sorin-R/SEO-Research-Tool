@@ -46,6 +46,12 @@ export default function KeywordResearch() {
 
       {data && !loading && (
         <div className="mt-8 space-y-8">
+          <div className="bg-white rounded-lg border border-gray-200 px-5 py-4 text-sm text-gray-600">
+            Found <span className="font-semibold text-gray-900">{data.totalSuggestions || data.allSuggestions?.length || 0}</span> keyword suggestions
+            {data.deepScan ? ' using deep scan' : ''}
+            {data.reachedTarget ? ' (1000+ target reached).' : '.'}
+          </div>
+
           {/* Related keywords */}
           <KeywordSection
             title="Related Keywords"

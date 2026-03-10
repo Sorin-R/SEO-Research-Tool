@@ -1,5 +1,9 @@
 const db = require('../database');
-const { getSuggestions, getExpandedSuggestions } = require('../scrapers/googleAutocomplete');
+const {
+  getSuggestions,
+  getExpandedSuggestions,
+  categoriseSuggestions,
+} = require('../scrapers/googleAutocomplete');
 const localStore = require('../utils/localStore');
 
 /**
@@ -12,7 +16,14 @@ const localStore = require('../utils/localStore');
  * @returns {Promise<Object>}
  */
 async function researchKeyword(keyword, options = {}) {
-  const suggestions = await getSuggestions(keyword);
+  const expansion = options.expand
+    ? await getExpandedSuggestions(keyword, {
+        targetCount: options.targetCount || 1000,
+      })
+    : null;
+  const baseSuggestions = expansion
+    ? categoriseSuggestions(keyword, expansion.suggestions)
+    : await getSuggestions(keyword);
 
   let paaQuestions = [];
   try {
@@ -24,23 +35,23 @@ async function researchKeyword(keyword, options = {}) {
 
   // Merge PAA questions into the questions list
   const allQuestions = [
-    ...suggestions.questions,
-    ...paaQuestions.filter((q) => !suggestions.questions.includes(q)),
+    ...baseSuggestions.questions,
+    ...paaQuestions.filter((q) => !baseSuggestions.questions.includes(q)),
   ];
-
-  let expandedSuggestions = [];
-  if (options.expand) {
-    expandedSuggestions = await getExpandedSuggestions(keyword);
-  }
+  const allSuggestions = expansion ? expansion.suggestions : baseSuggestions.all;
 
   return {
     keyword,
-    related: suggestions.related,
-    longTail: suggestions.longTail,
+    related: baseSuggestions.related,
+    longTail: baseSuggestions.longTail,
     questions: allQuestions,
-    allSuggestions: suggestions.all,
-    expanded: expandedSuggestions,
+    allSuggestions,
+    expanded: allSuggestions,
     paaQuestions,
+    totalSuggestions: allSuggestions.length,
+    deepScan: !!options.expand,
+    reachedTarget: expansion?.reachedTarget || false,
+    requestCount: expansion?.requestCount || 1,
   };
 }
 

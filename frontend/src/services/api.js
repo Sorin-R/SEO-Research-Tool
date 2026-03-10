@@ -7,7 +7,7 @@ const api = axios.create({
 
 // ---- Keywords ----
 
-export async function researchKeyword(keyword, expand = false) {
+export async function researchKeyword(keyword, expand = true) {
   const { data } = await api.get('/keywords', {
     params: { q: keyword, expand },
   });

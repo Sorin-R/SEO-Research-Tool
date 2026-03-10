@@ -1,8 +1,156 @@
 const axios = require('axios');
-const { throttle } = require('../utils/rateLimiter');
 
 const AUTOCOMPLETE_URL =
   'https://suggestqueries.google.com/complete/search';
+const AUTOCOMPLETE_DELAY_MS = parseInt(process.env.AUTOCOMPLETE_DELAY_MS, 10) || 75;
+const DEFAULT_TARGET_COUNT = 1000;
+const DEFAULT_MAX_REQUESTS = 140;
+const DEFAULT_FOLLOWUP_BUDGET = 60;
+const questionWords = ['how', 'what', 'why', 'when', 'where', 'who', 'which', 'can', 'does', 'is', 'are'];
+
+let lastAutocompleteRequestTime = 0;
+
+async function throttleAutocomplete() {
+  const now = Date.now();
+  const elapsed = now - lastAutocompleteRequestTime;
+
+  if (elapsed < AUTOCOMPLETE_DELAY_MS) {
+    await new Promise((resolve) => setTimeout(resolve, AUTOCOMPLETE_DELAY_MS - elapsed));
+  }
+
+  lastAutocompleteRequestTime = Date.now();
+}
+
+function normaliseSuggestion(text) {
+  return String(text || '').replace(/\s+/g, ' ').trim();
+}
+
+function categoriseSuggestions(keyword, suggestions, paaQuestions = []) {
+  const questions = [];
+  const longTail = [];
+  const related = [];
+  const seen = new Set();
+
+  for (const item of [...suggestions, ...paaQuestions]) {
+    const suggestion = normaliseSuggestion(item);
+    if (!suggestion) continue;
+
+    const key = suggestion.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const lower = key;
+    const wordCount = suggestion.split(/\s+/).length;
+
+    if (questionWords.some((qw) => lower.startsWith(qw))) {
+      questions.push(suggestion);
+    } else if (wordCount >= 4) {
+      longTail.push(suggestion);
+    } else {
+      related.push(suggestion);
+    }
+  }
+
+  return {
+    keyword,
+    related,
+    longTail,
+    questions,
+    all: [...related, ...longTail, ...questions],
+  };
+}
+
+function buildSeedQueries(keyword) {
+  const suffixAlphabet = 'abcdefghijklmnopqrstuvwxyz'.split('');
+  const suffixDigits = '0123456789'.split('');
+  const suffixModifiers = [
+    'for',
+    'with',
+    'without',
+    'near me',
+    'best',
+    'tools',
+    'tips',
+    'services',
+    'examples',
+    'ideas',
+    'template',
+    'strategy',
+    'course',
+    'guide',
+    'checklist',
+  ];
+  const prefixModifiers = [
+    'best',
+    'top',
+    'cheap',
+    'free',
+    'local',
+    'how',
+    'what is',
+    'why',
+    'when',
+    'where',
+    'who needs',
+    'examples of',
+    'benefits of',
+    'types of',
+    'alternatives to',
+  ];
+
+  return uniqueStrings([
+    keyword,
+    ...suffixAlphabet.map((token) => `${keyword} ${token}`),
+    ...suffixDigits.map((token) => `${keyword} ${token}`),
+    ...suffixModifiers.map((token) => `${keyword} ${token}`),
+    ...prefixModifiers.map((token) => `${token} ${keyword}`),
+  ]);
+}
+
+function shouldScheduleFollowup(seedKeyword, suggestion) {
+  const normalizedSeed = seedKeyword.toLowerCase();
+  const normalizedSuggestion = suggestion.toLowerCase();
+  const wordCount = suggestion.split(/\s+/).length;
+
+  return (
+    normalizedSuggestion.includes(normalizedSeed) &&
+    wordCount >= 2 &&
+    wordCount <= 6 &&
+    suggestion.length <= 80
+  );
+}
+
+function uniqueStrings(values) {
+  const seen = new Set();
+  const results = [];
+
+  for (const value of values) {
+    const normalized = normaliseSuggestion(value);
+    if (!normalized) continue;
+
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    results.push(normalized);
+  }
+
+  return results;
+}
+
+async function fetchRawSuggestions(query) {
+  await throttleAutocomplete();
+
+  const { data } = await axios.get(AUTOCOMPLETE_URL, {
+    params: { client: 'firefox', q: query },
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+    },
+    timeout: 10000,
+  });
+
+  return uniqueStrings(Array.isArray(data[1]) ? data[1] : []);
+}
 
 /**
  * Fetch Google autocomplete suggestions for a keyword.
@@ -12,40 +160,8 @@ const AUTOCOMPLETE_URL =
  * @returns {Promise<Object>} { related, longTail, questions }
  */
 async function getSuggestions(keyword) {
-  await throttle();
-
-  const { data } = await axios.get(AUTOCOMPLETE_URL, {
-    params: { client: 'firefox', q: keyword },
-    headers: {
-      'User-Agent':
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-    },
-    timeout: 10000,
-  });
-
-  // Response format: [query, [suggestions]]
-  const suggestions = Array.isArray(data[1]) ? data[1] : [];
-
-  // Categorise suggestions
-  const questionWords = ['how', 'what', 'why', 'when', 'where', 'who', 'which', 'can', 'does', 'is', 'are'];
-  const questions = [];
-  const longTail = [];
-  const related = [];
-
-  for (const s of suggestions) {
-    const lower = s.toLowerCase();
-    const wordCount = s.split(/\s+/).length;
-
-    if (questionWords.some((qw) => lower.startsWith(qw))) {
-      questions.push(s);
-    } else if (wordCount >= 4) {
-      longTail.push(s);
-    } else {
-      related.push(s);
-    }
-  }
-
-  return { keyword, related, longTail, questions, all: suggestions };
+  const suggestions = await fetchRawSuggestions(keyword);
+  return categoriseSuggestions(keyword, suggestions);
 }
 
 /**
@@ -55,36 +171,59 @@ async function getSuggestions(keyword) {
  * @param {string} keyword
  * @returns {Promise<string[]>} deduplicated suggestions
  */
-async function getExpandedSuggestions(keyword) {
-  const seen = new Set();
+async function getExpandedSuggestions(keyword, options = {}) {
+  const targetCount = Math.max(100, options.targetCount || DEFAULT_TARGET_COUNT);
+  const maxRequests = Math.max(1, options.maxRequests || DEFAULT_MAX_REQUESTS);
+  const followupBudget = Math.max(0, options.followupBudget || DEFAULT_FOLLOWUP_BUDGET);
+  const queue = buildSeedQueries(keyword);
+  const seenQueries = new Set(queue.map((query) => query.toLowerCase()));
+  const seenSuggestions = new Set();
   const results = [];
+  let requestCount = 0;
+  let followupsScheduled = 0;
 
-  // Base query
-  const base = await getSuggestions(keyword);
-  for (const s of base.all) {
-    if (!seen.has(s)) {
-      seen.add(s);
-      results.push(s);
-    }
-  }
+  while (queue.length > 0 && requestCount < maxRequests && results.length < targetCount) {
+    const query = queue.shift();
 
-  // Alphabet expansion
-  const alphabet = 'abcdefghijklmnopqrstuvwxyz'.split('');
-  for (const letter of alphabet) {
     try {
-      const expanded = await getSuggestions(`${keyword} ${letter}`);
-      for (const s of expanded.all) {
-        if (!seen.has(s)) {
-          seen.add(s);
-          results.push(s);
+      requestCount += 1;
+      const suggestions = await fetchRawSuggestions(query);
+
+      for (const suggestion of suggestions) {
+        const key = suggestion.toLowerCase();
+
+        if (!seenSuggestions.has(key)) {
+          seenSuggestions.add(key);
+          results.push(suggestion);
+        }
+
+        if (
+          followupsScheduled < followupBudget &&
+          shouldScheduleFollowup(keyword, suggestion)
+        ) {
+          const queryKey = suggestion.toLowerCase();
+          if (!seenQueries.has(queryKey)) {
+            seenQueries.add(queryKey);
+            queue.push(suggestion);
+            followupsScheduled += 1;
+          }
+        }
+
+        if (results.length >= targetCount) {
+          break;
         }
       }
     } catch (err) {
-      console.warn(`[Autocomplete] Failed for "${keyword} ${letter}":`, err.message);
+      console.warn(`[Autocomplete] Failed for "${query}":`, err.message);
     }
   }
 
-  return results;
+  return {
+    suggestions: results.slice(0, targetCount),
+    requestCount,
+    targetCount,
+    reachedTarget: results.length >= targetCount,
+  };
 }
 
-module.exports = { getSuggestions, getExpandedSuggestions };
+module.exports = { getSuggestions, getExpandedSuggestions, categoriseSuggestions };

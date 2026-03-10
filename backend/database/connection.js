@@ -49,6 +49,16 @@ const schemaStatements = [
     INDEX idx_keyword_history_updated (keyword(255), updated_at),
     INDEX idx_keyword_history_created (created_at)
   ) ENGINE=InnoDB`,
+  `CREATE TABLE IF NOT EXISTS serp_analysis_history (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    keyword VARCHAR(500) NOT NULL,
+    country CHAR(2) NOT NULL DEFAULT 'US',
+    result JSON NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_serp_history_lookup (keyword(255), country, updated_at),
+    INDEX idx_serp_history_created (created_at)
+  ) ENGINE=InnoDB`,
 ];
 
 /**

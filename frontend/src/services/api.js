@@ -64,6 +64,18 @@ export async function analyzeSERP(keyword, refresh = false, country = 'US') {
   return data;
 }
 
+export async function getSERPAnalysisHistory(limit = 10) {
+  const { data } = await api.get('/serp/history', {
+    params: { limit },
+  });
+  return data;
+}
+
+export async function getSERPAnalysisHistoryItem(id) {
+  const { data } = await api.get(`/serp/history/${id}`);
+  return data;
+}
+
 export async function getLatestRankings() {
   const { data } = await api.get('/serp/rankings');
   return data;
@@ -94,6 +106,18 @@ export async function analyzeContent({ keyword, text, url, compareToSerp }) {
     url,
     compareToSerp,
   });
+  return data;
+}
+
+export async function getContentAnalysisHistory(limit = 10) {
+  const { data } = await api.get('/analyze/history', {
+    params: { limit },
+  });
+  return data;
+}
+
+export async function getContentAnalysisHistoryItem(id) {
+  const { data } = await api.get(`/analyze/history/${id}`);
   return data;
 }
 

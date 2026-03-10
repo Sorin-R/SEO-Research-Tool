@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
@@ -6,8 +6,15 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorAlert from '../components/ErrorAlert';
 import StatCard from '../components/StatCard';
 import ScoreBadge from '../components/ScoreBadge';
-import { analyzeSERP } from '../services/api';
+import {
+  analyzeSERP,
+  getSERPAnalysisHistory,
+  getSERPAnalysisHistoryItem,
+} from '../services/api';
 import { SERP_COUNTRIES } from '../constants/serpCountries';
+
+const STORAGE_KEY = 'seo-tool:serp-analyzer:last-session';
+const HISTORY_LIMIT = 10;
 
 export default function SERPAnalyzer() {
   const [keyword, setKeyword] = useState('');
@@ -15,19 +22,142 @@ export default function SERPAnalyzer() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState(null);
+  const [loadingHistoryId, setLoadingHistoryId] = useState(null);
+  const [storageHydrated, setStorageHydrated] = useState(false);
+  const [restoreNotice, setRestoreNotice] = useState(null);
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(STORAGE_KEY);
+
+      if (!stored) {
+        return;
+      }
+
+      const parsed = JSON.parse(stored);
+
+      if (typeof parsed.keyword === 'string') {
+        setKeyword(parsed.keyword);
+      }
+
+      if (typeof parsed.country === 'string') {
+        setCountry(parsed.country);
+      }
+
+      if (parsed.data) {
+        setData(parsed.data);
+        setRestoreNotice('Restored your last SERP analysis from this browser.');
+      }
+    } catch {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } finally {
+      setStorageHydrated(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadHistory() {
+      setHistoryLoading(true);
+      setHistoryError(null);
+
+      try {
+        const result = await getSERPAnalysisHistory(HISTORY_LIMIT);
+        if (!cancelled) {
+          setHistory(result);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setHistoryError(err.response?.data?.error || err.message);
+        }
+      } finally {
+        if (!cancelled) {
+          setHistoryLoading(false);
+        }
+      }
+    }
+
+    loadHistory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!storageHydrated) {
+      return;
+    }
+
+    if (!data && !keyword.trim()) {
+      window.localStorage.removeItem(STORAGE_KEY);
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          keyword,
+          country,
+          data,
+          savedAt: new Date().toISOString(),
+        })
+      );
+    } catch {
+      // Ignore storage quota issues.
+    }
+  }, [country, data, keyword, storageHydrated]);
+
+  async function refreshHistory() {
+    try {
+      const result = await getSERPAnalysisHistory(HISTORY_LIMIT);
+      setHistory(result);
+      setHistoryError(null);
+    } catch (err) {
+      setHistoryError(err.response?.data?.error || err.message);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
 
   async function handleSearch(searchKeyword = keyword.trim()) {
     if (!searchKeyword) return;
 
     setLoading(true);
     setError(null);
+    setRestoreNotice(null);
     try {
       const result = await analyzeSERP(searchKeyword, false, country);
       setData(result);
+      setKeyword(result.keyword || searchKeyword);
+      setCountry(result.country || country);
+      await refreshHistory();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleLoadHistory(id) {
+    setLoadingHistoryId(id);
+    setError(null);
+
+    try {
+      const result = await getSERPAnalysisHistoryItem(id);
+      setData(result);
+      setKeyword(result.keyword || '');
+      setCountry(result.country || 'US');
+      setRestoreNotice('Loaded a saved SERP analysis from history.');
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+    } finally {
+      setLoadingHistoryId(null);
     }
   }
 
@@ -84,13 +214,65 @@ export default function SERPAnalyzer() {
         </button>
       </form>
 
+      <div className="mt-6 bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+        <div className="flex flex-col gap-1">
+          <h3 className="font-semibold text-gray-900">Recent Saved SERP Analyses</h3>
+          <p className="text-sm text-gray-500">
+            Your last SERP analysis is restored after refresh in this browser, and recent analyses are also saved to the backend.
+          </p>
+        </div>
+
+        {historyLoading && <p className="text-sm text-gray-500">Loading saved analyses...</p>}
+        {historyError && <ErrorAlert message={historyError} />}
+
+        {!historyLoading && !historyError && history.length === 0 && (
+          <p className="text-sm text-gray-500">No saved SERP analyses yet. Run a search and it will appear here.</p>
+        )}
+
+        {!historyLoading && history.length > 0 && (
+          <div className="space-y-2">
+            {history.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleLoadHistory(item.id)}
+                disabled={loadingHistoryId === item.id}
+                className="w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-left hover:border-indigo-300 hover:bg-indigo-50 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+              >
+                <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <div className="font-medium text-gray-900">
+                      {item.keyword} <span className="text-gray-400">· {item.country_name || item.country}</span>
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {item.total_results || 0} results
+                      {item.difficulty_score != null ? ` · Difficulty ${item.difficulty_score}` : ''}
+                    </div>
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {loadingHistoryId === item.id ? 'Loading...' : formatSavedAt(item.updated_at || item.created_at)}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
       {loading && <LoadingSpinner message="Scraping SERP results... This may take a minute." />}
       {error && <div className="mt-6"><ErrorAlert message={error} /></div>}
 
       {data && !loading && (
         <div className="mt-8 space-y-8">
+          {restoreNotice && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-5 py-4 text-sm text-emerald-900">
+              {restoreNotice}
+            </div>
+          )}
+
           <p className="text-sm text-gray-500">
             Scanned country: <span className="font-medium text-gray-700">{data.countryName || country}</span>
+            {data.savedAt ? ` · Saved ${formatSavedAt(data.savedAt)}` : ''}
           </p>
 
           {/* Difficulty + Stats overview */}
@@ -189,4 +371,18 @@ export default function SERPAnalyzer() {
       )}
     </div>
   );
+}
+
+function formatSavedAt(value) {
+  if (!value) {
+    return 'Saved recently';
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Saved recently';
+  }
+
+  return date.toLocaleString();
 }

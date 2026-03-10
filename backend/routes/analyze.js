@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { analyzeContent } = require('../analyzers/contentAnalyzer');
-const { serpService } = require('../services');
+const { serpService, contentAnalysisService } = require('../services');
 
 /**
  * POST /api/analyze
@@ -58,10 +57,11 @@ router.post('/', async (req, res) => {
       }
     }
 
-    const result = await analyzeContent({
+    const result = await contentAnalysisService.analyzeAndStoreContent({
       text: text || undefined,
       url: url || undefined,
       keyword: keyword.trim(),
+      compareToSerp: !!compareToSerp,
       competitorData,
     });
 
@@ -69,6 +69,39 @@ router.post('/', async (req, res) => {
   } catch (err) {
     console.error('[Route /analyze] Error:', err.message);
     res.status(500).json({ error: 'Content analysis failed.', details: err.message });
+  }
+});
+
+/**
+ * GET /api/analyze/history?limit=10
+ * Get recent saved content analyses.
+ */
+router.get('/history', async (req, res) => {
+  try {
+    const history = await contentAnalysisService.getContentAnalysisHistory(req.query.limit);
+    res.json(history);
+  } catch (err) {
+    console.error('[Route /analyze/history] Error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch content analysis history.' });
+  }
+});
+
+/**
+ * GET /api/analyze/history/:id
+ * Restore a saved content analysis.
+ */
+router.get('/history/:id', async (req, res) => {
+  try {
+    const item = await contentAnalysisService.getContentAnalysisHistoryItem(req.params.id);
+
+    if (!item) {
+      return res.status(404).json({ error: 'Content analysis history item not found.' });
+    }
+
+    res.json(item);
+  } catch (err) {
+    console.error('[Route /analyze/history/:id] Error:', err.message);
+    res.status(500).json({ error: 'Failed to load content analysis history item.' });
   }
 });
 

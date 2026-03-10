@@ -12,6 +12,8 @@ import {
   getRankingHistory,
 } from '../services/api';
 
+const STORAGE_KEY = 'seo-tool:rank-tracker:last-session';
+
 export default function RankTracker() {
   const [keywords, setKeywords] = useState([]);
   const [rankings, setRankings] = useState([]);
@@ -21,10 +23,79 @@ export default function RankTracker() {
   const [loading, setLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [restoreNotice, setRestoreNotice] = useState(null);
+  const [storageHydrated, setStorageHydrated] = useState(false);
+  const [restoredSelectionDone, setRestoredSelectionDone] = useState(false);
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(STORAGE_KEY);
+
+      if (!stored) {
+        return;
+      }
+
+      const parsed = JSON.parse(stored);
+
+      if (parsed?.selectedId != null) {
+        setSelectedId(Number(parsed.selectedId));
+      }
+
+      if (typeof parsed?.newKeyword === 'string') {
+        setNewKeyword(parsed.newKeyword);
+      }
+    } catch {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } finally {
+      setStorageHydrated(true);
+    }
+  }, []);
 
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    if (!storageHydrated) {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          selectedId,
+          newKeyword,
+        })
+      );
+    } catch {
+      // Ignore storage quota issues.
+    }
+  }, [newKeyword, selectedId, storageHydrated]);
+
+  useEffect(() => {
+    if (!storageHydrated || loading || restoredSelectionDone) {
+      return;
+    }
+
+    if (!selectedId) {
+      setRestoredSelectionDone(true);
+      return;
+    }
+
+    const matchedKeyword = keywords.find((keywordItem) => String(keywordItem.id) === String(selectedId));
+
+    if (!matchedKeyword) {
+      setSelectedId(null);
+      setRestoreNotice(null);
+      setRestoredSelectionDone(true);
+      return;
+    }
+
+    handleSelectKeyword(matchedKeyword, { restoring: true }).finally(() => {
+      setRestoredSelectionDone(true);
+    });
+  }, [keywords, loading, restoredSelectionDone, selectedId, storageHydrated]);
 
   async function loadData() {
     setLoading(true);
@@ -49,6 +120,7 @@ export default function RankTracker() {
     try {
       await trackKeyword(newKeyword.trim());
       setNewKeyword('');
+      setRestoreNotice(null);
       await loadData();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -61,6 +133,7 @@ export default function RankTracker() {
       if (selectedId === id) {
         setSelectedId(null);
         setHistory([]);
+        setRestoreNotice(null);
       }
       await loadData();
     } catch (err) {
@@ -68,14 +141,25 @@ export default function RankTracker() {
     }
   }
 
-  async function handleSelectKeyword(kw) {
+  async function handleSelectKeyword(kw, options = {}) {
     setSelectedId(kw.id);
     setHistoryLoading(true);
+    setError(null);
     try {
       const h = await getRankingHistory(kw.id, 90);
       setHistory(h);
+      setRestoreNotice(
+        options.restoring
+          ? `Restored ranking history for "${kw.keyword}".`
+          : null
+      );
     } catch {
       setHistory([]);
+      setRestoreNotice(
+        options.restoring
+          ? `Restored "${kw.keyword}", but there is no ranking history yet.`
+          : null
+      );
     } finally {
       setHistoryLoading(false);
     }
@@ -99,6 +183,10 @@ export default function RankTracker() {
         Track keyword positions over time. Rankings are checked daily at 6:00 AM.
       </p>
 
+      <div className="mb-6 bg-white rounded-lg border border-gray-200 px-5 py-4 text-sm text-gray-600">
+        Tracked keywords and ranking history are already saved in the database. This page now also restores your last selected keyword after refresh in this browser.
+      </div>
+
       {/* Add keyword form */}
       <form onSubmit={handleAdd} className="flex gap-3 mb-8">
         <input
@@ -119,6 +207,13 @@ export default function RankTracker() {
 
       {loading && <LoadingSpinner message="Loading tracked keywords..." />}
       {error && <ErrorAlert message={error} onRetry={loadData} />}
+      {restoreNotice && !loading && (
+        <div className="mb-6">
+          <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-5 py-4 text-sm text-emerald-900">
+            {restoreNotice}
+          </div>
+        </div>
+      )}
 
       {!loading && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

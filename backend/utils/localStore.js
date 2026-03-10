@@ -9,6 +9,8 @@ function createEmptyState() {
     rankings: [],
     serpCache: [],
     keywordResearchHistory: [],
+    serpAnalysisHistory: [],
+    contentAnalysisHistory: [],
   };
 }
 
@@ -35,6 +37,12 @@ async function readState() {
       serpCache: Array.isArray(parsed.serpCache) ? parsed.serpCache : [],
       keywordResearchHistory: Array.isArray(parsed.keywordResearchHistory)
         ? parsed.keywordResearchHistory
+        : [],
+      serpAnalysisHistory: Array.isArray(parsed.serpAnalysisHistory)
+        ? parsed.serpAnalysisHistory
+        : [],
+      contentAnalysisHistory: Array.isArray(parsed.contentAnalysisHistory)
+        ? parsed.contentAnalysisHistory
         : [],
     };
   } catch {
@@ -254,6 +262,144 @@ async function getKeywordResearchHistoryItem(id) {
   };
 }
 
+async function saveSerpAnalysisHistory(result, maxEntries = 12) {
+  const state = await readState();
+  const timestamp = nowIso();
+  const keyword = String(result.keyword || '').trim();
+  const country = String(result.country || 'US').trim().toUpperCase();
+  const entryKey = `${keyword.toLowerCase()}::${country}`;
+  const existing = state.serpAnalysisHistory.find((item) => item.entry_key === entryKey);
+
+  if (existing) {
+    existing.keyword = keyword;
+    existing.country = country;
+    existing.country_name = result.countryName || country;
+    existing.total_results = result.totalResults || result.results?.length || 0;
+    existing.difficulty_score = result.difficulty?.score ?? null;
+    existing.result = result;
+    existing.updated_at = timestamp;
+  } else {
+    state.serpAnalysisHistory.push({
+      id: nextId(state.serpAnalysisHistory),
+      entry_key: entryKey,
+      keyword,
+      country,
+      country_name: result.countryName || country,
+      total_results: result.totalResults || result.results?.length || 0,
+      difficulty_score: result.difficulty?.score ?? null,
+      result,
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+  }
+
+  state.serpAnalysisHistory = state.serpAnalysisHistory
+    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+    .slice(0, maxEntries);
+
+  await writeState(state);
+
+  return state.serpAnalysisHistory.find((item) => item.entry_key === entryKey)?.id || null;
+}
+
+async function getSerpAnalysisHistory(limit = 10) {
+  const state = await readState();
+
+  return state.serpAnalysisHistory
+    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+    .slice(0, Math.max(1, Number(limit) || 10))
+    .map((item) => ({
+      id: item.id,
+      keyword: item.keyword,
+      country: item.country,
+      country_name: item.country_name,
+      total_results: item.total_results,
+      difficulty_score: item.difficulty_score,
+      created_at: item.created_at,
+      updated_at: item.updated_at,
+    }));
+}
+
+async function getSerpAnalysisHistoryItem(id) {
+  const state = await readState();
+  const item = state.serpAnalysisHistory.find((entry) => String(entry.id) === String(id));
+
+  if (!item) {
+    return null;
+  }
+
+  return {
+    ...item.result,
+    historyId: item.id,
+    savedAt: item.updated_at,
+  };
+}
+
+async function saveContentAnalysisHistory(payload, maxEntries = 12) {
+  const state = await readState();
+  const timestamp = nowIso();
+
+  state.contentAnalysisHistory.push({
+    id: nextId(state.contentAnalysisHistory),
+    keyword: payload.keyword,
+    url: payload.url || null,
+    input_mode: payload.inputMode,
+    compare_to_serp: !!payload.compareToSerp,
+    seo_score: payload.result?.seoScore ?? null,
+    word_count: payload.result?.wordCount ?? null,
+    payload,
+    created_at: timestamp,
+    updated_at: timestamp,
+  });
+
+  state.contentAnalysisHistory = state.contentAnalysisHistory
+    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+    .slice(0, maxEntries);
+
+  await writeState(state);
+
+  return state.contentAnalysisHistory[0]?.id || null;
+}
+
+async function getContentAnalysisHistory(limit = 10) {
+  const state = await readState();
+
+  return state.contentAnalysisHistory
+    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+    .slice(0, Math.max(1, Number(limit) || 10))
+    .map((item) => ({
+      id: item.id,
+      keyword: item.keyword,
+      url: item.url,
+      input_mode: item.input_mode,
+      compare_to_serp: item.compare_to_serp,
+      seo_score: item.seo_score,
+      word_count: item.word_count,
+      created_at: item.created_at,
+      updated_at: item.updated_at,
+    }));
+}
+
+async function getContentAnalysisHistoryItem(id) {
+  const state = await readState();
+  const item = state.contentAnalysisHistory.find((entry) => String(entry.id) === String(id));
+
+  if (!item) {
+    return null;
+  }
+
+  return {
+    ...item.payload.result,
+    historyId: item.id,
+    savedAt: item.updated_at,
+    inputMode: item.payload.inputMode,
+    inputText: item.payload.inputText,
+    compareToSerp: item.payload.compareToSerp,
+    url: item.payload.url || null,
+    keyword: item.payload.keyword,
+  };
+}
+
 module.exports = {
   getCachedSERP,
   saveSerpCache,
@@ -267,4 +413,10 @@ module.exports = {
   saveKeywordResearchHistory,
   getKeywordResearchHistory,
   getKeywordResearchHistoryItem,
+  saveSerpAnalysisHistory,
+  getSerpAnalysisHistory,
+  getSerpAnalysisHistoryItem,
+  saveContentAnalysisHistory,
+  getContentAnalysisHistory,
+  getContentAnalysisHistoryItem,
 };

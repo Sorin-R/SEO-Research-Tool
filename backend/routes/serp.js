@@ -28,6 +28,39 @@ router.get('/', async (req, res) => {
 });
 
 /**
+ * GET /api/serp/history?limit=10
+ * Get recent saved SERP analyses.
+ */
+router.get('/history', async (req, res) => {
+  try {
+    const history = await serpService.getSERPAnalysisHistory(req.query.limit);
+    res.json(history);
+  } catch (err) {
+    console.error('[Route /serp/history] Error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch SERP analysis history.' });
+  }
+});
+
+/**
+ * GET /api/serp/history/:id
+ * Restore a saved SERP analysis result.
+ */
+router.get('/history/:id', async (req, res) => {
+  try {
+    const item = await serpService.getSERPAnalysisHistoryItem(req.params.id);
+
+    if (!item) {
+      return res.status(404).json({ error: 'SERP analysis history item not found.' });
+    }
+
+    res.json(item);
+  } catch (err) {
+    console.error('[Route /serp/history/:id] Error:', err.message);
+    res.status(500).json({ error: 'Failed to load SERP analysis history item.' });
+  }
+});
+
+/**
  * GET /api/serp/rankings
  * Get the latest rankings for all tracked keywords.
  */

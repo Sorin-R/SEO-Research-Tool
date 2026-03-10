@@ -240,6 +240,9 @@ export default function KeywordResearch() {
   const [selectedClusterKey, setSelectedClusterKey] = useState('');
   const [showAllClusterKeywords, setShowAllClusterKeywords] = useState(false);
   const [showAllKeywords, setShowAllKeywords] = useState(false);
+  const [saveDialogItems, setSaveDialogItems] = useState([]);
+  const [saveDialogLabel, setSaveDialogLabel] = useState('Save to list');
+  const [saveDialogListId, setSaveDialogListId] = useState('');
 
   useEffect(() => {
     try {
@@ -580,22 +583,56 @@ export default function KeywordResearch() {
     }
   }
 
-  async function saveItemsToSelectedList(items) {
-    if (!selectedListId) {
+  async function saveItemsToList(listId, items) {
+    if (!listId) {
       setListsError('Create or select a keyword list first.');
-      return;
+      return false;
     }
 
     setSavingList(true);
     setListsError(null);
 
     try {
-      await addKeywordsToList(selectedListId, items);
-      await refreshLists(selectedListId);
+      await addKeywordsToList(listId, items);
+      await refreshLists(listId);
+      return true;
     } catch (err) {
       setListsError(err.response?.data?.error || err.message);
+      return false;
     } finally {
       setSavingList(false);
+    }
+  }
+
+  function openSaveListDialog(items, label = 'Save to list') {
+    if (!Array.isArray(items) || items.length === 0) {
+      return;
+    }
+
+    if (keywordLists.length === 0) {
+      setListsError('Create a keyword list first.');
+      return;
+    }
+
+    setSaveDialogItems(items);
+    setSaveDialogLabel(label);
+    setSaveDialogListId(selectedListId || String(keywordLists[0].id));
+  }
+
+  function closeSaveListDialog() {
+    setSaveDialogItems([]);
+    setSaveDialogLabel('Save to list');
+    setSaveDialogListId('');
+  }
+
+  async function confirmSaveToList() {
+    if (!saveDialogListId || saveDialogItems.length === 0) {
+      return;
+    }
+
+    const saved = await saveItemsToList(saveDialogListId, saveDialogItems);
+    if (saved) {
+      closeSaveListDialog();
     }
   }
 
@@ -1137,8 +1174,8 @@ export default function KeywordResearch() {
               </button>
               <button
                 type="button"
-                onClick={() => saveItemsToSelectedList((data.keywords || []).slice(0, 25).map(mapKeywordToListItem(data.keyword)))}
-                disabled={savingList || !selectedListId || !(data.keywords || []).length}
+                onClick={() => openSaveListDialog((data.keywords || []).slice(0, 25).map(mapKeywordToListItem(data.keyword)), 'Save top 25 to list')}
+                disabled={savingList || keywordLists.length === 0 || !(data.keywords || []).length}
                 className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {savingList ? 'Saving...' : 'Save top 25 to list'}
@@ -1230,14 +1267,15 @@ export default function KeywordResearch() {
                   tracked={tracked}
                   onTrack={handleTrack}
                   onSaveToList={(keywords) =>
-                    saveItemsToSelectedList(
+                    openSaveListDialog(
                       (Array.isArray(keywords) ? keywords : [keywords]).map((keyword) => ({
                         keyword,
                         sourceKeyword: data.keyword,
-                      }))
+                      })),
+                      'Save AI shortlist to list'
                     )
                   }
-                  canSave={!!selectedListId}
+                  canSave={keywordLists.length > 0}
                   savingList={savingList}
                 />
               )}
@@ -1252,14 +1290,15 @@ export default function KeywordResearch() {
                 tracked={tracked}
                 onTrack={handleTrack}
                 onSaveToList={(keywords) =>
-                  saveItemsToSelectedList(
+                  openSaveListDialog(
                     (Array.isArray(keywords) ? keywords : [keywords]).map((keyword) => ({
                       keyword,
                       sourceKeyword: data.keyword,
-                    }))
+                    })),
+                    'Save AI first-pass keywords'
                   )
                 }
-                canSave={!!selectedListId}
+                canSave={keywordLists.length > 0}
                 savingList={savingList}
               />
             </Panel>
@@ -1271,9 +1310,9 @@ export default function KeywordResearch() {
                 keywords={(data.keywords || []).slice(0, 20)}
                 tracked={tracked}
                 onTrack={handleTrack}
-                onSaveToList={(keyword) => saveItemsToSelectedList([mapKeywordToListItem(data.keyword)(keyword)])}
+                onSaveToList={(keyword) => openSaveListDialog([mapKeywordToListItem(data.keyword)(keyword)], 'Save keyword to list')}
                 savingList={savingList}
-                canSave={!!selectedListId}
+                canSave={keywordLists.length > 0}
               />
             </Panel>
 
@@ -1353,8 +1392,8 @@ export default function KeywordResearch() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => saveItemsToSelectedList(selectedCluster.keywords.map(mapKeywordToListItem(data.keyword)))}
-                      disabled={savingList || !selectedListId}
+                      onClick={() => openSaveListDialog(selectedCluster.keywords.map(mapKeywordToListItem(data.keyword)), 'Save cluster to list')}
+                      disabled={savingList || keywordLists.length === 0}
                       className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Save cluster to list
@@ -1415,9 +1454,9 @@ export default function KeywordResearch() {
                 keywords={visibleKeywords}
                 tracked={tracked}
                 onTrack={handleTrack}
-                onSaveToList={(keyword) => saveItemsToSelectedList([mapKeywordToListItem(data.keyword)(keyword)])}
+                onSaveToList={(keyword) => openSaveListDialog([mapKeywordToListItem(data.keyword)(keyword)], 'Save keyword to list')}
                 savingList={savingList}
-                canSave={!!selectedListId}
+                canSave={keywordLists.length > 0}
               />
 
               {(data.keywords || []).length > MAX_VISIBLE_KEYWORDS && (
@@ -1437,6 +1476,20 @@ export default function KeywordResearch() {
             </div>
           </Panel>
         </div>
+      )}
+
+      {saveDialogItems.length > 0 && (
+        <SaveListDialog
+          title={saveDialogLabel}
+          lists={keywordLists}
+          selectedListId={saveDialogListId}
+          onChangeList={setSaveDialogListId}
+          onClose={closeSaveListDialog}
+          onConfirm={confirmSaveToList}
+          itemCount={saveDialogItems.length}
+          previewKeywords={saveDialogItems.slice(0, 5).map((item) => item.keyword)}
+          saving={savingList}
+        />
       )}
     </div>
   );
@@ -1462,6 +1515,93 @@ function Panel({ title, description, children }) {
         {description && <p className="text-sm text-gray-500">{description}</p>}
       </div>
       {children}
+    </div>
+  );
+}
+
+function SaveListDialog({
+  title,
+  lists,
+  selectedListId,
+  onChangeList,
+  onClose,
+  onConfirm,
+  itemCount,
+  previewKeywords,
+  saving,
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 px-4">
+      <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+            <p className="mt-1 text-sm text-gray-500">
+              Choose which saved list should receive {itemCount} keyword{itemCount === 1 ? '' : 's'}.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-semibold text-gray-500 hover:border-red-300 hover:text-red-600 disabled:opacity-50"
+          >
+            X
+          </button>
+        </div>
+
+        <label className="mt-4 block space-y-1">
+          <span className="text-sm font-medium text-gray-700">Saved List</span>
+          <select
+            value={selectedListId}
+            onChange={(event) => onChangeList(event.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            {lists.map((list) => (
+              <option key={list.id} value={list.id}>
+                {list.name} ({list.itemCount})
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {previewKeywords.length > 0 && (
+          <div className="mt-4 space-y-2">
+            <div className="text-sm font-medium text-gray-700">Preview</div>
+            <div className="flex flex-wrap gap-2">
+              {previewKeywords.map((keyword) => (
+                <span key={keyword} className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-sm text-gray-700">
+                  {keyword}
+                </span>
+              ))}
+              {itemCount > previewKeywords.length && (
+                <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-sm text-gray-500">
+                  +{itemCount - previewKeywords.length} more
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="mt-6 flex justify-end gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={saving || !selectedListId}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {saving ? 'Saving...' : 'Save to list'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

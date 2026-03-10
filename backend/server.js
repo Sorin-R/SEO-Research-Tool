@@ -6,7 +6,7 @@ const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const cron = require('node-cron');
-const { testConnection } = require('./database');
+const { testConnection, ensureSchema } = require('./database');
 const apiRoutes = require('./routes');
 const { keywordService, serpService } = require('./services');
 
@@ -14,6 +14,9 @@ const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 3001;
 
 // ---- Middleware ----
+
+// Hostinger sits behind a reverse proxy, so trust one proxy hop for rate limiting and IP detection.
+app.set('trust proxy', 1);
 
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
@@ -98,8 +101,12 @@ app.use((err, req, res, _next) => {
 async function start() {
   try {
     await testConnection();
-  } catch {
-    console.warn('[Server] MySQL not available — DB features will fail. Continuing anyway...');
+    await ensureSchema();
+  } catch (error) {
+    console.warn('[Server] MySQL not available or schema setup failed — DB features will fail. Continuing anyway...');
+    if (error?.message) {
+      console.warn('[Server] DB startup details:', error.message);
+    }
   }
 
   app.listen(PORT, () => {

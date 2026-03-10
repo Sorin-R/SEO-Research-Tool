@@ -1,12 +1,8 @@
 -- SEO Research Tool - Database Schema
 -- Run this file to initialize the database:
---   mysql -u root -p < database/schema.sql
-
-CREATE DATABASE IF NOT EXISTS seo_tool
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;
-
-USE seo_tool;
+--   mysql -u USER -p DATABASE_NAME < database/schema.sql
+-- This file intentionally does not create or switch databases.
+-- Run it against the database already created by your hosting provider.
 
 -- --------------------------------------------------------
 -- Tracked keywords

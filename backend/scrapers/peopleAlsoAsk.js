@@ -1,4 +1,3 @@
-const puppeteer = require('puppeteer');
 const { throttle } = require('../utils/rateLimiter');
 
 /**
@@ -10,6 +9,14 @@ const { throttle } = require('../utils/rateLimiter');
  */
 async function getPeopleAlsoAsk(keyword) {
   await throttle();
+
+  let puppeteer;
+
+  try {
+    puppeteer = require('puppeteer');
+  } catch {
+    throw new Error('PAA scraping is unavailable because puppeteer is not installed on this host.');
+  }
 
   const browser = await puppeteer.launch({
     headless: 'new',

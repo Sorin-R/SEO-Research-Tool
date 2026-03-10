@@ -292,6 +292,27 @@ export async function compareKeywordTrends(keywords, geo = '', months = 12) {
   return data;
 }
 
+// ---- AI Providers ----
+
+export async function getAIProviders() {
+  const { data } = await api.get('/ai-providers');
+  return data;
+}
+
+export async function updateAIProvider(providerId, enabled) {
+  const { data } = await api.patch(`/ai-providers/${providerId}`, {
+    enabled,
+  });
+  return data;
+}
+
+export async function updateAIProviderCredentials(providerId, credentials) {
+  const { data } = await api.patch(`/ai-providers/${providerId}/credentials`, {
+    credentials,
+  });
+  return data;
+}
+
 // ---- Google Ads ----
 
 export async function getGoogleAdsKeywordIdeas(keyword, bypassCache = false) {

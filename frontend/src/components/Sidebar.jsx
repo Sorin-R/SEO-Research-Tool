@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { to: '/trends', label: 'Google Trends', icon: '📈' },
   { to: '/rank-tracker', label: 'Rank Tracker', icon: '🏆' },
   { to: '/providers', label: 'SERP Providers', icon: '⚙️' },
+  { to: '/ai-providers', label: 'AI Providers', icon: '🤖' },
 ];
 
 export default function Sidebar() {

@@ -7,6 +7,7 @@ const siteAuditService = require('./siteAuditService');
 const websiteService = require('./websiteService');
 const providerCredentialsService = require('./providerCredentialsService');
 const providerSettingsService = require('./providerSettingsService');
+const aiProviderManager = require('./aiProviderManager');
 
 module.exports = {
   keywordService,
@@ -18,4 +19,5 @@ module.exports = {
   websiteService,
   providerCredentialsService,
   providerSettingsService,
+  aiProviderManager,
 };

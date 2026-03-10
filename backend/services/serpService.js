@@ -283,6 +283,20 @@ async function persistRankingRecord({ keywordId, websiteId = null, url, position
       [websiteId, keywordId, url, position, title, date, position, url, title]
     );
   } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') {
+      try {
+        await db.query(
+          `UPDATE rankings
+           SET website_id = ?, position = ?, url = ?, title = ?
+           WHERE keyword_id = ? AND date = ?`,
+          [websiteId, position, url, title, keywordId, date]
+        );
+        return;
+      } catch (updateErr) {
+        console.warn('[SERPService] Failed to repair legacy ranking row after duplicate insert:', updateErr.message);
+      }
+    }
+
     console.warn('[SERPService] DB unavailable, using local store for persistRankingRecord:', err.message);
     await localStore.saveRanking({ keywordId, websiteId, url, position, title, date });
   }
@@ -386,7 +400,13 @@ async function getRankingHistory(keywordId, days = 30, websiteId = null) {
 
     sql += ' ORDER BY date ASC';
 
-    return await db.query(sql, params);
+    const rows = await db.query(sql, params);
+
+    if (rows.length > 0 || websiteId == null) {
+      return rows;
+    }
+
+    return getOrphanedRankingHistory(keywordId, days, websiteId);
   } catch (err) {
     console.warn('[SERPService] DB unavailable, using local store for getRankingHistory:', err.message);
     return localStore.getRankingHistory(keywordId, days, websiteId);
@@ -416,7 +436,13 @@ async function getLatestRankings(websiteId = null) {
 
     sql += ' ORDER BY w.domain, k.keyword';
 
-    return await db.query(sql, params);
+    const rows = await db.query(sql, params);
+
+    if (rows.length > 0 || websiteId == null) {
+      return rows;
+    }
+
+    return getOrphanedLatestRankings(websiteId);
   } catch (err) {
     console.warn('[SERPService] DB unavailable, using local store for getLatestRankings:', err.message);
     return localStore.getLatestRankings(websiteId);
@@ -568,4 +594,83 @@ module.exports = {
 
 function buildCacheKey(keyword, country) {
   return `${normalizeCountryCode(country)}::${keyword.trim().toLowerCase()}`;
+}
+
+async function getWebsiteByIdForMatching(websiteId) {
+  try {
+    const rows = await db.query('SELECT * FROM websites WHERE id = ? LIMIT 1', [websiteId]);
+    return rows[0] || null;
+  } catch {
+    return localStore.getWebsiteById(websiteId);
+  }
+}
+
+function rowMatchesWebsiteTarget(row, website) {
+  if (!website || !row?.url) {
+    return false;
+  }
+
+  return Boolean(findResultForDomain([{ url: row.url }], website.target_url || website.domain));
+}
+
+async function getOrphanedRankingHistory(keywordId, days, websiteId) {
+  const website = await getWebsiteByIdForMatching(websiteId);
+
+  if (!website) {
+    return [];
+  }
+
+  const rows = await db.query(
+    `SELECT r.*, k.keyword
+     FROM rankings r
+     INNER JOIN keywords k ON k.id = r.keyword_id
+     LEFT JOIN websites w ON w.id = r.website_id
+     WHERE r.keyword_id = ?
+       AND date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+       AND w.id IS NULL
+     ORDER BY date ASC`,
+    [keywordId, days]
+  );
+
+  return rows
+    .filter((row) => rowMatchesWebsiteTarget(row, website))
+    .map((row) => ({
+      ...row,
+      website_name: website.name || website.domain,
+      website_domain: website.domain,
+    }));
+}
+
+async function getOrphanedLatestRankings(websiteId) {
+  const website = await getWebsiteByIdForMatching(websiteId);
+
+  if (!website) {
+    return [];
+  }
+
+  const rows = await db.query(
+    `SELECT r.*, k.keyword
+     FROM rankings r
+     INNER JOIN keywords k ON k.id = r.keyword_id
+     LEFT JOIN websites w ON w.id = r.website_id
+     WHERE w.id IS NULL
+     ORDER BY r.date DESC, r.created_at DESC`
+  );
+
+  const matchedRows = rows.filter((row) => rowMatchesWebsiteTarget(row, website));
+  const latestByKeyword = new Map();
+
+  for (const row of matchedRows) {
+    if (!latestByKeyword.has(row.keyword_id)) {
+      latestByKeyword.set(row.keyword_id, {
+        ...row,
+        website_name: website.name || website.domain,
+        website_domain: website.domain,
+      });
+    }
+  }
+
+  return [...latestByKeyword.values()].sort((left, right) =>
+    String(left.keyword || '').localeCompare(String(right.keyword || ''))
+  );
 }

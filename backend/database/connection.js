@@ -163,6 +163,19 @@ async function hasIndex(tableName, indexName) {
   return rows.length > 0;
 }
 
+async function getUniqueIndexes(tableName) {
+  const [rows] = await pool.query(
+    `SELECT INDEX_NAME
+     FROM INFORMATION_SCHEMA.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?
+       AND NON_UNIQUE = 0`,
+    [tableName]
+  );
+
+  return [...new Set(rows.map((row) => row.INDEX_NAME))];
+}
+
 async function hasConstraint(tableName, constraintName) {
   const [rows] = await pool.query(
     `SELECT CONSTRAINT_NAME
@@ -186,8 +199,14 @@ async function ensureRankingsWebsiteSchema() {
     await pool.query('ALTER TABLE rankings ADD INDEX idx_rankings_website (website_id)');
   }
 
-  if (await hasIndex('rankings', 'uq_keyword_date')) {
-    await pool.query('ALTER TABLE rankings DROP INDEX uq_keyword_date');
+  const uniqueIndexes = await getUniqueIndexes('rankings');
+
+  for (const indexName of uniqueIndexes) {
+    if (indexName === 'PRIMARY' || indexName === 'uq_website_keyword_date') {
+      continue;
+    }
+
+    await pool.query(`ALTER TABLE rankings DROP INDEX ${indexName}`);
   }
 
   if (!(await hasIndex('rankings', 'uq_website_keyword_date'))) {

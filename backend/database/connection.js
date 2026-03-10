@@ -52,6 +52,14 @@ const schemaStatements = [
     analysis_data JSON DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   ) ENGINE=InnoDB`,
+  `CREATE TABLE IF NOT EXISTS site_audits (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    url VARCHAR(2048) NOT NULL,
+    total_pages INT DEFAULT NULL,
+    audit_score DECIMAL(5,2) DEFAULT NULL,
+    result JSON NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB`,
   `CREATE TABLE IF NOT EXISTS keyword_research_history (
     id INT AUTO_INCREMENT PRIMARY KEY,
     keyword VARCHAR(500) NOT NULL,

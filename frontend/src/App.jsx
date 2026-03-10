@@ -8,6 +8,7 @@ import ContentAnalyzer from './pages/ContentAnalyzer';
 import GoogleTrends from './pages/GoogleTrends';
 import RankTracker from './pages/RankTracker';
 import ProviderStatus from './pages/ProviderStatus';
+import SiteAudit from './pages/SiteAudit';
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
         <Route path="/analyze" element={<ContentAnalyzer />} />
         <Route path="/trends" element={<GoogleTrends />} />
         <Route path="/rank-tracker" element={<RankTracker />} />
+        <Route path="/site-audit" element={<SiteAudit />} />
         <Route path="/providers" element={<ProviderStatus />} />
       </Route>
     </Routes>

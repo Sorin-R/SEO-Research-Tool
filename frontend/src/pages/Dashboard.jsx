@@ -72,6 +72,11 @@ export default function Dashboard() {
           description="Score your content against competitors."
         />
         <QuickAction
+          to="/site-audit"
+          title="Site Audit"
+          description="Crawl internal pages and surface technical SEO issues."
+        />
+        <QuickAction
           to="/trends"
           title="Google Trends"
           description="Explore search interest over time."

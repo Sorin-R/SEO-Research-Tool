@@ -175,6 +175,33 @@ export async function updateSerpProviderCredentials(providerId, credentials) {
   return data;
 }
 
+// ---- Site Audit ----
+
+export async function auditSite(url, maxPages = 25) {
+  const { data } = await api.post('/site-audit', {
+    url,
+    maxPages,
+  });
+  return data;
+}
+
+export async function getSiteAuditHistory(limit = 10) {
+  const { data } = await api.get('/site-audit/history', {
+    params: { limit },
+  });
+  return data;
+}
+
+export async function getSiteAuditHistoryItem(id) {
+  const { data } = await api.get(`/site-audit/history/${id}`);
+  return data;
+}
+
+export async function deleteSiteAuditHistoryItem(id) {
+  const { data } = await api.delete(`/site-audit/history/${id}`);
+  return data;
+}
+
 // ---- Content Analysis ----
 
 export async function analyzeContent({ keyword, text, url, title, metaDescription, compareToSerp }) {

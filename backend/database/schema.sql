@@ -76,6 +76,18 @@ CREATE TABLE IF NOT EXISTS content_analyses (
 ) ENGINE=InnoDB;
 
 -- --------------------------------------------------------
+-- Site audit history
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS site_audits (
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  url         VARCHAR(2048) NOT NULL,
+  total_pages INT           DEFAULT NULL,
+  audit_score DECIMAL(5,2)  DEFAULT NULL,
+  result      JSON          NOT NULL,
+  created_at  TIMESTAMP     DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+-- --------------------------------------------------------
 -- Saved keyword research history
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS keyword_research_history (

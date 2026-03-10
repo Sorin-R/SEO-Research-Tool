@@ -62,6 +62,7 @@ function createEmptyState() {
     keywordResearchHistory: [],
     serpAnalysisHistory: [],
     contentAnalysisHistory: [],
+    siteAuditHistory: [],
   };
 }
 
@@ -114,6 +115,9 @@ async function readState() {
         : [],
       contentAnalysisHistory: Array.isArray(parsed.contentAnalysisHistory)
         ? parsed.contentAnalysisHistory
+        : [],
+      siteAuditHistory: Array.isArray(parsed.siteAuditHistory)
+        ? parsed.siteAuditHistory
         : [],
     };
   } catch {
@@ -709,6 +713,71 @@ async function deleteContentAnalysisHistoryItem(id) {
   }
 }
 
+async function saveSiteAuditHistory(payload, maxEntries = 12) {
+  const state = await readState();
+  const timestamp = nowIso();
+
+  state.siteAuditHistory.push({
+    id: nextId(state.siteAuditHistory),
+    url: payload.url,
+    total_pages: payload.result?.crawledPages ?? null,
+    audit_score: payload.result?.auditScore ?? null,
+    max_pages: payload.maxPages ?? payload.result?.maxPages ?? null,
+    payload,
+    created_at: timestamp,
+    updated_at: timestamp,
+  });
+
+  state.siteAuditHistory = state.siteAuditHistory
+    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+    .slice(0, maxEntries);
+
+  await writeState(state);
+  return state.siteAuditHistory[0]?.id || null;
+}
+
+async function getSiteAuditHistory(limit = 10) {
+  const state = await readState();
+
+  return state.siteAuditHistory
+    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+    .slice(0, Math.max(1, Number(limit) || 10))
+    .map((item) => ({
+      id: item.id,
+      url: item.url,
+      total_pages: item.total_pages,
+      audit_score: item.audit_score,
+      max_pages: item.max_pages,
+      created_at: item.created_at,
+      updated_at: item.updated_at,
+    }));
+}
+
+async function getSiteAuditHistoryItem(id) {
+  const state = await readState();
+  const item = state.siteAuditHistory.find((entry) => String(entry.id) === String(id));
+
+  if (!item) {
+    return null;
+  }
+
+  return {
+    ...item.payload.result,
+    historyId: item.id,
+    savedAt: item.updated_at,
+  };
+}
+
+async function deleteSiteAuditHistoryItem(id) {
+  const state = await readState();
+  const beforeCount = state.siteAuditHistory.length;
+  state.siteAuditHistory = state.siteAuditHistory.filter((entry) => String(entry.id) !== String(id));
+
+  if (state.siteAuditHistory.length !== beforeCount) {
+    await writeState(state);
+  }
+}
+
 module.exports = {
   getCachedSERP,
   saveSerpCache,
@@ -743,4 +812,8 @@ module.exports = {
   getContentAnalysisHistory,
   getContentAnalysisHistoryItem,
   deleteContentAnalysisHistoryItem,
+  saveSiteAuditHistory,
+  getSiteAuditHistory,
+  getSiteAuditHistoryItem,
+  deleteSiteAuditHistoryItem,
 };

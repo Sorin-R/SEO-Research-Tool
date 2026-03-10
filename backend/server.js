@@ -10,11 +10,16 @@ const { keywordService, serpService } = require('./services');
 
 const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 3001;
+const path = require('path');
 
 // ---- Middleware ----
 
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
+
+// Serve frontend static files
+const frontendPath = path.join(__dirname, '../frontend/dist');
+app.use(express.static(frontendPath));
 
 // Rate limit inbound API requests (per IP)
 const apiLimiter = rateLimit({
@@ -71,9 +76,14 @@ cron.schedule('0 6 * * *', async () => {
 
 // ---- Error handling ----
 
-// 404 handler
+// Fallback to index.html for client-side routing
 app.use((req, res) => {
-  res.status(404).json({ error: `Route ${req.method} ${req.path} not found.` });
+  // If it's an API request, return 404
+  if (req.path.startsWith('/api')) {
+    return res.status(404).json({ error: `Route ${req.method} ${req.path} not found.` });
+  }
+  // Otherwise serve index.html for React Router
+  res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
 // Global error handler

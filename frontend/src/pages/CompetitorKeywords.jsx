@@ -917,7 +917,7 @@ function KeywordRows({ keywords, tracked, savedKeywords, onTrack, onSaveToList, 
                 )}
               </div>
 
-              <div className="flex flex-col items-center justify-center gap-2">
+              <div className="flex w-full flex-col items-end justify-center gap-2">
                 <button
                   type="button"
                   onClick={() => onTrack(item.keyword)}
@@ -969,7 +969,7 @@ function ClusterKeywordList({ keywords, tracked, savedKeywords, onTrack, onSaveT
               )}
             </div>
 
-            <div className="flex flex-col items-center justify-center gap-2">
+            <div className="flex w-full flex-col items-end justify-center gap-2">
               <button
                 type="button"
                 onClick={() => onTrack(keyword)}

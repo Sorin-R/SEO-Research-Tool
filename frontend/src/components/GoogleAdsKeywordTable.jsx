@@ -153,7 +153,7 @@ export default function GoogleAdsKeywordTable({
                   <SortIcon column="cpc" />
                 </button>
               </th>
-              <th className="w-[15rem] min-w-[15rem] px-4 py-3 text-center font-semibold">Actions</th>
+              <th className="w-[15rem] min-w-[15rem] px-4 py-3 text-right font-semibold">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -174,7 +174,7 @@ export default function GoogleAdsKeywordTable({
                   ${idea.cpc.toFixed(2)}
                 </td>
                 <td className="w-[15rem] min-w-[15rem] px-4 py-3 align-middle">
-                  <div className="flex items-center justify-center gap-2">
+                  <div className="flex items-center justify-end gap-2">
                     <button
                       type="button"
                       onClick={() => onTrack?.(idea)}

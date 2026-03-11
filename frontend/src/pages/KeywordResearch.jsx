@@ -11,6 +11,7 @@ import {
   deleteKeywordResearchHistoryItem,
   extractCompetitorKeywords,
   filterKeywordsWithAI,
+  getAIProviders,
   getTrackedKeywords,
   getKeywordLists,
   getKeywordResearchHistory,
@@ -26,6 +27,7 @@ const DEFAULT_AI_RESEARCH_PROMPT =
 const STORAGE_KEY = 'seo-tool:keyword-research:last-session';
 const HISTORY_LIMIT = 10;
 const MAX_VISIBLE_KEYWORDS = 150;
+const KEYWORD_AI_PROVIDER_PRIORITY = ['nvidia', 'openai'];
 const COUNTRY_OPTIONS = [
   ['US', 'United States'],
   ['GB', 'United Kingdom'],
@@ -124,6 +126,27 @@ function formatSavedAt(value) {
 
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? 'Saved recently' : date.toLocaleString();
+}
+
+function findKeywordAiProvider(details = []) {
+  const availableDetails = Array.isArray(details) ? details : [];
+
+  for (const providerId of KEYWORD_AI_PROVIDER_PRIORITY) {
+    const provider = availableDetails.find((entry) => entry.id === providerId);
+    if (provider?.active) {
+      return provider;
+    }
+  }
+
+  return null;
+}
+
+function getAiModelLabel(provider) {
+  if (!provider) {
+    return '';
+  }
+
+  return String(provider.selectedModel || provider.defaultModel || '').trim();
 }
 
 function escapeCsvValue(value) {
@@ -325,6 +348,7 @@ export default function KeywordResearch() {
   const [saveDialogItems, setSaveDialogItems] = useState([]);
   const [saveDialogLabel, setSaveDialogLabel] = useState('Save to list');
   const [saveDialogListId, setSaveDialogListId] = useState('');
+  const [activeAiModel, setActiveAiModel] = useState('');
 
   useEffect(() => {
     try {
@@ -351,6 +375,9 @@ export default function KeywordResearch() {
 
       if (parsed?.aiData) {
         setAiData(parsed.aiData);
+        if (parsed.aiData.model) {
+          setActiveAiModel(String(parsed.aiData.model));
+        }
       }
 
       if (parsed?.competitorData) {
@@ -440,6 +467,32 @@ export default function KeywordResearch() {
       cancelled = true;
     };
   }, [selectedListId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadActiveAiModel() {
+      try {
+        const status = await getAIProviders();
+        if (cancelled) {
+          return;
+        }
+
+        const provider = findKeywordAiProvider(status?.details || []);
+        setActiveAiModel(getAiModelLabel(provider));
+      } catch {
+        if (!cancelled) {
+          setActiveAiModel('');
+        }
+      }
+    }
+
+    loadActiveAiModel();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!data?.clusters?.length) {
@@ -577,6 +630,9 @@ export default function KeywordResearch() {
         maxResults: aiMaxResults,
       });
       setAiData(result);
+      if (result?.model) {
+        setActiveAiModel(String(result.model));
+      }
     } catch (err) {
       setAiError(err.response?.data?.error || err.message);
     } finally {
@@ -789,6 +845,7 @@ export default function KeywordResearch() {
   const isSelectedClusterSaved = !!selectedCluster?.keywords?.length
     && selectedCluster.keywords.every((item) => savedKeywordSet.has(String(item.keyword || '').toLowerCase()));
   const visibleKeywords = showAllKeywords ? data?.keywords || [] : (data?.keywords || []).slice(0, MAX_VISIBLE_KEYWORDS);
+  const poweredByModel = activeAiModel || aiData?.model || 'No active AI model';
 
   return (
     <div className="space-y-8">
@@ -1565,9 +1622,7 @@ export default function KeywordResearch() {
                 </button>
               </div>
 
-              <p className="text-xs text-gray-500">
-                Requires an active AI provider (OpenAI or NVIDIA) configured in AI Providers.
-              </p>
+              <p className="text-xs text-gray-500">Powered by {poweredByModel}</p>
               {aiError && <ErrorAlert message={aiError} />}
               {aiLoading && <LoadingSpinner message="Filtering keywords with AI..." />}
               {aiData && !aiLoading && (

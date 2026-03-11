@@ -8,7 +8,7 @@ const axios = require('axios');
 const { throttle } = require('../../utils/rateLimiter');
 const { getCountryConfig } = require('../../utils/searchCountry');
 
-const API_URL = 'https://api.zenserp.com/v2/search';
+const API_URL = 'https://app.zenserp.com/api/v2/search';
 
 /**
  * Search using Zenserp
@@ -36,7 +36,7 @@ async function search(keyword, numResults = 10, options = {}) {
         gl: country.googleGl,
         hl: country.hl,
       },
-      timeout: 15000,
+      timeout: 20000,
     });
 
     if (response.data.error) {
@@ -50,7 +50,7 @@ async function search(keyword, numResults = 10, options = {}) {
         position: index + 1,
         title: result.title,
         url: result.url,
-        snippet: result.snippet || '',
+        snippet: result.snippet || result.description || '',
       }));
 
     return results;

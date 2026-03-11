@@ -1,5 +1,7 @@
 const { GoogleAdsApi, ResourceNames } = require('google-ads-api');
 const Cache = require('../utils/cache');
+const db = require('../database/connection');
+const localStore = require('../utils/localStore');
 
 /**
  * Google Ads API Service
@@ -8,6 +10,7 @@ const Cache = require('../utils/cache');
 
 // Initialize cache for keyword ideas (10 minute TTL)
 const ideaCache = new Cache(10 * 60 * 1000);
+const MAX_HISTORY_ENTRIES = 12;
 
 // Google Ads client initialization
 let client = null;
@@ -151,6 +154,15 @@ async function generateKeywordIdeas(keyword, options = {}) {
       generatedAt: new Date().toISOString(),
     };
 
+    try {
+      const historyId = await persistGoogleAdsKeywordHistory(result);
+      if (historyId) {
+        result.historyId = historyId;
+      }
+    } catch (historyError) {
+      console.warn('[GoogleAdsService] Failed to persist keyword idea history:', historyError.message);
+    }
+
     // Cache the result
     ideaCache.set(cacheKey, result);
 
@@ -164,6 +176,31 @@ async function generateKeywordIdeas(keyword, options = {}) {
 
 function normalizeCustomerId(customerId) {
   return String(customerId || '').replace(/-/g, '').trim();
+}
+
+function clampLimit(limit, min = 1, max = MAX_HISTORY_ENTRIES) {
+  const parsed = Number.parseInt(limit, 10);
+  if (!Number.isFinite(parsed)) {
+    return max;
+  }
+
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function parseStoredResult(result) {
+  if (!result) {
+    return null;
+  }
+
+  if (typeof result === 'string') {
+    try {
+      return JSON.parse(result);
+    } catch {
+      return null;
+    }
+  }
+
+  return result;
 }
 
 function parseIntegerMetric(value) {
@@ -220,6 +257,143 @@ function normalizeCpc(metrics = {}) {
   return 0;
 }
 
+async function persistGoogleAdsKeywordHistory(result) {
+  const keyword = String(result.keyword || '').trim();
+  const country = String(result.country || 'US').trim().toUpperCase();
+
+  if (!keyword) {
+    return null;
+  }
+
+  const payload = {
+    ...result,
+    keyword,
+    country,
+  };
+
+  try {
+    const existing = await db.query(
+      `SELECT id
+       FROM google_ads_keyword_history
+       WHERE LOWER(keyword) = LOWER(?) AND country = ?
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+      [keyword, country]
+    );
+
+    let historyId;
+
+    if (existing.length > 0) {
+      historyId = existing[0].id;
+
+      await db.query(
+        `UPDATE google_ads_keyword_history
+         SET keyword = ?, country = ?, country_name = ?, result = ?, total_ideas = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [
+          keyword,
+          country,
+          payload.countryName || country,
+          JSON.stringify(payload),
+          payload.totalIdeas || payload.ideas?.length || 0,
+          historyId,
+        ]
+      );
+
+      await db.query(
+        `DELETE FROM google_ads_keyword_history
+         WHERE LOWER(keyword) = LOWER(?) AND country = ? AND id <> ?`,
+        [keyword, country, historyId]
+      );
+    } else {
+      const insertResult = await db.query(
+        `INSERT INTO google_ads_keyword_history (keyword, country, country_name, result, total_ideas)
+         VALUES (?, ?, ?, ?, ?)`,
+        [
+          keyword,
+          country,
+          payload.countryName || country,
+          JSON.stringify(payload),
+          payload.totalIdeas || payload.ideas?.length || 0,
+        ]
+      );
+      historyId = insertResult.insertId;
+    }
+
+    await db.query(
+      `DELETE FROM google_ads_keyword_history
+       WHERE id NOT IN (
+         SELECT id FROM (
+           SELECT id
+           FROM google_ads_keyword_history
+           ORDER BY updated_at DESC
+           LIMIT ${MAX_HISTORY_ENTRIES}
+         ) AS recent_google_ads_history
+       )`
+    );
+
+    return historyId;
+  } catch (err) {
+    console.warn('[GoogleAdsService] DB unavailable, using local store for saveGoogleAdsKeywordHistory:', err.message);
+    return localStore.saveGoogleAdsKeywordHistory(payload, MAX_HISTORY_ENTRIES);
+  }
+}
+
+async function getGoogleAdsKeywordHistory(limit = 10) {
+  const safeLimit = clampLimit(limit);
+
+  try {
+    return await db.query(
+      `SELECT id, keyword, country, country_name, total_ideas, created_at, updated_at
+       FROM google_ads_keyword_history
+       ORDER BY updated_at DESC
+       LIMIT ${safeLimit}`
+    );
+  } catch (err) {
+    console.warn('[GoogleAdsService] DB unavailable, using local store for getGoogleAdsKeywordHistory:', err.message);
+    return localStore.getGoogleAdsKeywordHistory(safeLimit);
+  }
+}
+
+async function getGoogleAdsKeywordHistoryItem(id) {
+  try {
+    const rows = await db.query(
+      `SELECT id, result, updated_at
+       FROM google_ads_keyword_history
+       WHERE id = ?
+       LIMIT 1`,
+      [id]
+    );
+    const row = rows[0];
+
+    if (!row) {
+      return null;
+    }
+
+    const parsedResult = parseStoredResult(row.result);
+
+    return parsedResult
+      ? {
+          ...parsedResult,
+          historyId: row.id,
+          savedAt: row.updated_at,
+        }
+      : null;
+  } catch (err) {
+    console.warn('[GoogleAdsService] DB unavailable, using local store for getGoogleAdsKeywordHistoryItem:', err.message);
+    return localStore.getGoogleAdsKeywordHistoryItem(id);
+  }
+}
+
+async function deleteGoogleAdsKeywordHistoryItem(id) {
+  try {
+    await db.query('DELETE FROM google_ads_keyword_history WHERE id = ?', [id]);
+  } catch (err) {
+    console.warn('[GoogleAdsService] DB unavailable, using local store for deleteGoogleAdsKeywordHistoryItem:', err.message);
+    await localStore.deleteGoogleAdsKeywordHistoryItem(id);
+  }
+}
+
 /**
  * Clear the keyword ideas cache.
  * Useful for manual cache invalidation.
@@ -238,6 +412,9 @@ function getCacheStats() {
 
 module.exports = {
   generateKeywordIdeas,
+  getGoogleAdsKeywordHistory,
+  getGoogleAdsKeywordHistoryItem,
+  deleteGoogleAdsKeywordHistoryItem,
   initializeClient,
   clearCache,
   getCacheStats,

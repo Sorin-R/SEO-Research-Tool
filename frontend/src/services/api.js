@@ -331,6 +331,23 @@ export async function getGoogleAdsKeywordIdeas(keyword, bypassCache = false, cou
   return data;
 }
 
+export async function getGoogleAdsKeywordHistory(limit = 10) {
+  const { data } = await api.get('/google-ads/history', {
+    params: { limit },
+  });
+  return data;
+}
+
+export async function getGoogleAdsKeywordHistoryItem(id) {
+  const { data } = await api.get(`/google-ads/history/${id}`);
+  return data;
+}
+
+export async function deleteGoogleAdsKeywordHistoryItem(id) {
+  const { data } = await api.delete(`/google-ads/history/${id}`);
+  return data;
+}
+
 export async function getGoogleAdsCacheStats() {
   const { data } = await api.get('/google-ads/cache-stats');
   return data;

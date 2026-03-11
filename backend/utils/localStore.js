@@ -62,6 +62,7 @@ function createEmptyState() {
     keywordResearchHistory: [],
     keywordLists: [],
     serpAnalysisHistory: [],
+    googleAdsKeywordHistory: [],
     contentAnalysisHistory: [],
     siteAuditHistory: [],
   };
@@ -116,6 +117,9 @@ async function readState() {
         : [],
       serpAnalysisHistory: Array.isArray(parsed.serpAnalysisHistory)
         ? parsed.serpAnalysisHistory
+        : [],
+      googleAdsKeywordHistory: Array.isArray(parsed.googleAdsKeywordHistory)
+        ? parsed.googleAdsKeywordHistory
         : [],
       contentAnalysisHistory: Array.isArray(parsed.contentAnalysisHistory)
         ? parsed.contentAnalysisHistory
@@ -781,6 +785,86 @@ async function deleteSerpAnalysisHistoryItem(id) {
   }
 }
 
+async function saveGoogleAdsKeywordHistory(result, maxEntries = 12) {
+  const state = await readState();
+  const timestamp = nowIso();
+  const keyword = String(result.keyword || '').trim();
+  const country = String(result.country || 'US').trim().toUpperCase();
+  const entryKey = `${keyword.toLowerCase()}::${country}`;
+  const existing = state.googleAdsKeywordHistory.find((item) => item.entry_key === entryKey);
+
+  if (existing) {
+    existing.keyword = keyword;
+    existing.country = country;
+    existing.country_name = result.countryName || country;
+    existing.total_ideas = result.totalIdeas || result.ideas?.length || 0;
+    existing.result = result;
+    existing.updated_at = timestamp;
+  } else {
+    state.googleAdsKeywordHistory.push({
+      id: nextId(state.googleAdsKeywordHistory),
+      entry_key: entryKey,
+      keyword,
+      country,
+      country_name: result.countryName || country,
+      total_ideas: result.totalIdeas || result.ideas?.length || 0,
+      result,
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+  }
+
+  state.googleAdsKeywordHistory = state.googleAdsKeywordHistory
+    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+    .slice(0, maxEntries);
+
+  await writeState(state);
+
+  return state.googleAdsKeywordHistory.find((item) => item.entry_key === entryKey)?.id || null;
+}
+
+async function getGoogleAdsKeywordHistory(limit = 10) {
+  const state = await readState();
+
+  return state.googleAdsKeywordHistory
+    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+    .slice(0, Math.max(1, Number(limit) || 10))
+    .map((item) => ({
+      id: item.id,
+      keyword: item.keyword,
+      country: item.country,
+      country_name: item.country_name,
+      total_ideas: item.total_ideas,
+      created_at: item.created_at,
+      updated_at: item.updated_at,
+    }));
+}
+
+async function getGoogleAdsKeywordHistoryItem(id) {
+  const state = await readState();
+  const item = state.googleAdsKeywordHistory.find((entry) => String(entry.id) === String(id));
+
+  if (!item) {
+    return null;
+  }
+
+  return {
+    ...item.result,
+    historyId: item.id,
+    savedAt: item.updated_at,
+  };
+}
+
+async function deleteGoogleAdsKeywordHistoryItem(id) {
+  const state = await readState();
+  const beforeCount = state.googleAdsKeywordHistory.length;
+  state.googleAdsKeywordHistory = state.googleAdsKeywordHistory.filter((entry) => String(entry.id) !== String(id));
+
+  if (state.googleAdsKeywordHistory.length !== beforeCount) {
+    await writeState(state);
+  }
+}
+
 async function saveContentAnalysisHistory(payload, maxEntries = 12) {
   const state = await readState();
   const timestamp = nowIso();
@@ -958,6 +1042,10 @@ module.exports = {
   getSerpAnalysisHistory,
   getSerpAnalysisHistoryItem,
   deleteSerpAnalysisHistoryItem,
+  saveGoogleAdsKeywordHistory,
+  getGoogleAdsKeywordHistory,
+  getGoogleAdsKeywordHistoryItem,
+  deleteGoogleAdsKeywordHistoryItem,
   saveContentAnalysisHistory,
   getContentAnalysisHistory,
   getContentAnalysisHistoryItem,

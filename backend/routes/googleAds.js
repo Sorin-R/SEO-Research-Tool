@@ -1,6 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const { generateKeywordIdeas, clearCache, getCacheStats } = require('../services/googleAdsService');
+const {
+  generateKeywordIdeas,
+  getGoogleAdsKeywordHistory,
+  getGoogleAdsKeywordHistoryItem,
+  deleteGoogleAdsKeywordHistoryItem,
+  clearCache,
+  getCacheStats,
+} = require('../services/googleAdsService');
 const { getGoogleAdsCountryConfig } = require('../utils/googleAdsCountry');
 
 /**
@@ -42,6 +49,41 @@ router.get('/keyword-ideas', async (req, res) => {
       error: err.message,
       details: 'Failed to generate keyword ideas. Check API credentials.',
     });
+  }
+});
+
+router.get('/history', async (req, res) => {
+  try {
+    const history = await getGoogleAdsKeywordHistory(req.query.limit);
+    res.json(history);
+  } catch (err) {
+    console.error('[Route /google-ads/history] Error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch Google Ads keyword research history.' });
+  }
+});
+
+router.get('/history/:id', async (req, res) => {
+  try {
+    const item = await getGoogleAdsKeywordHistoryItem(req.params.id);
+
+    if (!item) {
+      return res.status(404).json({ error: 'Google Ads keyword research history item not found.' });
+    }
+
+    res.json(item);
+  } catch (err) {
+    console.error('[Route /google-ads/history/:id] Error:', err.message);
+    res.status(500).json({ error: 'Failed to load Google Ads keyword research history item.' });
+  }
+});
+
+router.delete('/history/:id', async (req, res) => {
+  try {
+    await deleteGoogleAdsKeywordHistoryItem(req.params.id);
+    res.json({ message: 'Google Ads keyword research history item deleted.' });
+  } catch (err) {
+    console.error('[Route /google-ads/history/:id DELETE] Error:', err.message);
+    res.status(500).json({ error: 'Failed to delete Google Ads keyword research history item.' });
   }
 });
 

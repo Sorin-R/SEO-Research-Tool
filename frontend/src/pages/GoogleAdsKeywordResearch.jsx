@@ -18,11 +18,17 @@ import {
   clearGoogleAdsCache,
   createKeywordList,
   getGoogleAdsCacheStats,
+  deleteGoogleAdsKeywordHistoryItem,
+  getGoogleAdsKeywordHistory,
+  getGoogleAdsKeywordHistoryItem,
   getGoogleAdsKeywordIdeas,
   getKeywordLists,
   getTrackedKeywords,
   trackKeyword,
 } from '../services/api';
+
+const STORAGE_KEY = 'seo-tool:google-ads-keyword-research:last-session';
+const HISTORY_LIMIT = 10;
 
 const COUNTRY_OPTIONS = [
   ['US', 'United States'],
@@ -47,6 +53,13 @@ export default function GoogleAdsKeywordResearch() {
   const [cacheStats, setCacheStats] = useState(null);
   const [lastKeyword, setLastKeyword] = useState('');
   const [country, setCountry] = useState('US');
+  const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState(null);
+  const [loadingHistoryId, setLoadingHistoryId] = useState(null);
+  const [deletingHistoryId, setDeletingHistoryId] = useState(null);
+  const [storageHydrated, setStorageHydrated] = useState(false);
+  const [restoreNotice, setRestoreNotice] = useState(null);
   const [tracked, setTracked] = useState(new Set());
   const [keywordLists, setKeywordLists] = useState([]);
   const [listsLoading, setListsLoading] = useState(true);
@@ -58,6 +71,35 @@ export default function GoogleAdsKeywordResearch() {
   const [saveDialogItems, setSaveDialogItems] = useState([]);
   const [saveDialogLabel, setSaveDialogLabel] = useState('Save to list');
   const [saveDialogListId, setSaveDialogListId] = useState('');
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(STORAGE_KEY);
+
+      if (!stored) {
+        return;
+      }
+
+      const parsed = JSON.parse(stored);
+
+      if (typeof parsed.lastKeyword === 'string') {
+        setLastKeyword(parsed.lastKeyword);
+      }
+
+      if (typeof parsed.country === 'string') {
+        setCountry(parsed.country);
+      }
+
+      if (parsed.data) {
+        setData(parsed.data);
+        setRestoreNotice('Restored your last Google Ads keyword search from this browser.');
+      }
+    } catch {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } finally {
+      setStorageHydrated(true);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -104,17 +146,77 @@ export default function GoogleAdsKeywordResearch() {
     };
   }, [selectedListId]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadHistory() {
+      setHistoryLoading(true);
+      setHistoryError(null);
+
+      try {
+        const result = await getGoogleAdsKeywordHistory(HISTORY_LIMIT);
+        if (!cancelled) {
+          setHistory(result);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setHistoryError(err.response?.data?.error || err.message);
+        }
+      } finally {
+        if (!cancelled) {
+          setHistoryLoading(false);
+        }
+      }
+    }
+
+    loadHistory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!storageHydrated) {
+      return;
+    }
+
+    if (!data && !lastKeyword.trim()) {
+      window.localStorage.removeItem(STORAGE_KEY);
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          data,
+          country,
+          lastKeyword,
+          savedAt: new Date().toISOString(),
+        })
+      );
+    } catch {
+      // Ignore storage quota issues.
+    }
+  }, [country, data, lastKeyword, storageHydrated]);
+
   async function handleSearch(keyword) {
     setLoading(true);
     setError(null);
+    setRestoreNotice(null);
     setLastKeyword(keyword);
     try {
       const result = await getGoogleAdsKeywordIdeas(keyword, false, country);
       setData(result);
+      setLastKeyword(result.keyword || keyword);
+      setCountry(result.country || country);
+      setRestoreNotice(buildGoogleAdsNotice(result));
 
       // Fetch cache stats
       const stats = await getGoogleAdsCacheStats();
       setCacheStats(stats);
+      await refreshHistory();
     } catch (err) {
       const errorMsg =
         err.response?.data?.error ||
@@ -139,13 +241,31 @@ export default function GoogleAdsKeywordResearch() {
   async function handleBypassCache() {
     if (!data?.keyword) return;
     setLoading(true);
+    setError(null);
+    setRestoreNotice(null);
     try {
       const result = await getGoogleAdsKeywordIdeas(data.keyword, true, country);
       setData(result);
+      setLastKeyword(result.keyword || data.keyword);
+      setCountry(result.country || country);
+      setRestoreNotice(buildGoogleAdsNotice(result, true));
+      await refreshHistory();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function refreshHistory() {
+    try {
+      const result = await getGoogleAdsKeywordHistory(HISTORY_LIMIT);
+      setHistory(result);
+      setHistoryError(null);
+    } catch (err) {
+      setHistoryError(err.response?.data?.error || err.message);
+    } finally {
+      setHistoryLoading(false);
     }
   }
 
@@ -261,6 +381,44 @@ export default function GoogleAdsKeywordResearch() {
     handleSearch(lastKeyword.trim());
   }
 
+  async function handleLoadHistory(id) {
+    setLoadingHistoryId(id);
+    setError(null);
+
+    try {
+      const result = await getGoogleAdsKeywordHistoryItem(id);
+      setData(result);
+      setLastKeyword(result.keyword || '');
+      setCountry(result.country || 'US');
+      setRestoreNotice('Loaded a saved Google Ads keyword search from history.');
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+    } finally {
+      setLoadingHistoryId(null);
+    }
+  }
+
+  async function handleDeleteHistory(id) {
+    setDeletingHistoryId(id);
+    setHistoryError(null);
+    setError(null);
+
+    try {
+      await deleteGoogleAdsKeywordHistoryItem(id);
+      setHistory((current) => current.filter((item) => String(item.id) !== String(id)));
+
+      if (String(data?.historyId) === String(id)) {
+        setData(null);
+        setRestoreNotice(null);
+        window.localStorage.removeItem(STORAGE_KEY);
+      }
+    } catch (err) {
+      setHistoryError(err.response?.data?.error || err.message);
+    } finally {
+      setDeletingHistoryId(null);
+    }
+  }
+
   return (
     <div>
       <h2 className="text-2xl font-bold text-gray-900 mb-1">Google Ads Keyword Research</h2>
@@ -347,11 +505,75 @@ export default function GoogleAdsKeywordResearch() {
         {listsError && <div className="mt-3"><ErrorAlert message={listsError} /></div>}
       </form>
 
+      <div className="mt-6 bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+        <div className="flex flex-col gap-1">
+          <h3 className="font-semibold text-gray-900">Recent Saved Searches</h3>
+          <p className="text-sm text-gray-500">
+            Your last Google Ads keyword search restores after refresh in this browser, and recent searches are also saved to the backend.
+          </p>
+        </div>
+
+        {historyLoading && <p className="text-sm text-gray-500">Loading saved searches...</p>}
+        {historyError && <ErrorAlert message={historyError} />}
+
+        {!historyLoading && !historyError && history.length === 0 && (
+          <p className="text-sm text-gray-500">No saved Google Ads searches yet. Run a search and it will appear here.</p>
+        )}
+
+        {!historyLoading && history.length > 0 && (
+          <div className="space-y-2">
+            {history.map((item) => (
+              <div
+                key={item.id}
+                className="flex items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 transition-colors hover:border-indigo-300 hover:bg-indigo-50"
+              >
+                <button
+                  type="button"
+                  onClick={() => handleLoadHistory(item.id)}
+                  disabled={loadingHistoryId === item.id || deletingHistoryId === item.id}
+                  className="min-w-0 flex-1 text-left disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <div className="font-medium text-gray-900">
+                        {item.keyword} <span className="text-gray-400">· {item.country_name || item.country}</span>
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {item.total_ideas || 0} keyword ideas
+                      </div>
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {loadingHistoryId === item.id ? 'Loading...' : formatSavedAt(item.updated_at || item.created_at)}
+                    </div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteHistory(item.id)}
+                  disabled={loadingHistoryId === item.id || deletingHistoryId === item.id}
+                  className="shrink-0 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-semibold text-gray-500 hover:border-red-300 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+                  aria-label={`Delete saved Google Ads search for ${item.keyword}`}
+                  title="Delete saved search"
+                >
+                  {deletingHistoryId === item.id ? '...' : 'X'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {loading && <LoadingSpinner message="Fetching keyword ideas from Google Ads..." />}
       {error && <div className="mt-6"><ErrorAlert message={error} onRetry={() => handleSearch(lastKeyword)} /></div>}
 
       {data && !loading && (
         <div className="mt-8 space-y-6">
+          {restoreNotice && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-5 py-4 text-sm text-emerald-900">
+              {restoreNotice}
+            </div>
+          )}
+
           {/* Header + Stats */}
           <div className="flex items-center justify-between">
             <div>
@@ -362,6 +584,7 @@ export default function GoogleAdsKeywordResearch() {
                 Found <span className="font-semibold text-gray-700">{data.totalIdeas}</span> related keywords
                 {' '}in <span className="font-semibold text-gray-700">{data.countryName || getCountryLabel(country)}</span>
                 {data.fromCache && <span className="ml-2 text-indigo-600">(cached)</span>}
+                {data.savedAt ? <span className="ml-2">· Saved {formatSavedAt(data.savedAt)}</span> : null}
               </p>
             </div>
 
@@ -465,6 +688,31 @@ export default function GoogleAdsKeywordResearch() {
 
 function getCountryLabel(countryCode) {
   return COUNTRY_OPTIONS.find(([value]) => value === String(countryCode || 'US').toUpperCase())?.[1] || 'United States';
+}
+
+function buildGoogleAdsNotice(result, forceRefresh = false) {
+  if (result?.fromCache && !forceRefresh) {
+    return 'Loaded the cached Google Ads keyword ideas for this keyword and country.';
+  }
+
+  if (forceRefresh) {
+    return 'Fetched fresh Google Ads keyword ideas and updated the saved search.';
+  }
+
+  return 'Saved this Google Ads keyword search so you can reopen it later.';
+}
+
+function formatSavedAt(value) {
+  if (!value) {
+    return 'Just now';
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return 'Just now';
+  }
+
+  return parsed.toLocaleString();
 }
 
 function mapGoogleAdsIdeaToListItem(sourceKeyword) {

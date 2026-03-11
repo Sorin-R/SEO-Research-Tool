@@ -129,6 +129,22 @@ CREATE TABLE IF NOT EXISTS serp_analysis_history (
 ) ENGINE=InnoDB;
 
 -- --------------------------------------------------------
+-- Saved Google Ads keyword research history
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS google_ads_keyword_history (
+  id           INT AUTO_INCREMENT PRIMARY KEY,
+  keyword      VARCHAR(500)  NOT NULL,
+  country      CHAR(2)       NOT NULL DEFAULT 'US',
+  country_name VARCHAR(128)  DEFAULT NULL,
+  result       JSON          NOT NULL,
+  total_ideas  INT           DEFAULT NULL,
+  created_at   TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+  updated_at   TIMESTAMP     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_google_ads_history_lookup (keyword(255), country, updated_at),
+  INDEX idx_google_ads_history_created (created_at)
+) ENGINE=InnoDB;
+
+-- --------------------------------------------------------
 -- Rank tracker scheduler settings
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS rank_tracker_settings (

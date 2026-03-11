@@ -113,16 +113,26 @@ async function generateKeywordIdeas(keyword, options = {}) {
       page_size: 100,
     });
 
+    const rawIdeas = Array.isArray(response)
+      ? response
+      : Array.isArray(response?.results)
+        ? response.results
+        : [];
+
     // Parse and format the results
-    const ideas = (response.results || [])
+    const ideas = rawIdeas
       .map((idea) => ({
         keyword: idea.text,
-        avgMonthlySearches: idea.keyword_idea_metrics?.avg_monthly_searches ?? 0,
-        competition: normalizeCompetition(idea.keyword_idea_metrics?.competition_index),
-        cpc: idea.keyword_idea_metrics?.average_cpc_micros
-          ? idea.keyword_idea_metrics.average_cpc_micros / 1000000
-          : 0,
-        competitionLevel: idea.keyword_idea_metrics?.competition ?? 'UNKNOWN',
+        avgMonthlySearches: parseIntegerMetric(idea.keyword_idea_metrics?.avg_monthly_searches),
+        competition: normalizeCompetition(
+          idea.keyword_idea_metrics?.competition,
+          idea.keyword_idea_metrics?.competition_index
+        ),
+        cpc: normalizeCpc(idea.keyword_idea_metrics),
+        competitionLevel: normalizeCompetition(
+          idea.keyword_idea_metrics?.competition,
+          idea.keyword_idea_metrics?.competition_index
+        ),
       }))
       .sort((a, b) => b.avgMonthlySearches - a.avgMonthlySearches);
 
@@ -148,6 +158,11 @@ function normalizeCustomerId(customerId) {
   return String(customerId || '').replace(/-/g, '').trim();
 }
 
+function parseIntegerMetric(value) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function getGoogleAdsErrorMessage(err) {
   if (Array.isArray(err?.errors) && err.errors.length > 0) {
     return err.errors.map((error) => error.message).filter(Boolean).join(' | ');
@@ -159,12 +174,42 @@ function getGoogleAdsErrorMessage(err) {
 /**
  * Normalize competition index (0-100) to human-readable labels.
  */
-function normalizeCompetition(index) {
-  if (index === null || index === undefined) return 'UNKNOWN';
-  if (index <= 25) return 'LOW';
-  if (index <= 50) return 'MEDIUM';
-  if (index <= 75) return 'HIGH';
+function normalizeCompetition(level, index) {
+  const normalizedLevel = String(level || '').toUpperCase().trim();
+  if (['LOW', 'MEDIUM', 'HIGH', 'VERY_HIGH'].includes(normalizedLevel)) {
+    return normalizedLevel;
+  }
+
+  const numericIndex = Number.parseInt(index, 10);
+  if (!Number.isFinite(numericIndex)) return 'UNKNOWN';
+  if (numericIndex <= 25) return 'LOW';
+  if (numericIndex <= 50) return 'MEDIUM';
+  if (numericIndex <= 75) return 'HIGH';
   return 'VERY_HIGH';
+}
+
+function normalizeCpc(metrics = {}) {
+  const averageCpcMicros = Number.parseInt(metrics.average_cpc_micros, 10);
+  if (Number.isFinite(averageCpcMicros) && averageCpcMicros > 0) {
+    return averageCpcMicros / 1000000;
+  }
+
+  const lowTopOfPage = Number.parseInt(metrics.low_top_of_page_bid_micros, 10);
+  const highTopOfPage = Number.parseInt(metrics.high_top_of_page_bid_micros, 10);
+
+  if (Number.isFinite(lowTopOfPage) && Number.isFinite(highTopOfPage) && lowTopOfPage > 0 && highTopOfPage > 0) {
+    return ((lowTopOfPage + highTopOfPage) / 2) / 1000000;
+  }
+
+  if (Number.isFinite(highTopOfPage) && highTopOfPage > 0) {
+    return highTopOfPage / 1000000;
+  }
+
+  if (Number.isFinite(lowTopOfPage) && lowTopOfPage > 0) {
+    return lowTopOfPage / 1000000;
+  }
+
+  return 0;
 }
 
 /**

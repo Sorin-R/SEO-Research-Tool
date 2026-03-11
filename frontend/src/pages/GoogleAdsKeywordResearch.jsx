@@ -21,10 +21,12 @@ export default function GoogleAdsKeywordResearch() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [cacheStats, setCacheStats] = useState(null);
+  const [lastKeyword, setLastKeyword] = useState('');
 
   async function handleSearch(keyword) {
     setLoading(true);
     setError(null);
+    setLastKeyword(keyword);
     try {
       const result = await getGoogleAdsKeywordIdeas(keyword);
       setData(result);
@@ -78,10 +80,11 @@ export default function GoogleAdsKeywordResearch() {
         onSearch={handleSearch}
         loading={loading}
         placeholder="Enter a seed keyword (e.g., vegan cupcakes)..."
+        initialValue={lastKeyword}
       />
 
       {loading && <LoadingSpinner message="Fetching keyword ideas from Google Ads..." />}
-      {error && <div className="mt-6"><ErrorAlert message={error} onRetry={() => handleSearch(data?.keyword)} /></div>}
+      {error && <div className="mt-6"><ErrorAlert message={error} onRetry={() => handleSearch(lastKeyword)} /></div>}
 
       {data && !loading && (
         <div className="mt-8 space-y-6">

@@ -7,8 +7,11 @@ const DEFAULT_RESEARCH_PROMPT =
   'Generate the closest, highest-intent keywords a real buyer would search for around the seed keyword. Favor commercially useful, tightly relevant terms and avoid weak tangents.';
 const DEFAULT_OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const DEFAULT_OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
-const DEFAULT_NVIDIA_MODEL = process.env.NVAPI_MODEL || 'deepseek-ai/deepseek-v3.2';
+const DEFAULT_NVIDIA_MODEL = process.env.NVAPI_MODEL || 'meta/llama-3.3-70b-instruct';
 const DEFAULT_NVIDIA_BASE_URL = (process.env.NVAPI_BASE_URL || 'https://integrate.api.nvidia.com/v1').replace(/\/+$/, '');
+const NVIDIA_TEMPERATURE = Number.parseFloat(process.env.NVAPI_TEMPERATURE || '0.2');
+const NVIDIA_TOP_P = Number.parseFloat(process.env.NVAPI_TOP_P || '0.7');
+const NVIDIA_MAX_TOKENS = Number.parseInt(process.env.NVAPI_MAX_TOKENS || '1024', 10);
 const DEFAULT_MAX_RESULTS = 100;
 const MAX_RESULTS_LIMIT = 250;
 const PASS_CHUNK_SIZE = 180;
@@ -271,9 +274,9 @@ async function requestFilterPass({ runtime, seedKeyword, prompt, keywords, maxRe
         `${runtime.baseUrl}/chat/completions`,
         {
           model: runtime.model,
-          temperature: 0.2,
-          top_p: 0.95,
-          max_tokens: 4096,
+          temperature: Number.isFinite(NVIDIA_TEMPERATURE) ? NVIDIA_TEMPERATURE : 0.2,
+          top_p: Number.isFinite(NVIDIA_TOP_P) ? NVIDIA_TOP_P : 0.7,
+          max_tokens: Number.isFinite(NVIDIA_MAX_TOKENS) ? NVIDIA_MAX_TOKENS : 1024,
           messages: [
             {
               role: 'system',
@@ -404,9 +407,9 @@ async function requestResearchPass({ runtime, seedKeyword, prompt, options, maxR
         `${runtime.baseUrl}/chat/completions`,
         {
           model: runtime.model,
-          temperature: 0.4,
-          top_p: 0.95,
-          max_tokens: 4096,
+          temperature: Number.isFinite(NVIDIA_TEMPERATURE) ? NVIDIA_TEMPERATURE : 0.2,
+          top_p: Number.isFinite(NVIDIA_TOP_P) ? NVIDIA_TOP_P : 0.7,
+          max_tokens: Number.isFinite(NVIDIA_MAX_TOKENS) ? NVIDIA_MAX_TOKENS : 1024,
           messages: [
             {
               role: 'system',

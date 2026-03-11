@@ -35,8 +35,8 @@ const AI_PROVIDERS = [
     description: 'NVIDIA NIM OpenAI-compatible endpoint, including DeepSeek models served via build.nvidia.com.',
     docsUrl: 'https://build.nvidia.com/',
     baseUrl: 'https://integrate.api.nvidia.com/v1',
-    models: ['deepseek-ai/deepseek-v3.2'],
-    defaultModel: 'deepseek-ai/deepseek-v3.2',
+    models: ['meta/llama-3.3-70b-instruct', 'deepseek-ai/deepseek-v3.1', 'deepseek-ai/deepseek-v3.2'],
+    defaultModel: 'meta/llama-3.3-70b-instruct',
     requestMode: 'chat_completions',
     fields: [
       { name: 'NVAPI_API_KEY', label: 'API Key', envKey: 'NVAPI_API_KEY' },
@@ -283,7 +283,7 @@ function resolveProviderModel(provider) {
   }
 
   if (provider.id === 'nvidia') {
-    return String(process.env.NVAPI_MODEL || provider.defaultModel || 'deepseek-ai/deepseek-v3.2').trim();
+    return String(process.env.NVAPI_MODEL || provider.defaultModel || 'meta/llama-3.3-70b-instruct').trim();
   }
 
   return String(provider.defaultModel || '').trim();

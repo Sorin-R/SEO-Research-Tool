@@ -5,6 +5,7 @@ import {
   getAIProviders,
   updateAIProvider,
   updateAIProviderCredentials,
+  updateAIProviderModel,
 } from '../services/api';
 
 export default function AIProviderStatus() {
@@ -13,6 +14,7 @@ export default function AIProviderStatus() {
   const [error, setError] = useState(null);
   const [busyProviderId, setBusyProviderId] = useState(null);
   const [savingCredentialsId, setSavingCredentialsId] = useState(null);
+  const [savingModelProviderId, setSavingModelProviderId] = useState(null);
   const [credentialDrafts, setCredentialDrafts] = useState({});
   const [notice, setNotice] = useState(null);
 
@@ -116,6 +118,25 @@ export default function AIProviderStatus() {
     }
   }
 
+  async function handleModelSwitch(provider, model) {
+    if (!provider?.id || !model || provider.selectedModel === model) {
+      return;
+    }
+
+    setSavingModelProviderId(provider.id);
+    setError(null);
+
+    try {
+      const updatedProvider = await updateAIProviderModel(provider.id, model);
+      applyUpdatedProvider(updatedProvider);
+      setNotice(`${updatedProvider.name} model switched to ${updatedProvider.selectedModel}.`);
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+    } finally {
+      setSavingModelProviderId(null);
+    }
+  }
+
   if (loading) return <LoadingSpinner message="Loading AI provider status..." />;
   if (error && !providers) return <ErrorAlert message={error} onRetry={fetchProviderStatus} />;
 
@@ -216,19 +237,24 @@ export default function AIProviderStatus() {
                     <div className="text-xs font-medium text-gray-700 mb-1">Models</div>
                     <div className="flex flex-wrap gap-2">
                       {provider.models.map((model) => (
-                        <span
+                        <button
                           key={model}
-                          className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
-                            model === provider.defaultModel
-                              ? 'bg-indigo-100 text-indigo-800'
-                              : 'bg-gray-100 text-gray-600'
+                          type="button"
+                          onClick={() => handleModelSwitch(provider, model)}
+                          disabled={savingModelProviderId === provider.id || model === provider.selectedModel}
+                          className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${
+                            model === provider.selectedModel
+                              ? 'bg-indigo-100 text-indigo-800 border border-indigo-300'
+                              : 'bg-gray-100 text-gray-600 border border-transparent hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700'
                           }`}
                         >
                           {model}
-                          {model === provider.defaultModel && (
-                            <span className="ml-1 text-[10px] opacity-70">(default)</span>
+                          {model === provider.selectedModel && (
+                            <span className="ml-1 text-[10px] opacity-70">
+                              ({provider.selectedModelSource === 'saved' ? 'selected' : provider.selectedModelSource || 'selected'})
+                            </span>
                           )}
-                        </span>
+                        </button>
                       ))}
                     </div>
                   </div>

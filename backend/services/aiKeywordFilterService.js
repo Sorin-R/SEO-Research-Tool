@@ -482,6 +482,11 @@ async function requestResearchPass({ runtime, seedKeyword, prompt, options, maxR
 }
 
 async function resolveKeywordAIRuntime() {
+  const providerRuntime = await aiProviderManager.getKeywordAIRuntimeConfig();
+  if (providerRuntime?.apiKey) {
+    return providerRuntime;
+  }
+
   const openAiApiKey = String(process.env.OPENAI_API_KEY || '').trim();
   if (openAiApiKey) {
     return {
@@ -504,11 +509,6 @@ async function resolveKeywordAIRuntime() {
       model: String(process.env.NVAPI_MODEL || DEFAULT_NVIDIA_MODEL).trim(),
       requestMode: 'chat_completions',
     };
-  }
-
-  const providerRuntime = await aiProviderManager.getKeywordAIRuntimeConfig();
-  if (providerRuntime?.apiKey) {
-    return providerRuntime;
   }
 
   throw createServiceError(

@@ -68,4 +68,28 @@ router.patch('/:id/credentials', async (req, res, next) => {
   }
 });
 
+// PATCH /api/ai-providers/:id/model — Select model
+router.patch('/:id/model', async (req, res, next) => {
+  try {
+    const { model } = req.body || {};
+
+    if (!model || !String(model).trim()) {
+      return res.status(400).json({ error: 'A non-empty "model" value is required.' });
+    }
+
+    const updatedProvider = await aiProviderManager.updateProviderModel(req.params.id, model);
+
+    if (!updatedProvider) {
+      return res.status(404).json({ error: `AI provider "${req.params.id}" not found.` });
+    }
+
+    res.json(updatedProvider);
+  } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    next(err);
+  }
+});
+
 module.exports = router;

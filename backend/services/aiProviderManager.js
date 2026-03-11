@@ -35,6 +35,7 @@ const AI_PROVIDERS = [
     description: 'NVIDIA NIM OpenAI-compatible endpoint, including DeepSeek models served via build.nvidia.com.',
     docsUrl: 'https://build.nvidia.com/',
     baseUrl: 'https://integrate.api.nvidia.com/v1',
+    modelEnvKey: 'NVAPI_MODEL',
     models: ['meta/llama-3.3-70b-instruct', 'deepseek-ai/deepseek-v3.1', 'deepseek-ai/deepseek-v3.2'],
     defaultModel: 'meta/llama-3.3-70b-instruct',
     requestMode: 'chat_completions',
@@ -51,6 +52,7 @@ const AI_PROVIDERS = [
     description: 'Industry-leading AI models including GPT-4o for advanced reasoning and content generation.',
     docsUrl: 'https://platform.openai.com/docs/api-reference',
     baseUrl: 'https://api.openai.com/v1',
+    modelEnvKey: 'OPENAI_MODEL',
     models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini', 'o3-mini'],
     defaultModel: 'gpt-4o-mini',
     requestMode: 'responses',
@@ -277,16 +279,27 @@ function resolveProviderBaseUrl(provider) {
   return String(provider.baseUrl || '').replace(/\/+$/, '');
 }
 
-function resolveProviderModel(provider) {
-  if (provider.id === 'openai') {
-    return String(process.env.OPENAI_MODEL || provider.defaultModel || 'gpt-4o-mini').trim();
+function resolveProviderModel(provider, credentialsMap = {}) {
+  const savedModel = String(credentialsMap[provider.id]?.MODEL?.value || '').trim();
+  if (savedModel && provider.models.includes(savedModel)) {
+    return {
+      model: savedModel,
+      source: 'saved',
+    };
   }
 
-  if (provider.id === 'nvidia') {
-    return String(process.env.NVAPI_MODEL || provider.defaultModel || 'meta/llama-3.3-70b-instruct').trim();
+  const envModel = provider.modelEnvKey ? String(process.env[provider.modelEnvKey] || '').trim() : '';
+  if (envModel && provider.models.includes(envModel)) {
+    return {
+      model: envModel,
+      source: 'env',
+    };
   }
 
-  return String(provider.defaultModel || '').trim();
+  return {
+    model: String(provider.defaultModel || '').trim(),
+    source: 'default',
+  };
 }
 
 async function getProviderDetails() {
@@ -308,6 +321,7 @@ async function getProviderDetails() {
     const setting = settingsMap[provider.id];
     const enabled = setting ? setting.is_enabled : true; // default enabled
     const active = configured && enabled;
+    const resolvedModel = resolveProviderModel(provider, credentialsMap);
 
     return {
       id: provider.id,
@@ -316,7 +330,9 @@ async function getProviderDetails() {
       docsUrl: provider.docsUrl,
       baseUrl: resolveProviderBaseUrl(provider),
       models: provider.models,
-      defaultModel: resolveProviderModel(provider),
+      defaultModel: provider.defaultModel,
+      selectedModel: resolvedModel.model,
+      selectedModelSource: resolvedModel.source,
       requestMode: provider.requestMode || 'responses',
       fields,
       configured,
@@ -364,6 +380,26 @@ async function saveProviderCredentials(providerId, credentials) {
   return getProviderById(providerId);
 }
 
+async function updateProviderModel(providerId, model) {
+  const definition = AI_PROVIDERS.find((entry) => entry.id === providerId);
+
+  if (!definition) {
+    throw createServiceError(`Unknown AI provider: ${providerId}`, 404);
+  }
+
+  const normalizedModel = String(model || '').trim();
+  if (!normalizedModel) {
+    throw createServiceError('Model is required.');
+  }
+
+  if (!definition.models.includes(normalizedModel)) {
+    throw createServiceError(`Model "${normalizedModel}" is not available for ${definition.name}.`);
+  }
+
+  await updateAICredentials(providerId, { MODEL: normalizedModel });
+  return getProviderById(providerId);
+}
+
 async function getKeywordAIRuntimeConfig() {
   const credentialsMap = await getAICredentialsMap();
   const settingsMap = await getAISettingsMap();
@@ -397,7 +433,7 @@ async function getKeywordAIRuntimeConfig() {
       name: provider.name,
       apiKey: resolvedCredential.value,
       baseUrl: resolveProviderBaseUrl(provider),
-      model: resolveProviderModel(provider),
+      model: resolveProviderModel(provider, credentialsMap).model,
       requestMode: provider.requestMode || 'responses',
     };
   }
@@ -427,6 +463,7 @@ module.exports = {
   getProviderDetails,
   toggleProvider,
   saveProviderCredentials,
+  updateProviderModel,
   getProviderApiKey,
   getKeywordAIRuntimeConfig,
   getAICredentialsMap,

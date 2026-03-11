@@ -367,6 +367,13 @@ export async function updateAIProviderCredentials(providerId, credentials) {
   return data;
 }
 
+export async function updateAIProviderModel(providerId, model) {
+  const { data } = await api.patch(`/ai-providers/${providerId}/model`, {
+    model,
+  });
+  return data;
+}
+
 // ---- Google Ads ----
 
 export async function getGoogleAdsKeywordIdeas(keyword, bypassCache = false, country = 'US') {

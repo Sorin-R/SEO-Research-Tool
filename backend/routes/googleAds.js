@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { generateKeywordIdeas, clearCache, getCacheStats } = require('../services/googleAdsService');
+const { getGoogleAdsCountryConfig } = require('../utils/googleAdsCountry');
 
 /**
  * GET /api/google-ads/keyword-ideas?q=keyword&bypass_cache=false
@@ -15,7 +16,7 @@ const { generateKeywordIdeas, clearCache, getCacheStats } = require('../services
  *   - location_id (optional): Google location code (default: 2840 = United States)
  */
 router.get('/keyword-ideas', async (req, res) => {
-  const { q, bypass_cache, language_id, location_id } = req.query;
+  const { q, bypass_cache, language_id, location_id, country } = req.query;
 
   // Validate keyword
   if (!q || !q.trim()) {
@@ -25,9 +26,12 @@ router.get('/keyword-ideas', async (req, res) => {
   }
 
   try {
+    const countryConfig = getGoogleAdsCountryConfig(country);
     const result = await generateKeywordIdeas(q.trim(), {
-      languageId: language_id ? parseInt(language_id, 10) : 1000,
-      locationId: location_id ? parseInt(location_id, 10) : 2840,
+      country: countryConfig.code,
+      countryName: countryConfig.name,
+      languageId: language_id ? parseInt(language_id, 10) : countryConfig.languageId,
+      locationId: location_id ? parseInt(location_id, 10) : countryConfig.locationId,
       bypassCache: bypass_cache === 'true',
     });
 

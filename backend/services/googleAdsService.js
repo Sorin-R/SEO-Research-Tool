@@ -82,8 +82,14 @@ async function generateKeywordIdeas(keyword, options = {}) {
     throw new Error('Keyword is required.');
   }
 
-  const { languageId = 1000, locationId = 2840, bypassCache = false } = options;
-  const cacheKey = `keyword_ideas_${keyword.toLowerCase()}`;
+  const {
+    languageId = 1000,
+    locationId = 2840,
+    country = 'US',
+    countryName = 'United States',
+    bypassCache = false,
+  } = options;
+  const cacheKey = `keyword_ideas_${String(country || 'US').toUpperCase()}_${languageId}_${locationId}_${keyword.toLowerCase()}`;
 
   // Check cache first
   if (!bypassCache) {
@@ -138,6 +144,8 @@ async function generateKeywordIdeas(keyword, options = {}) {
 
     const result = {
       keyword,
+      country: String(country || 'US').toUpperCase(),
+      countryName,
       totalIdeas: ideas.length,
       ideas,
       generatedAt: new Date().toISOString(),

@@ -324,9 +324,9 @@ export async function updateAIProviderCredentials(providerId, credentials) {
 
 // ---- Google Ads ----
 
-export async function getGoogleAdsKeywordIdeas(keyword, bypassCache = false) {
+export async function getGoogleAdsKeywordIdeas(keyword, bypassCache = false, country = 'US') {
   const { data } = await api.get('/google-ads/keyword-ideas', {
-    params: { q: keyword, bypass_cache: bypassCache },
+    params: { q: keyword, bypass_cache: bypassCache, country },
   });
   return data;
 }

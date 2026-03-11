@@ -25,12 +25,29 @@ import {
   trackKeyword,
 } from '../services/api';
 
+const COUNTRY_OPTIONS = [
+  ['US', 'United States'],
+  ['GB', 'United Kingdom'],
+  ['CA', 'Canada'],
+  ['AU', 'Australia'],
+  ['DE', 'Germany'],
+  ['FR', 'France'],
+  ['ES', 'Spain'],
+  ['IT', 'Italy'],
+  ['NL', 'Netherlands'],
+  ['IN', 'India'],
+  ['BR', 'Brazil'],
+  ['MX', 'Mexico'],
+  ['JP', 'Japan'],
+];
+
 export default function GoogleAdsKeywordResearch() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [cacheStats, setCacheStats] = useState(null);
   const [lastKeyword, setLastKeyword] = useState('');
+  const [country, setCountry] = useState('US');
   const [tracked, setTracked] = useState(new Set());
   const [keywordLists, setKeywordLists] = useState([]);
   const [listsLoading, setListsLoading] = useState(true);
@@ -93,7 +110,7 @@ export default function GoogleAdsKeywordResearch() {
     setError(null);
     setLastKeyword(keyword);
     try {
-      const result = await getGoogleAdsKeywordIdeas(keyword);
+      const result = await getGoogleAdsKeywordIdeas(keyword, false, country);
       setData(result);
 
       // Fetch cache stats
@@ -124,7 +141,7 @@ export default function GoogleAdsKeywordResearch() {
     if (!data?.keyword) return;
     setLoading(true);
     try {
-      const result = await getGoogleAdsKeywordIdeas(data.keyword, true);
+      const result = await getGoogleAdsKeywordIdeas(data.keyword, true, country);
       setData(result);
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -251,6 +268,23 @@ export default function GoogleAdsKeywordResearch() {
         initialValue={lastKeyword}
       />
 
+      <div className="mt-4 bg-white rounded-lg border border-gray-200 p-4">
+        <label className="block space-y-1">
+          <span className="text-sm font-medium text-gray-700">Country</span>
+          <select
+            value={country}
+            onChange={(event) => setCountry(event.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            {COUNTRY_OPTIONS.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
       <div className="mt-6 bg-white rounded-lg border border-gray-200 p-6 space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row">
           <input
@@ -305,6 +339,7 @@ export default function GoogleAdsKeywordResearch() {
               </h3>
               <p className="text-sm text-gray-500 mt-1">
                 Found <span className="font-semibold text-gray-700">{data.totalIdeas}</span> related keywords
+                {' '}in <span className="font-semibold text-gray-700">{data.countryName || getCountryLabel(country)}</span>
                 {data.fromCache && <span className="ml-2 text-indigo-600">(cached)</span>}
               </p>
             </div>
@@ -405,6 +440,10 @@ export default function GoogleAdsKeywordResearch() {
       )}
     </div>
   );
+}
+
+function getCountryLabel(countryCode) {
+  return COUNTRY_OPTIONS.find(([value]) => value === String(countryCode || 'US').toUpperCase())?.[1] || 'United States';
 }
 
 function mapGoogleAdsIdeaToListItem(sourceKeyword) {

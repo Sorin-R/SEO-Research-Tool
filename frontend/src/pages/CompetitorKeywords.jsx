@@ -888,7 +888,7 @@ function KeywordRows({ keywords, tracked, savedKeywords, onTrack, onSaveToList, 
 
         return (
           <div key={item.keyword} className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+            <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_16rem] xl:items-center">
               <div className="min-w-0 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium text-gray-900">{item.keyword}</span>
@@ -917,7 +917,7 @@ function KeywordRows({ keywords, tracked, savedKeywords, onTrack, onSaveToList, 
                 )}
               </div>
 
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-col items-center justify-center gap-2">
                 <button
                   type="button"
                   onClick={() => onTrack(item.keyword)}
@@ -956,7 +956,10 @@ function ClusterKeywordList({ keywords, tracked, savedKeywords, onTrack, onSaveT
         const isSaved = savedKeywords?.has(String(keyword || '').toLowerCase());
 
         return (
-          <div key={keyword} className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div
+            key={keyword}
+            className="grid gap-3 rounded-lg border border-gray-200 bg-white px-3 py-3 sm:grid-cols-[minmax(0,1fr)_16rem] sm:items-center"
+          >
             <div className="min-w-0">
               <div className="font-medium text-sm text-gray-900">{keyword}</div>
               {typeof item === 'object' && (
@@ -966,7 +969,7 @@ function ClusterKeywordList({ keywords, tracked, savedKeywords, onTrack, onSaveT
               )}
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-col items-center justify-center gap-2">
               <button
                 type="button"
                 onClick={() => onTrack(keyword)}

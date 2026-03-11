@@ -27,7 +27,7 @@ const DEFAULT_AI_RESEARCH_PROMPT =
 const STORAGE_KEY = 'seo-tool:keyword-research:last-session';
 const HISTORY_LIMIT = 10;
 const MAX_VISIBLE_KEYWORDS = 150;
-const KEYWORD_AI_PROVIDER_PRIORITY = ['nvidia', 'openai'];
+const KEYWORD_AI_PROVIDER_PRIORITY = ['deepseek', 'nvidia', 'openai', 'gemini', 'grok', 'claude'];
 const COUNTRY_OPTIONS = [
   ['US', 'United States'],
   ['GB', 'United Kingdom'],
@@ -130,15 +130,20 @@ function formatSavedAt(value) {
 
 function findKeywordAiProvider(details = []) {
   const availableDetails = Array.isArray(details) ? details : [];
+  const activeProviders = availableDetails.filter((entry) => entry?.active);
+
+  if (activeProviders.length === 1) {
+    return activeProviders[0];
+  }
 
   for (const providerId of KEYWORD_AI_PROVIDER_PRIORITY) {
-    const provider = availableDetails.find((entry) => entry.id === providerId);
-    if (provider?.active) {
+    const provider = activeProviders.find((entry) => entry.id === providerId);
+    if (provider) {
       return provider;
     }
   }
 
-  return null;
+  return activeProviders[0] || null;
 }
 
 function getAiModelLabel(provider) {
@@ -146,7 +151,12 @@ function getAiModelLabel(provider) {
     return '';
   }
 
-  return String(provider.selectedModel || provider.defaultModel || '').trim();
+  const model = String(provider.selectedModel || provider.defaultModel || '').trim();
+  if (!model) {
+    return provider.name || '';
+  }
+
+  return `${provider.name}: ${model}`;
 }
 
 function escapeCsvValue(value) {
@@ -376,7 +386,11 @@ export default function KeywordResearch() {
       if (parsed?.aiData) {
         setAiData(parsed.aiData);
         if (parsed.aiData.model) {
-          setActiveAiModel(String(parsed.aiData.model));
+          setActiveAiModel(
+            parsed.aiData.provider
+              ? `${parsed.aiData.provider}: ${parsed.aiData.model}`
+              : String(parsed.aiData.model)
+          );
         }
       }
 
@@ -631,7 +645,7 @@ export default function KeywordResearch() {
       });
       setAiData(result);
       if (result?.model) {
-        setActiveAiModel(String(result.model));
+        setActiveAiModel(result.provider ? `${result.provider}: ${result.model}` : String(result.model));
       }
     } catch (err) {
       setAiError(err.response?.data?.error || err.message);
@@ -845,7 +859,7 @@ export default function KeywordResearch() {
   const isSelectedClusterSaved = !!selectedCluster?.keywords?.length
     && selectedCluster.keywords.every((item) => savedKeywordSet.has(String(item.keyword || '').toLowerCase()));
   const visibleKeywords = showAllKeywords ? data?.keywords || [] : (data?.keywords || []).slice(0, MAX_VISIBLE_KEYWORDS);
-  const poweredByModel = activeAiModel || aiData?.model || 'No active AI model';
+  const poweredByModel = activeAiModel || 'No active AI model';
 
   return (
     <div className="space-y-8">

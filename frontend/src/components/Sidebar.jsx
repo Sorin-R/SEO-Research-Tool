@@ -16,13 +16,13 @@ const NAV_ITEMS = [
 
 export default function Sidebar() {
   return (
-    <aside className="w-64 bg-gray-900 text-gray-100 min-h-screen flex flex-col shrink-0">
+    <aside className="sticky top-0 h-screen w-64 bg-gray-900 text-gray-100 flex flex-col shrink-0">
       <div className="px-6 py-5 border-b border-gray-700">
         <h1 className="text-xl font-bold tracking-tight">SEO Research Tool</h1>
         <p className="text-xs text-gray-400 mt-1">Personal SEO Suite</p>
       </div>
 
-      <nav className="flex-1 px-3 py-4 space-y-1">
+      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
         {NAV_ITEMS.map((item) => (
           <NavLink
             key={item.to}

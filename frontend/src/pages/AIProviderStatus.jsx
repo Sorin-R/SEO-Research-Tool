@@ -313,6 +313,11 @@ export default function AIProviderStatus() {
             <h3 className="font-semibold text-blue-900">Quick Links</h3>
             <ul className="mt-3 space-y-2 text-sm">
               <li>
+                <a href="https://build.nvidia.com/" target="_blank" rel="noreferrer" className="text-blue-700 hover:underline">
+                  NVIDIA Build (NVAPI)
+                </a>
+              </li>
+              <li>
                 <a href="https://platform.deepseek.com/" target="_blank" rel="noreferrer" className="text-blue-700 hover:underline">
                   DeepSeek Platform
                 </a>

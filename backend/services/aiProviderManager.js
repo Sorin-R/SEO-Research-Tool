@@ -30,6 +30,22 @@ const AI_PROVIDERS = [
     setupTime: '~2 min',
   },
   {
+    id: 'nvidia',
+    name: 'NVIDIA (NVAPI)',
+    description: 'NVIDIA NIM OpenAI-compatible endpoint, including DeepSeek models served via build.nvidia.com.',
+    docsUrl: 'https://build.nvidia.com/',
+    baseUrl: 'https://integrate.api.nvidia.com/v1',
+    models: ['deepseek-ai/deepseek-v3.2'],
+    defaultModel: 'deepseek-ai/deepseek-v3.2',
+    requestMode: 'chat_completions',
+    fields: [
+      { name: 'NVAPI_API_KEY', label: 'API Key', envKey: 'NVAPI_API_KEY' },
+    ],
+    quota: 'Depends on NVIDIA account plan',
+    quotaType: 'Usage-based billing',
+    setupTime: '~2 min',
+  },
+  {
     id: 'openai',
     name: 'ChatGPT (OpenAI)',
     description: 'Industry-leading AI models including GPT-4o for advanced reasoning and content generation.',
@@ -37,6 +53,7 @@ const AI_PROVIDERS = [
     baseUrl: 'https://api.openai.com/v1',
     models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini', 'o3-mini'],
     defaultModel: 'gpt-4o-mini',
+    requestMode: 'responses',
     fields: [
       { name: 'OPENAI_API_KEY', label: 'API Key', envKey: 'OPENAI_API_KEY' },
     ],
@@ -248,6 +265,30 @@ function resolveCredentialValue(provider, fieldName, credentialsMap) {
   return { value: null, source: null };
 }
 
+function resolveProviderBaseUrl(provider) {
+  if (provider.id === 'openai') {
+    return String(process.env.OPENAI_BASE_URL || provider.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '');
+  }
+
+  if (provider.id === 'nvidia') {
+    return String(process.env.NVAPI_BASE_URL || provider.baseUrl || 'https://integrate.api.nvidia.com/v1').replace(/\/+$/, '');
+  }
+
+  return String(provider.baseUrl || '').replace(/\/+$/, '');
+}
+
+function resolveProviderModel(provider) {
+  if (provider.id === 'openai') {
+    return String(process.env.OPENAI_MODEL || provider.defaultModel || 'gpt-4o-mini').trim();
+  }
+
+  if (provider.id === 'nvidia') {
+    return String(process.env.NVAPI_MODEL || provider.defaultModel || 'deepseek-ai/deepseek-v3.2').trim();
+  }
+
+  return String(provider.defaultModel || '').trim();
+}
+
 async function getProviderDetails() {
   const credentialsMap = await getAICredentialsMap();
   const settingsMap = await getAISettingsMap();
@@ -273,9 +314,10 @@ async function getProviderDetails() {
       name: provider.name,
       description: provider.description,
       docsUrl: provider.docsUrl,
-      baseUrl: provider.baseUrl,
+      baseUrl: resolveProviderBaseUrl(provider),
       models: provider.models,
-      defaultModel: provider.defaultModel,
+      defaultModel: resolveProviderModel(provider),
+      requestMode: provider.requestMode || 'responses',
       fields,
       configured,
       enabled,
@@ -322,6 +364,47 @@ async function saveProviderCredentials(providerId, credentials) {
   return getProviderById(providerId);
 }
 
+async function getKeywordAIRuntimeConfig() {
+  const credentialsMap = await getAICredentialsMap();
+  const settingsMap = await getAISettingsMap();
+  const supportedProviderIds = ['nvidia', 'openai'];
+
+  for (const providerId of supportedProviderIds) {
+    const provider = AI_PROVIDERS.find((entry) => entry.id === providerId);
+
+    if (!provider) {
+      continue;
+    }
+
+    const setting = settingsMap[provider.id];
+    const enabled = setting ? setting.is_enabled : true;
+    if (!enabled) {
+      continue;
+    }
+
+    const primaryField = provider.fields[0];
+    if (!primaryField) {
+      continue;
+    }
+
+    const resolvedCredential = resolveCredentialValue(provider, primaryField.name, credentialsMap);
+    if (!resolvedCredential.value) {
+      continue;
+    }
+
+    return {
+      id: provider.id,
+      name: provider.name,
+      apiKey: resolvedCredential.value,
+      baseUrl: resolveProviderBaseUrl(provider),
+      model: resolveProviderModel(provider),
+      requestMode: provider.requestMode || 'responses',
+    };
+  }
+
+  return null;
+}
+
 /**
  * Get the API key for a specific provider (used by other services).
  */
@@ -345,6 +428,7 @@ module.exports = {
   toggleProvider,
   saveProviderCredentials,
   getProviderApiKey,
+  getKeywordAIRuntimeConfig,
   getAICredentialsMap,
   getAISettingsMap,
 };

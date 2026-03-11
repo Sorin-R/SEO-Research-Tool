@@ -1566,7 +1566,7 @@ export default function KeywordResearch() {
               </div>
 
               <p className="text-xs text-gray-500">
-                Requires <code>OPENAI_API_KEY</code> on the backend.
+                Requires an active AI provider (OpenAI or NVIDIA) configured in AI Providers.
               </p>
               {aiError && <ErrorAlert message={aiError} />}
               {aiLoading && <LoadingSpinner message="Filtering keywords with AI..." />}

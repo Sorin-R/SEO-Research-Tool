@@ -1,11 +1,14 @@
 const axios = require('axios');
+const aiProviderManager = require('./aiProviderManager');
 
 const DEFAULT_PROMPT =
   'Keep only the keywords that are the closest match to the seed keyword. Remove broad, weak, or loosely related phrases.';
 const DEFAULT_RESEARCH_PROMPT =
   'Generate the closest, highest-intent keywords a real buyer would search for around the seed keyword. Favor commercially useful, tightly relevant terms and avoid weak tangents.';
-const DEFAULT_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
-const DEFAULT_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
+const DEFAULT_OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const DEFAULT_OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
+const DEFAULT_NVIDIA_MODEL = process.env.NVAPI_MODEL || 'deepseek-ai/deepseek-v3.2';
+const DEFAULT_NVIDIA_BASE_URL = (process.env.NVAPI_BASE_URL || 'https://integrate.api.nvidia.com/v1').replace(/\/+$/, '');
 const DEFAULT_MAX_RESULTS = 100;
 const MAX_RESULTS_LIMIT = 250;
 const PASS_CHUNK_SIZE = 180;
@@ -108,12 +111,15 @@ function extractResponseText(payload) {
 
 function parseStructuredPayload(payload) {
   const rawText = extractResponseText(payload);
+  return parseStructuredText(rawText);
+}
 
+function parseStructuredText(rawText) {
   if (!rawText) {
     throw createServiceError('AI did not return a structured keyword response.', 502);
   }
 
-  const cleaned = rawText
+  const cleaned = String(rawText)
     .replace(/^```json\s*/i, '')
     .replace(/^```\s*/i, '')
     .replace(/\s*```$/, '')
@@ -124,6 +130,41 @@ function parseStructuredPayload(payload) {
   } catch (error) {
     throw createServiceError('AI returned an invalid keyword payload.', 502);
   }
+}
+
+function extractChatCompletionText(payload) {
+  const firstChoice = Array.isArray(payload?.choices) ? payload.choices[0] : null;
+  const messageContent = firstChoice?.message?.content;
+
+  if (typeof messageContent === 'string' && messageContent.trim()) {
+    return messageContent.trim();
+  }
+
+  if (!Array.isArray(messageContent)) {
+    return '';
+  }
+
+  return messageContent
+    .map((part) => {
+      if (typeof part === 'string') {
+        return part;
+      }
+      if (typeof part?.text === 'string') {
+        return part.text;
+      }
+      return '';
+    })
+    .join('\n')
+    .trim();
+}
+
+function buildSchemaPrompt(schema) {
+  return [
+    'Return only valid JSON.',
+    'Do not include markdown fences or any non-JSON text.',
+    'The JSON must match this schema exactly:',
+    JSON.stringify(schema),
+  ].join('\n');
 }
 
 function buildFilterInput({ seedKeyword, prompt, maxResults, keywords }) {
@@ -177,7 +218,7 @@ function buildResearchInput({ seedKeyword, prompt, maxResults, options = {} }) {
   ].join('\n');
 }
 
-async function requestFilterPass({ apiKey, baseUrl, model, seedKeyword, prompt, keywords, maxResults }) {
+async function requestFilterPass({ runtime, seedKeyword, prompt, keywords, maxResults }) {
   const responseSchema = {
     type: 'json_schema',
     name: 'keyword_filter_result',
@@ -216,31 +257,66 @@ async function requestFilterPass({ apiKey, baseUrl, model, seedKeyword, prompt, 
   };
 
   try {
-    const { data } = await axios.post(
-      `${baseUrl}/responses`,
-      {
-        model,
-        store: false,
-        input: buildFilterInput({
-          seedKeyword,
-          prompt,
-          maxResults,
-          keywords,
-        }),
-        text: {
-          format: responseSchema,
-        },
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 120000,
-      }
-    );
+    const userInput = buildFilterInput({
+      seedKeyword,
+      prompt,
+      maxResults,
+      keywords,
+    });
 
-    const parsed = parseStructuredPayload(data);
+    let parsed;
+
+    if (runtime.requestMode === 'chat_completions') {
+      const { data } = await axios.post(
+        `${runtime.baseUrl}/chat/completions`,
+        {
+          model: runtime.model,
+          temperature: 0.2,
+          top_p: 0.95,
+          max_tokens: 4096,
+          messages: [
+            {
+              role: 'system',
+              content: buildSchemaPrompt(responseSchema.schema),
+            },
+            {
+              role: 'user',
+              content: userInput,
+            },
+          ],
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${runtime.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 120000,
+        }
+      );
+
+      parsed = parseStructuredText(extractChatCompletionText(data));
+    } else {
+      const { data } = await axios.post(
+        `${runtime.baseUrl}/responses`,
+        {
+          model: runtime.model,
+          store: false,
+          input: userInput,
+          text: {
+            format: responseSchema,
+          },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${runtime.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 120000,
+        }
+      );
+
+      parsed = parseStructuredPayload(data);
+    }
 
     return {
       summary: typeof parsed.summary === 'string' ? parsed.summary.trim() : '',
@@ -256,7 +332,7 @@ async function requestFilterPass({ apiKey, baseUrl, model, seedKeyword, prompt, 
 
     if (upstreamStatus === 401 || upstreamStatus === 403) {
       throw createServiceError(
-        'AI keyword filtering could not authenticate. Check OPENAI_API_KEY and OPENAI_MODEL.',
+        `AI keyword filtering could not authenticate with ${runtime.name || 'the selected provider'}.`,
         502
       );
     }
@@ -269,7 +345,7 @@ async function requestFilterPass({ apiKey, baseUrl, model, seedKeyword, prompt, 
   }
 }
 
-async function requestResearchPass({ apiKey, baseUrl, model, seedKeyword, prompt, options, maxResults }) {
+async function requestResearchPass({ runtime, seedKeyword, prompt, options, maxResults }) {
   const responseSchema = {
     type: 'json_schema',
     name: 'keyword_generation_result',
@@ -314,31 +390,66 @@ async function requestResearchPass({ apiKey, baseUrl, model, seedKeyword, prompt
   };
 
   try {
-    const { data } = await axios.post(
-      `${baseUrl}/responses`,
-      {
-        model,
-        store: false,
-        input: buildResearchInput({
-          seedKeyword,
-          prompt,
-          maxResults,
-          options,
-        }),
-        text: {
-          format: responseSchema,
-        },
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 120000,
-      }
-    );
+    const userInput = buildResearchInput({
+      seedKeyword,
+      prompt,
+      maxResults,
+      options,
+    });
 
-    const parsed = parseStructuredPayload(data);
+    let parsed;
+
+    if (runtime.requestMode === 'chat_completions') {
+      const { data } = await axios.post(
+        `${runtime.baseUrl}/chat/completions`,
+        {
+          model: runtime.model,
+          temperature: 0.4,
+          top_p: 0.95,
+          max_tokens: 4096,
+          messages: [
+            {
+              role: 'system',
+              content: buildSchemaPrompt(responseSchema.schema),
+            },
+            {
+              role: 'user',
+              content: userInput,
+            },
+          ],
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${runtime.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 120000,
+        }
+      );
+
+      parsed = parseStructuredText(extractChatCompletionText(data));
+    } else {
+      const { data } = await axios.post(
+        `${runtime.baseUrl}/responses`,
+        {
+          model: runtime.model,
+          store: false,
+          input: userInput,
+          text: {
+            format: responseSchema,
+          },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${runtime.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 120000,
+        }
+      );
+
+      parsed = parseStructuredPayload(data);
+    }
 
     return {
       summary: typeof parsed.summary === 'string' ? parsed.summary.trim() : '',
@@ -354,7 +465,7 @@ async function requestResearchPass({ apiKey, baseUrl, model, seedKeyword, prompt
 
     if (upstreamStatus === 401 || upstreamStatus === 403) {
       throw createServiceError(
-        'AI keyword research could not authenticate. Check OPENAI_API_KEY and OPENAI_MODEL.',
+        `AI keyword research could not authenticate with ${runtime.name || 'the selected provider'}.`,
         502
       );
     }
@@ -367,14 +478,44 @@ async function requestResearchPass({ apiKey, baseUrl, model, seedKeyword, prompt
   }
 }
 
+async function resolveKeywordAIRuntime() {
+  const openAiApiKey = String(process.env.OPENAI_API_KEY || '').trim();
+  if (openAiApiKey) {
+    return {
+      id: 'openai',
+      name: 'ChatGPT (OpenAI)',
+      apiKey: openAiApiKey,
+      baseUrl: DEFAULT_OPENAI_BASE_URL,
+      model: String(process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL).trim(),
+      requestMode: 'responses',
+    };
+  }
+
+  const nvApiKey = String(process.env.NVAPI_API_KEY || '').trim();
+  if (nvApiKey) {
+    return {
+      id: 'nvidia',
+      name: 'NVIDIA (NVAPI)',
+      apiKey: nvApiKey,
+      baseUrl: DEFAULT_NVIDIA_BASE_URL,
+      model: String(process.env.NVAPI_MODEL || DEFAULT_NVIDIA_MODEL).trim(),
+      requestMode: 'chat_completions',
+    };
+  }
+
+  const providerRuntime = await aiProviderManager.getKeywordAIRuntimeConfig();
+  if (providerRuntime?.apiKey) {
+    return providerRuntime;
+  }
+
+  throw createServiceError(
+    'AI keyword features are not configured. Add an API key in AI Providers (OpenAI or NVIDIA), or set OPENAI_API_KEY/NVAPI_API_KEY on the backend.'
+  );
+}
+
 async function filterKeywordsWithAI({ seedKeyword, keywords, prompt, maxResults }) {
   if (!seedKeyword || !seedKeyword.trim()) {
     throw createServiceError('Seed keyword is required for AI filtering.');
-  }
-
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw createServiceError('AI keyword filtering is not configured. Set OPENAI_API_KEY on the backend.');
   }
 
   const uniqueKeywords = normaliseKeywords(keywords);
@@ -382,10 +523,9 @@ async function filterKeywordsWithAI({ seedKeyword, keywords, prompt, maxResults 
     throw createServiceError('No keywords were provided for AI filtering.');
   }
 
+  const runtime = await resolveKeywordAIRuntime();
   const selectedPrompt = normalisePrompt(prompt);
   const resultLimit = clamp(Number.parseInt(maxResults, 10) || DEFAULT_MAX_RESULTS, 5, MAX_RESULTS_LIMIT);
-  const model = process.env.OPENAI_MODEL || DEFAULT_MODEL;
-  const baseUrl = DEFAULT_BASE_URL;
 
   let passCount = 0;
   let workingKeywords = uniqueKeywords;
@@ -401,9 +541,7 @@ async function filterKeywordsWithAI({ seedKeyword, keywords, prompt, maxResults 
 
     for (const chunk of chunks) {
       const partialResult = await requestFilterPass({
-        apiKey,
-        baseUrl,
-        model,
+        runtime,
         seedKeyword,
         prompt: selectedPrompt,
         keywords: chunk,
@@ -419,9 +557,7 @@ async function filterKeywordsWithAI({ seedKeyword, keywords, prompt, maxResults 
   }
 
   const finalResult = await requestFilterPass({
-    apiKey,
-    baseUrl,
-    model,
+    runtime,
     seedKeyword,
     prompt: selectedPrompt,
     keywords: workingKeywords,
@@ -435,7 +571,8 @@ async function filterKeywordsWithAI({ seedKeyword, keywords, prompt, maxResults 
     totalCandidates: uniqueKeywords.length,
     shortlistedCandidates: workingKeywords.length,
     selectedCount: finalResult.keywords.length,
-    model,
+    model: runtime.model,
+    provider: runtime.name,
     passCount,
     summary: finalResult.summary,
     keywords: finalResult.keywords.slice(0, resultLimit),
@@ -447,19 +584,11 @@ async function generateKeywordsWithAI({ seedKeyword, prompt, maxResults, options
     throw createServiceError('Seed keyword is required for AI keyword research.');
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw createServiceError('AI keyword research is not configured. Set OPENAI_API_KEY on the backend.');
-  }
-
+  const runtime = await resolveKeywordAIRuntime();
   const selectedPrompt = normaliseResearchPrompt(prompt);
   const resultLimit = clamp(Number.parseInt(maxResults, 10) || DEFAULT_MAX_RESULTS, 10, MAX_RESULTS_LIMIT);
-  const model = process.env.OPENAI_MODEL || DEFAULT_MODEL;
-  const baseUrl = DEFAULT_BASE_URL;
   const generated = await requestResearchPass({
-    apiKey,
-    baseUrl,
-    model,
+    runtime,
     seedKeyword,
     prompt: selectedPrompt,
     options,
@@ -470,7 +599,8 @@ async function generateKeywordsWithAI({ seedKeyword, prompt, maxResults, options
     keyword: seedKeyword.trim(),
     prompt: selectedPrompt,
     selectedCount: generated.keywords.length,
-    model,
+    model: runtime.model,
+    provider: runtime.name,
     summary: generated.summary,
     keywords: generated.keywords,
   };

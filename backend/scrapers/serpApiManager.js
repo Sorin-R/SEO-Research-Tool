@@ -150,8 +150,9 @@ async function search(keyword, numResults = 10, options = {}) {
       });
 
       if (results && results.length > 0) {
-        console.log(`[SERP] ✓ ${providerContext.detail.name} returned ${results.length} results`);
-        return results;
+        const normalizedResults = normalizeProviderResults(results, numResults);
+        console.log(`[SERP] ✓ ${providerContext.detail.name} returned ${normalizedResults.length} results`);
+        return normalizedResults;
       }
 
       console.warn(`[SERP] ${providerContext.detail.name} returned no results, trying next provider...`);
@@ -164,6 +165,121 @@ async function search(keyword, numResults = 10, options = {}) {
     'All configured SERP providers failed. Check your API keys and quota. ' +
     'Free tiers may have monthly limits.'
   );
+}
+
+function normalizeProviderResults(results, numResults) {
+  return (Array.isArray(results) ? results : [])
+    .map((result, index) => {
+      const normalizedUrl = normalizeResultUrl(result?.url || result?.link || result?.href || '');
+
+      return {
+        position: Number.isFinite(Number(result?.position)) ? Number(result.position) : index + 1,
+        title: String(result?.title || '').trim(),
+        url: normalizedUrl,
+        snippet: String(result?.snippet || '').trim(),
+      };
+    })
+    .filter((result) => result.url)
+    .slice(0, numResults);
+}
+
+function normalizeResultUrl(rawUrl) {
+  let current = String(rawUrl || '').trim();
+
+  if (!current) {
+    return '';
+  }
+
+  // Some providers return Google redirect links; unwrap repeatedly if needed.
+  for (let i = 0; i < 3; i += 1) {
+    const destination = extractGoogleRedirectDestination(current);
+    if (!destination || destination === current) {
+      break;
+    }
+    current = destination;
+  }
+
+  if (current.startsWith('//')) {
+    current = `https:${current}`;
+  }
+
+  if (!/^https?:\/\//i.test(current)) {
+    if (/^[a-z0-9.-]+\.[a-z]{2,}(\/|$)/i.test(current)) {
+      current = `https://${current}`;
+    } else {
+      return '';
+    }
+  }
+
+  try {
+    const parsed = new URL(current);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return '';
+    }
+    return parsed.toString();
+  } catch {
+    return '';
+  }
+}
+
+function extractGoogleRedirectDestination(inputUrl) {
+  const candidate = String(inputUrl || '').trim();
+  if (!candidate) {
+    return '';
+  }
+
+  const absoluteCandidate = candidate.startsWith('/url?') ? `https://www.google.com${candidate}` : candidate;
+
+  try {
+    const parsed = new URL(absoluteCandidate);
+    const hostname = parsed.hostname.replace(/^www\./, '').toLowerCase();
+    const isGoogleHost =
+      hostname === 'google.com' ||
+      hostname.startsWith('google.') ||
+      hostname.endsWith('.google.com') ||
+      hostname.endsWith('.google.co.uk');
+
+    if (!isGoogleHost) {
+      return '';
+    }
+
+    if (!['/url', '/imgres', '/aclk'].includes(parsed.pathname)) {
+      return '';
+    }
+
+    const targetParams = ['url', 'q', 'adurl', 'imgurl', 'uddg'];
+    for (const paramName of targetParams) {
+      const value = parsed.searchParams.get(paramName);
+      if (!value) {
+        continue;
+      }
+
+      const decoded = decodeMaybeEncoded(value);
+      if (/^https?:\/\//i.test(decoded)) {
+        return decoded;
+      }
+    }
+
+    return '';
+  } catch {
+    return '';
+  }
+}
+
+function decodeMaybeEncoded(value) {
+  let current = String(value || '').trim();
+  for (let i = 0; i < 2; i += 1) {
+    try {
+      const decoded = decodeURIComponent(current);
+      if (decoded === current) {
+        break;
+      }
+      current = decoded;
+    } catch {
+      break;
+    }
+  }
+  return current;
 }
 
 /**

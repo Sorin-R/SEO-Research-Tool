@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { serpService, websiteService } = require('../services');
 const rankTrackerSettingsService = require('../services/rankTrackerSettingsService');
-const { rescheduleRankTrackerScheduler } = require('../services/rankTrackerScheduler');
+const { rescheduleRankTrackerScheduler, runRankTrackerJob, getJobHistory } = require('../services/rankTrackerScheduler');
 const { serpApiManager } = require('../scrapers');
 const { normalizeCountryCode } = require('../utils/searchCountry');
 
@@ -136,7 +136,12 @@ router.get('/rankings/:keywordId', async (req, res) => {
   const days = parseInt(req.query.days, 10) || 30;
 
   try {
-    const history = await serpService.getRankingHistory(keywordId, days, req.query.websiteId || null);
+    const options = {};
+    if (req.query.startDate && req.query.endDate) {
+      options.startDate = req.query.startDate;
+      options.endDate = req.query.endDate;
+    }
+    const history = await serpService.getRankingHistory(keywordId, days, req.query.websiteId || null, options);
     res.json(history);
   } catch (err) {
     console.error('[Route /serp/rankings/:id] Error:', err.message);
@@ -298,6 +303,89 @@ router.patch('/providers/:providerId/credentials', async (req, res) => {
   } catch (err) {
     console.error('[Route /serp/providers/:providerId/credentials PATCH] Error:', err.message);
     res.status(err.statusCode || 500).json({ error: err.message || 'Failed to update provider credentials.' });
+  }
+});
+
+// ---- Export ----
+
+router.get('/export', async (req, res) => {
+  const { websiteId, format } = req.query;
+  try {
+    const result = await serpService.exportRankings(websiteId || null, format || 'json');
+    if (format === 'csv') {
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename=rankings.csv');
+      return res.send(result);
+    }
+    res.json(result);
+  } catch (err) {
+    console.error('[Route /serp/export] Error:', err.message);
+    res.status(500).json({ error: 'Failed to export rankings.' });
+  }
+});
+
+// ---- Trends Summary ----
+
+router.get('/trends-summary', async (req, res) => {
+  try {
+    const summary = await serpService.getRankingTrendsSummary(req.query.websiteId || null);
+    res.json(summary);
+  } catch (err) {
+    console.error('[Route /serp/trends-summary] Error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch trends summary.' });
+  }
+});
+
+// ---- Job History ----
+
+router.get('/jobs', async (_req, res) => {
+  try {
+    const jobs = await getJobHistory();
+    res.json(jobs);
+  } catch (err) {
+    console.error('[Route /serp/jobs] Error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch job history.' });
+  }
+});
+
+// ---- Manual Full Job Run ----
+
+router.post('/jobs/run', async (_req, res) => {
+  try {
+    const result = await runRankTrackerJob('Manual');
+    res.json(result);
+  } catch (err) {
+    console.error('[Route /serp/jobs/run] Error:', err.message);
+    res.status(500).json({ error: 'Failed to run rank tracker job.', details: err.message });
+  }
+});
+
+// ---- Alerts ----
+
+router.get('/alerts', async (req, res) => {
+  try {
+    const unreadOnly = req.query.unreadOnly === 'true';
+    const alerts = await serpService.getAlerts(req.query.limit || 50, unreadOnly);
+    const unreadCount = await serpService.getUnreadAlertCount();
+    res.json({ alerts, unreadCount });
+  } catch (err) {
+    console.error('[Route /serp/alerts] Error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch alerts.' });
+  }
+});
+
+router.post('/alerts/read', async (req, res) => {
+  try {
+    const { alertIds } = req.body || {};
+    if (alertIds && alertIds.length > 0) {
+      await serpService.markAlertsRead(alertIds);
+    } else {
+      await serpService.markAllAlertsRead();
+    }
+    res.json({ message: 'Alerts marked as read.' });
+  } catch (err) {
+    console.error('[Route /serp/alerts/read] Error:', err.message);
+    res.status(500).json({ error: 'Failed to mark alerts as read.' });
   }
 });
 

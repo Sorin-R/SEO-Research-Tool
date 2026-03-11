@@ -131,6 +131,35 @@ const schemaStatements = [
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (provider_id, credential_key)
   ) ENGINE=InnoDB`,
+  `CREATE TABLE IF NOT EXISTS rank_tracker_jobs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    source VARCHAR(32) NOT NULL DEFAULT 'Cron',
+    status VARCHAR(16) NOT NULL DEFAULT 'running',
+    processed_keywords INT NOT NULL DEFAULT 0,
+    processed_websites INT NOT NULL DEFAULT 0,
+    updated_count INT NOT NULL DEFAULT 0,
+    matched_count INT NOT NULL DEFAULT 0,
+    failed_count INT NOT NULL DEFAULT 0,
+    error_message TEXT DEFAULT NULL,
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    finished_at TIMESTAMP NULL DEFAULT NULL,
+    INDEX idx_jobs_started (started_at),
+    INDEX idx_jobs_status (status)
+  ) ENGINE=InnoDB`,
+  `CREATE TABLE IF NOT EXISTS ranking_alerts (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    keyword_id INT NOT NULL,
+    website_id INT NULL,
+    alert_type VARCHAR(32) NOT NULL,
+    old_position INT DEFAULT NULL,
+    new_position INT DEFAULT NULL,
+    message TEXT NOT NULL,
+    is_read TINYINT(1) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_alerts_read (is_read, created_at),
+    CONSTRAINT fk_alerts_keyword FOREIGN KEY (keyword_id) REFERENCES keywords(id) ON DELETE CASCADE,
+    CONSTRAINT fk_alerts_website FOREIGN KEY (website_id) REFERENCES websites(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB`,
 ];
 
 /**
@@ -187,6 +216,8 @@ async function ensureSchema() {
   await ensureRankTrackerSettingsSchema();
   await ensureSerpProviderSettingsSchema();
   await ensureSerpProviderCredentialsSchema();
+  await ensureRankingsDateIndex();
+  await cleanupOldSerpCache();
 
   console.log('[DB] Schema verified.');
 }
@@ -345,6 +376,24 @@ async function ensureSerpProviderCredentialsSchema() {
     await pool.query(
       'ALTER TABLE serp_provider_credentials ADD COLUMN credential_value TEXT NOT NULL AFTER credential_key'
     );
+  }
+}
+
+async function ensureRankingsDateIndex() {
+  if (!(await hasIndex('rankings', 'idx_rankings_keyword_date'))) {
+    await pool.query(
+      'ALTER TABLE rankings ADD INDEX idx_rankings_keyword_date (keyword_id, date)'
+    );
+  }
+}
+
+async function cleanupOldSerpCache() {
+  try {
+    await pool.query(
+      `DELETE FROM serp_cache WHERE fetched_at < DATE_SUB(NOW(), INTERVAL 7 DAY)`
+    );
+  } catch {
+    // non-critical
   }
 }
 

@@ -438,16 +438,23 @@ async function trackRanking(keywordId, keyword, targetDomain, websiteId = null, 
 /**
  * Get ranking history for a keyword.
  */
-async function getRankingHistory(keywordId, days = 30, websiteId = null) {
+async function getRankingHistory(keywordId, days = 30, websiteId = null, options = {}) {
   try {
-    const params = [keywordId, days];
+    const params = [keywordId];
     let sql = `SELECT r.*, k.keyword, w.name AS website_name, w.domain AS website_domain
        FROM rankings r
        INNER JOIN keywords k ON k.id = r.keyword_id
        LEFT JOIN websites w ON w.id = r.website_id
        WHERE keyword_id = ?
-         AND date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
     `;
+
+    if (options.startDate && options.endDate) {
+      sql += ' AND date >= ? AND date <= ?';
+      params.push(options.startDate, options.endDate);
+    } else {
+      sql += ' AND date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)';
+      params.push(days);
+    }
 
     if (websiteId != null) {
       sql += ' AND r.website_id = ?';
@@ -477,7 +484,12 @@ async function getRankingHistory(keywordId, days = 30, websiteId = null) {
 async function getLatestRankings(websiteId = null) {
   try {
     const params = [];
-    let sql = `SELECT r.*, k.keyword, w.name AS website_name, w.domain AS website_domain
+    let sql = `SELECT r.*, k.keyword, w.name AS website_name, w.domain AS website_domain,
+       (SELECT r3.position FROM rankings r3
+        WHERE r3.keyword_id = r.keyword_id
+          AND COALESCE(r3.website_id, 0) = COALESCE(r.website_id, 0)
+          AND r3.date < r.date
+        ORDER BY r3.date DESC LIMIT 1) AS previous_position
        FROM rankings r
        INNER JOIN keywords k ON k.id = r.keyword_id
        LEFT JOIN websites w ON w.id = r.website_id
@@ -641,6 +653,110 @@ async function syncTrackedRankingsFromResults(keyword, results, country = 'US') 
   };
 }
 
+async function exportRankings(websiteId, format = 'json') {
+  const rankings = await getLatestRankings(websiteId);
+  if (format === 'csv') {
+    const header = 'Keyword,Position,Previous Position,Change,URL,Date,Website';
+    const rows = rankings.map((r) => {
+      const delta = r.previous_position != null && r.position != null
+        ? r.previous_position - r.position
+        : '';
+      return [
+        `"${(r.keyword || '').replace(/"/g, '""')}"`,
+        r.position ?? 'N/A',
+        r.previous_position ?? 'N/A',
+        delta,
+        `"${(r.url || '').replace(/"/g, '""')}"`,
+        r.date || '',
+        `"${(r.website_domain || '').replace(/"/g, '""')}"`,
+      ].join(',');
+    });
+    return [header, ...rows].join('\n');
+  }
+  return rankings;
+}
+
+async function getRankingTrendsSummary(websiteId) {
+  const rankings = await getLatestRankings(websiteId);
+  const ranked = rankings.filter((r) => r.position != null);
+  const notRanked = rankings.filter((r) => r.position == null);
+  const improved = rankings.filter((r) => r.previous_position != null && r.position != null && r.position < r.previous_position);
+  const declined = rankings.filter((r) => r.previous_position != null && r.position != null && r.position > r.previous_position);
+  const unchanged = rankings.filter((r) => r.previous_position != null && r.position != null && r.position === r.previous_position);
+
+  const positions = ranked.map((r) => r.position);
+  const avgPosition = positions.length > 0 ? (positions.reduce((a, b) => a + b, 0) / positions.length).toFixed(1) : null;
+  const bestPosition = positions.length > 0 ? Math.min(...positions) : null;
+  const worstPosition = positions.length > 0 ? Math.max(...positions) : null;
+
+  const top3 = ranked.filter((r) => r.position <= 3).length;
+  const top10 = ranked.filter((r) => r.position <= 10).length;
+  const top20 = ranked.filter((r) => r.position <= 20).length;
+
+  return {
+    totalKeywords: rankings.length,
+    ranked: ranked.length,
+    notRanked: notRanked.length,
+    improved: improved.length,
+    declined: declined.length,
+    unchanged: unchanged.length,
+    avgPosition,
+    bestPosition,
+    worstPosition,
+    top3,
+    top10,
+    top20,
+  };
+}
+
+async function getAlerts(limit = 50, unreadOnly = false) {
+  try {
+    let sql = `SELECT a.*, k.keyword, w.domain AS website_domain
+       FROM ranking_alerts a
+       INNER JOIN keywords k ON k.id = a.keyword_id
+       LEFT JOIN websites w ON w.id = a.website_id`;
+    const params = [];
+    if (unreadOnly) {
+      sql += ' WHERE a.is_read = 0';
+    }
+    sql += ' ORDER BY a.created_at DESC LIMIT ?';
+    params.push(Math.min(Math.max(limit, 1), 200));
+    return await db.query(sql, params);
+  } catch {
+    return [];
+  }
+}
+
+async function markAlertsRead(alertIds = []) {
+  if (alertIds.length === 0) return;
+  try {
+    const placeholders = alertIds.map(() => '?').join(',');
+    await db.query(
+      `UPDATE ranking_alerts SET is_read = 1 WHERE id IN (${placeholders})`,
+      alertIds
+    );
+  } catch {
+    // non-critical
+  }
+}
+
+async function markAllAlertsRead() {
+  try {
+    await db.query('UPDATE ranking_alerts SET is_read = 1 WHERE is_read = 0');
+  } catch {
+    // non-critical
+  }
+}
+
+async function getUnreadAlertCount() {
+  try {
+    const rows = await db.query('SELECT COUNT(*) AS cnt FROM ranking_alerts WHERE is_read = 0');
+    return rows[0]?.cnt || 0;
+  } catch {
+    return 0;
+  }
+}
+
 module.exports = {
   getSERPAnalysis,
   getRankTrackingResults,
@@ -651,6 +767,12 @@ module.exports = {
   getSERPAnalysisHistory,
   getSERPAnalysisHistoryItem,
   deleteSERPAnalysisHistoryItem,
+  exportRankings,
+  getRankingTrendsSummary,
+  getAlerts,
+  markAlertsRead,
+  markAllAlertsRead,
+  getUnreadAlertCount,
 };
 
 function buildCacheKey(keyword, country) {

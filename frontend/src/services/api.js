@@ -144,10 +144,12 @@ export async function getLatestRankings(websiteId = null) {
   return data;
 }
 
-export async function getRankingHistory(keywordId, days = 30, websiteId = null) {
-  const { data } = await api.get(`/serp/rankings/${keywordId}`, {
-    params: websiteId ? { days, websiteId } : { days },
-  });
+export async function getRankingHistory(keywordId, days = 30, websiteId = null, options = {}) {
+  const params = { days };
+  if (websiteId) params.websiteId = websiteId;
+  if (options.startDate) params.startDate = options.startDate;
+  if (options.endDate) params.endDate = options.endDate;
+  const { data } = await api.get(`/serp/rankings/${keywordId}`, { params });
   return data;
 }
 
@@ -210,6 +212,49 @@ export async function updateSerpProviderCredentials(providerId, credentials) {
   const { data } = await api.patch(`/serp/providers/${providerId}/credentials`, {
     credentials,
   });
+  return data;
+}
+
+export async function exportRankings(websiteId = null, format = 'json') {
+  if (format === 'csv') {
+    const { data } = await api.get('/serp/export', {
+      params: { websiteId, format: 'csv' },
+      responseType: 'text',
+    });
+    return data;
+  }
+  const { data } = await api.get('/serp/export', {
+    params: { websiteId, format },
+  });
+  return data;
+}
+
+export async function getRankingTrendsSummary(websiteId = null) {
+  const { data } = await api.get('/serp/trends-summary', {
+    params: websiteId ? { websiteId } : undefined,
+  });
+  return data;
+}
+
+export async function getJobHistory() {
+  const { data } = await api.get('/serp/jobs');
+  return data;
+}
+
+export async function runManualJob() {
+  const { data } = await api.post('/serp/jobs/run');
+  return data;
+}
+
+export async function getAlerts(limit = 50, unreadOnly = false) {
+  const { data } = await api.get('/serp/alerts', {
+    params: { limit, unreadOnly },
+  });
+  return data;
+}
+
+export async function markAlertsRead(alertIds = []) {
+  const { data } = await api.post('/serp/alerts/read', { alertIds });
   return data;
 }
 

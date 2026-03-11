@@ -4,6 +4,7 @@
  */
 
 import { useState } from 'react';
+import { getSaveActionClass, getTrackActionClass } from '../constants/keywordActionStyles';
 
 export default function GoogleAdsKeywordTable({
   ideas = [],
@@ -150,11 +151,7 @@ export default function GoogleAdsKeywordTable({
                       type="button"
                       onClick={() => onTrack?.(idea)}
                       disabled={isTracked}
-                      className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
-                        isTracked
-                          ? 'border-green-200 bg-green-50 text-green-700'
-                          : 'border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50'
-                      }`}
+                      className={getTrackActionClass(isTracked, 'xs')}
                     >
                       {isTracked ? 'Tracked' : 'Track'}
                     </button>
@@ -162,11 +159,7 @@ export default function GoogleAdsKeywordTable({
                       type="button"
                       onClick={() => onSaveToList?.(idea)}
                       disabled={savingList || !canSave || isSaved}
-                      className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
-                        isSaved
-                          ? 'border-green-200 bg-green-50 text-green-700'
-                          : 'border-gray-300 bg-white text-gray-700 hover:border-indigo-300 hover:text-indigo-700'
-                      } disabled:opacity-50 disabled:cursor-not-allowed`}
+                      className={getSaveActionClass(isSaved, 'xs')}
                     >
                       {isSaved ? 'Saved' : 'Save to list'}
                     </button>

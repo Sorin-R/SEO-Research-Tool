@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { getBulkSaveActionClass, getSaveActionClass, getTrackActionClass } from '../constants/keywordActionStyles';
 import SearchBar from '../components/SearchBar';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorAlert from '../components/ErrorAlert';
@@ -1770,18 +1771,14 @@ export default function KeywordResearch() {
                         Primary keyword: {selectedCluster.primaryKeyword} • {selectedCluster.keywordCount} keywords
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => openSaveListDialog(selectedCluster.keywords.map(mapKeywordToListItem(data.keyword)), 'Save cluster to list')}
-                      disabled={savingList || keywordLists.length === 0 || isSelectedClusterSaved}
-                      className={`rounded-lg px-4 py-2 text-sm font-medium ${
-                        isSelectedClusterSaved
-                          ? 'border border-green-200 bg-green-50 text-green-700'
-                          : 'bg-indigo-600 text-white hover:bg-indigo-700'
-                      } disabled:opacity-50 disabled:cursor-not-allowed`}
-                    >
-                      {isSelectedClusterSaved ? 'Saved' : 'Save cluster to list'}
-                    </button>
+              <button
+                type="button"
+                onClick={() => openSaveListDialog(selectedCluster.keywords.map(mapKeywordToListItem(data.keyword)), 'Save cluster to list')}
+                disabled={savingList || keywordLists.length === 0 || isSelectedClusterSaved}
+                className={getBulkSaveActionClass(isSelectedClusterSaved)}
+              >
+                {isSelectedClusterSaved ? 'Saved' : 'Save cluster to list'}
+              </button>
                   </div>
 
                   <div className="flex flex-wrap gap-2">
@@ -2087,11 +2084,7 @@ function ClusterKeywordList({ keywords, tracked, savedKeywords, onTrack, onSaveT
                 type="button"
                 onClick={() => onTrack(keyword)}
                 disabled={isTracked}
-                className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
-                  isTracked
-                    ? 'border-green-200 bg-green-50 text-green-700'
-                    : 'border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50'
-                }`}
+                className={getTrackActionClass(isTracked)}
               >
                 {isTracked ? 'Tracked' : 'Track'}
               </button>
@@ -2099,11 +2092,7 @@ function ClusterKeywordList({ keywords, tracked, savedKeywords, onTrack, onSaveT
                 type="button"
                 onClick={() => onSaveToList(item)}
                 disabled={savingList || !canSave || isSaved}
-                className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
-                  isSaved
-                    ? 'border-green-200 bg-green-50 text-green-700'
-                    : 'border-gray-300 bg-white text-gray-700 hover:border-indigo-300 hover:text-indigo-700'
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
+                className={getSaveActionClass(isSaved)}
               >
                 {isSaved ? 'Saved' : 'Save to list'}
               </button>
@@ -2214,11 +2203,7 @@ function KeywordRows({ keywords, tracked, savedKeywords, onTrack, onSaveToList, 
                 type="button"
                 onClick={() => onTrack(item.keyword)}
                 disabled={tracked.has(item.keyword)}
-                className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
-                  tracked.has(item.keyword)
-                    ? 'border-green-200 bg-green-50 text-green-700'
-                    : 'border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50'
-                }`}
+                className={getTrackActionClass(tracked.has(item.keyword))}
               >
                 {tracked.has(item.keyword) ? 'Tracked' : 'Track'}
               </button>
@@ -2226,11 +2211,7 @@ function KeywordRows({ keywords, tracked, savedKeywords, onTrack, onSaveToList, 
                 type="button"
                 onClick={() => onSaveToList(item)}
                 disabled={savingList || !canSave || isSaved}
-                className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
-                  isSaved
-                    ? 'border-green-200 bg-green-50 text-green-700'
-                    : 'border-gray-300 bg-white text-gray-700 hover:border-indigo-300 hover:text-indigo-700'
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
+                className={getSaveActionClass(isSaved)}
               >
                 {isSaved ? 'Saved' : 'Save to list'}
               </button>
@@ -2324,11 +2305,7 @@ function AIKeywordSection({ data, sourceKeywords, tracked, savedKeywords, onTrac
                 type="button"
                 onClick={() => onSaveToList(selectedCluster.keywords.map((item) => item.keyword))}
                 disabled={savingList || !canSave || isSelectedClusterSaved}
-                className={`rounded-lg px-4 py-2 text-sm font-medium ${
-                  isSelectedClusterSaved
-                    ? 'border border-green-200 bg-green-50 text-green-700'
-                    : 'bg-indigo-600 text-white hover:bg-indigo-700'
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
+                className={getBulkSaveActionClass(isSelectedClusterSaved)}
               >
                 {isSelectedClusterSaved ? 'Saved' : 'Save AI cluster'}
               </button>
@@ -2384,11 +2361,7 @@ function AIKeywordSection({ data, sourceKeywords, tracked, savedKeywords, onTrac
                         type="button"
                         onClick={() => onTrack(item.keyword)}
                         disabled={tracked.has(item.keyword)}
-                        className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
-                          tracked.has(item.keyword)
-                            ? 'border-green-200 bg-green-50 text-green-700'
-                            : 'border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50'
-                        }`}
+                        className={getTrackActionClass(tracked.has(item.keyword))}
                       >
                         {tracked.has(item.keyword) ? 'Tracked' : 'Track'}
                       </button>
@@ -2396,11 +2369,7 @@ function AIKeywordSection({ data, sourceKeywords, tracked, savedKeywords, onTrac
                         type="button"
                         onClick={() => onSaveToList(item.keyword)}
                         disabled={savingList || !canSave || isSaved}
-                        className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
-                          isSaved
-                            ? 'border-green-200 bg-green-50 text-green-700'
-                            : 'border-gray-300 bg-white text-gray-700 hover:border-indigo-300 hover:text-indigo-700'
-                        } disabled:opacity-50 disabled:cursor-not-allowed`}
+                        className={getSaveActionClass(isSaved)}
                       >
                         {isSaved ? 'Saved' : 'Save to list'}
                       </button>

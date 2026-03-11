@@ -2069,10 +2069,7 @@ function ClusterKeywordList({ keywords, tracked, savedKeywords, onTrack, onSaveT
         const isSaved = savedKeywords?.has(String(keyword || '').toLowerCase());
 
         return (
-          <div
-            key={keyword}
-            className="grid gap-3 rounded-lg border border-gray-200 bg-white px-3 py-3 sm:grid-cols-[minmax(0,1fr)_16rem] sm:items-center"
-          >
+          <div key={keyword} className="rounded-lg border border-gray-200 bg-white px-3 py-3">
             <div className="min-w-0">
               <div className="font-medium text-sm text-gray-900">{keyword}</div>
               {typeof item === 'object' && (
@@ -2082,7 +2079,7 @@ function ClusterKeywordList({ keywords, tracked, savedKeywords, onTrack, onSaveT
               )}
             </div>
 
-            <div className="flex w-full flex-col items-end justify-center gap-2">
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => onTrack(keyword)}

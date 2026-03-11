@@ -5,7 +5,17 @@
 
 import { useState } from 'react';
 
-export default function GoogleAdsKeywordTable({ ideas = [], keyword, loading = false }) {
+export default function GoogleAdsKeywordTable({
+  ideas = [],
+  keyword,
+  loading = false,
+  tracked = new Set(),
+  savedKeywords = new Set(),
+  onTrack,
+  onSaveToList,
+  savingList = false,
+  canSave = false,
+}) {
   const [sortBy, setSortBy] = useState('avgMonthlySearches');
   const [sortDir, setSortDir] = useState('desc');
   const [filter, setFilter] = useState('');
@@ -114,11 +124,16 @@ export default function GoogleAdsKeywordTable({ ideas = [], keyword, loading = f
                   <SortIcon column="cpc" />
                 </button>
               </th>
+              <th className="px-4 py-3 text-right font-semibold">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {sorted.map((idea, i) => (
-              <tr key={i} className="hover:bg-indigo-50 transition-colors">
+            {sorted.map((idea) => {
+              const isTracked = tracked.has(idea.keyword);
+              const isSaved = savedKeywords.has(String(idea.keyword || '').toLowerCase());
+
+              return (
+              <tr key={idea.keyword} className="hover:bg-indigo-50 transition-colors">
                 <td className="px-4 py-3 text-gray-800 font-medium">{idea.keyword}</td>
                 <td className="px-4 py-3 text-right text-gray-600">
                   {idea.avgMonthlySearches.toLocaleString()}
@@ -129,8 +144,36 @@ export default function GoogleAdsKeywordTable({ ideas = [], keyword, loading = f
                 <td className="px-4 py-3 text-right text-gray-600">
                   ${idea.cpc.toFixed(2)}
                 </td>
+                <td className="px-4 py-3">
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onTrack?.(idea)}
+                      disabled={isTracked}
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
+                        isTracked
+                          ? 'border-green-200 bg-green-50 text-green-700'
+                          : 'border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50'
+                      }`}
+                    >
+                      {isTracked ? 'Tracked' : 'Track'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onSaveToList?.(idea)}
+                      disabled={savingList || !canSave || isSaved}
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
+                        isSaved
+                          ? 'border-green-200 bg-green-50 text-green-700'
+                          : 'border-gray-300 bg-white text-gray-700 hover:border-indigo-300 hover:text-indigo-700'
+                      } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    >
+                      {isSaved ? 'Saved' : 'Save to list'}
+                    </button>
+                  </div>
+                </td>
               </tr>
-            ))}
+            )})}
           </tbody>
         </table>
       </div>

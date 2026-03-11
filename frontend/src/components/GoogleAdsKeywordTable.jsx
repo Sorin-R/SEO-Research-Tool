@@ -6,6 +6,22 @@
 import { useState } from 'react';
 import { getSaveActionClass, getTrackActionClass } from '../constants/keywordActionStyles';
 
+const COMPETITION_ORDER_ASC = {
+  LOW: 0,
+  MEDIUM: 1,
+  HIGH: 2,
+  VERY_HIGH: 3,
+  UNKNOWN: 99,
+};
+
+const COMPETITION_ORDER_DESC = {
+  VERY_HIGH: 0,
+  HIGH: 1,
+  MEDIUM: 2,
+  LOW: 3,
+  UNKNOWN: 99,
+};
+
 export default function GoogleAdsKeywordTable({
   ideas = [],
   keyword,
@@ -45,6 +61,18 @@ export default function GoogleAdsKeywordTable({
 
   // Sort ideas
   const sorted = [...filtered].sort((a, b) => {
+    if (sortBy === 'competition') {
+      const order = sortDir === 'asc' ? COMPETITION_ORDER_ASC : COMPETITION_ORDER_DESC;
+      const aRank = order[String(a.competition || 'UNKNOWN').toUpperCase()] ?? 99;
+      const bRank = order[String(b.competition || 'UNKNOWN').toUpperCase()] ?? 99;
+
+      if (aRank !== bRank) {
+        return aRank - bRank;
+      }
+
+      return String(a.keyword || '').localeCompare(String(b.keyword || ''));
+    }
+
     let aVal = a[sortBy];
     let bVal = b[sortBy];
 

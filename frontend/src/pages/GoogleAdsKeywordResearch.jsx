@@ -9,7 +9,6 @@
  */
 
 import { useEffect, useState } from 'react';
-import SearchBar from '../components/SearchBar';
 import GoogleAdsKeywordTable from '../components/GoogleAdsKeywordTable';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorAlert from '../components/ErrorAlert';
@@ -253,6 +252,15 @@ export default function GoogleAdsKeywordResearch() {
     keywordLists.flatMap((list) => (Array.isArray(list.items) ? list.items : []).map((item) => String(item.keyword || '').toLowerCase()))
   );
 
+  function handleSearchSubmit(event) {
+    event.preventDefault();
+    if (!lastKeyword.trim() || loading) {
+      return;
+    }
+
+    handleSearch(lastKeyword.trim());
+  }
+
   return (
     <div>
       <h2 className="text-2xl font-bold text-gray-900 mb-1">Google Ads Keyword Research</h2>
@@ -260,71 +268,84 @@ export default function GoogleAdsKeywordResearch() {
         Get keyword ideas with PPC metrics: search volume, competition level, and CPC from Google Ads.
       </p>
 
-      {/* Search */}
-      <SearchBar
-        onSearch={handleSearch}
-        loading={loading}
-        placeholder="Enter a seed keyword (e.g., vegan cupcakes)..."
-        initialValue={lastKeyword}
-      />
+      <form onSubmit={handleSearchSubmit} className="mt-6 bg-white rounded-lg border border-gray-200 p-4">
+        <div className="flex flex-wrap items-end gap-4">
+          <label className="min-w-[280px] flex-1 space-y-1">
+            <span className="text-sm font-medium text-gray-700">Seed Keyword</span>
+            <input
+              type="text"
+              value={lastKeyword}
+              onChange={(event) => setLastKeyword(event.target.value)}
+              placeholder="Enter a seed keyword (e.g., vegan cupcakes)..."
+              className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              disabled={loading}
+            />
+          </label>
 
-      <div className="mt-4 bg-white rounded-lg border border-gray-200 p-4">
-        <label className="block space-y-1">
-          <span className="text-sm font-medium text-gray-700">Country</span>
-          <select
-            value={country}
-            onChange={(event) => setCountry(event.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          >
-            {COUNTRY_OPTIONS.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      <div className="mt-6 bg-white rounded-lg border border-gray-200 p-6 space-y-4">
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <input
-            type="text"
-            value={newListName}
-            onChange={(event) => setNewListName(event.target.value)}
-            placeholder="New list name"
-            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-          <button
-            type="button"
-            onClick={handleCreateList}
-            disabled={creatingList || !newListName.trim()}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {creatingList ? 'Creating...' : 'Create list'}
-          </button>
-        </div>
-
-        {listsError && <ErrorAlert message={listsError} />}
-
-        {!listsLoading && keywordLists.length > 0 && (
-          <label className="block space-y-1">
-            <span className="text-sm font-medium text-gray-700">Active list for saves</span>
+          <label className="w-full sm:w-56 space-y-1">
+            <span className="text-sm font-medium text-gray-700">Country</span>
             <select
-              value={selectedListId}
-              onChange={(event) => setSelectedListId(event.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              value={country}
+              onChange={(event) => setCountry(event.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              {keywordLists.map((list) => (
-                <option key={list.id} value={list.id}>
-                  {list.name} ({list.itemCount})
+              {COUNTRY_OPTIONS.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
                 </option>
               ))}
             </select>
           </label>
-        )}
 
-        {listsLoading && <p className="text-sm text-gray-500">Loading keyword lists...</p>}
-      </div>
+          {!listsLoading && keywordLists.length > 0 && (
+            <label className="w-full sm:w-64 space-y-1">
+              <span className="text-sm font-medium text-gray-700">Active List</span>
+              <select
+                value={selectedListId}
+                onChange={(event) => setSelectedListId(event.target.value)}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                {keywordLists.map((list) => (
+                  <option key={list.id} value={list.id}>
+                    {list.name} ({list.itemCount})
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <label className="w-full sm:w-56 space-y-1">
+            <span className="text-sm font-medium text-gray-700">New List</span>
+            <input
+              type="text"
+              value={newListName}
+              onChange={(event) => setNewListName(event.target.value)}
+              placeholder="New list name"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </label>
+
+          <button
+            type="button"
+            onClick={handleCreateList}
+            disabled={creatingList || !newListName.trim()}
+            className="rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {creatingList ? 'Creating...' : 'Create list'}
+          </button>
+
+          <button
+            type="submit"
+            disabled={loading || !lastKeyword.trim()}
+            className="rounded-lg bg-indigo-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? 'Searching...' : 'Search'}
+          </button>
+        </div>
+
+        {listsLoading && <p className="mt-3 text-sm text-gray-500">Loading keyword lists...</p>}
+        {listsError && <div className="mt-3"><ErrorAlert message={listsError} /></div>}
+      </form>
 
       {loading && <LoadingSpinner message="Fetching keyword ideas from Google Ads..." />}
       {error && <div className="mt-6"><ErrorAlert message={error} onRetry={() => handleSearch(lastKeyword)} /></div>}

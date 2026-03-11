@@ -119,6 +119,13 @@ const schemaStatements = [
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (provider_id, credential_key)
   ) ENGINE=InnoDB`,
+  `CREATE TABLE IF NOT EXISTS serp_provider_usage (
+    provider_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    quota_limit INT NOT NULL DEFAULT 0,
+    remaining INT NOT NULL DEFAULT 0,
+    used_count INT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB`,
   `CREATE TABLE IF NOT EXISTS ai_provider_settings (
     provider_id VARCHAR(64) NOT NULL PRIMARY KEY,
     is_enabled TINYINT(1) NOT NULL DEFAULT 1,

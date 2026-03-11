@@ -132,7 +132,7 @@ export default function ProviderStatus() {
   const inactiveConfiguredCount = providerDetails.filter(
     (provider) => provider.configured && !provider.enabled
   ).length;
-  const totalActiveQuota = calculateQuota(providerDetails.filter((provider) => provider.active));
+  const totalActiveRemaining = calculateRemaining(providerDetails.filter((provider) => provider.active));
 
   return (
     <div className="space-y-6">
@@ -146,7 +146,7 @@ export default function ProviderStatus() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <SummaryCard label="Configured APIs" value={configuredCount} tone="blue" />
         <SummaryCard label="Active Providers" value={activeCount} tone="green" />
-        <SummaryCard label="Approx. Active Quota" value={totalActiveQuota} suffix="/month" tone="amber" />
+        <SummaryCard label="Active Remaining" value={totalActiveRemaining} tone="amber" />
       </div>
 
       {notice && (
@@ -172,7 +172,7 @@ export default function ProviderStatus() {
                 <tr>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700">Provider</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700">Credentials</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Quota</th>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Remaining</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
                   <th className="px-4 py-3 text-center font-semibold text-gray-700">Toggle</th>
                 </tr>
@@ -236,8 +236,17 @@ export default function ProviderStatus() {
                         </div>
                       </td>
                       <td className="px-4 py-4 align-top text-gray-600">
-                        {provider.quota}
-                        <div className="mt-1 text-xs text-gray-500">{provider.quotaType}</div>
+                        {provider.usage?.display ? (
+                          <>
+                            <span className="font-medium text-gray-800">{provider.usage.display}</span>
+                            <div className="mt-1 text-xs text-gray-500">Total / Remaining</div>
+                          </>
+                        ) : (
+                          <>
+                            {provider.quota}
+                            <div className="mt-1 text-xs text-gray-500">{provider.quotaType}</div>
+                          </>
+                        )}
                       </td>
                       <td className="px-4 py-4 align-top">
                         <StatusPill provider={provider} />
@@ -300,6 +309,8 @@ export default function ProviderStatus() {
               <li>Save the API key in the field beside each provider.</li>
               <li>Configured + ON: the provider can be used for SERP requests.</li>
               <li>Configured + OFF: the API key stays saved, but the provider is skipped.</li>
+              <li>Usage counters show as total/remaining and decrease after each successful provider request.</li>
+              <li>Baseline calculation: {'{ SerpAPI 250/171, Serpstack 100/98, Zenserp 50/43, SearchAPI 100/96, ScaleSERP 100/96 }'}.</li>
               <li>Env values still work too, but this page can now store and update provider credentials directly.</li>
             </ul>
           </div>
@@ -351,16 +362,6 @@ function StatusPill({ provider }) {
   );
 }
 
-function calculateQuota(providers) {
-  const quotas = {
-    'SerpAPI': 100,
-    'Serpstack': 100,
-    'Zenserp': 100,
-    'SearchAPI': 100,
-    'ScaleSERP': 100,
-    'Google Custom Search': 3000,
-    'Bing Search API': 1000,
-  };
-
-  return providers.reduce((total, provider) => total + (quotas[provider.name] || 0), 0);
+function calculateRemaining(providers) {
+  return providers.reduce((total, provider) => total + (Number(provider.usage?.remaining) || 0), 0);
 }

@@ -13,6 +13,7 @@ const googleSearchProvider = require('./providers/googleSearchProvider');
 const bingSearchProvider = require('./providers/bingSearchProvider');
 const providerCredentialsService = require('../services/providerCredentialsService');
 const providerSettingsService = require('../services/providerSettingsService');
+const providerUsageService = require('../services/providerUsageService');
 
 function hasConfiguredValue(value) {
   if (!value) return false;
@@ -35,6 +36,8 @@ const providers = [
     quota: '100/month',
     quotaType: 'Monthly',
     setupTime: '2 min',
+    requestLimit: 250,
+    defaultRemaining: 171,
     fields: [
       { key: 'SERPAPI_KEY', label: 'API Key' },
     ],
@@ -47,6 +50,8 @@ const providers = [
     quota: '100/month',
     quotaType: 'Monthly',
     setupTime: '2 min',
+    requestLimit: 100,
+    defaultRemaining: 98,
     fields: [
       { key: 'SERPSTACK_KEY', label: 'API Key' },
     ],
@@ -59,6 +64,8 @@ const providers = [
     quota: '100/month',
     quotaType: 'Monthly',
     setupTime: '2 min',
+    requestLimit: 50,
+    defaultRemaining: 43,
     fields: [
       { key: 'ZENSERP_KEY', label: 'API Key' },
     ],
@@ -71,6 +78,8 @@ const providers = [
     quota: '100/month',
     quotaType: 'Monthly',
     setupTime: '2 min',
+    requestLimit: 100,
+    defaultRemaining: 96,
     fields: [
       { key: 'SEARCHAPI_KEY', label: 'API Key' },
     ],
@@ -83,6 +92,8 @@ const providers = [
     quota: '100/month',
     quotaType: 'Monthly',
     setupTime: '2 min',
+    requestLimit: 100,
+    defaultRemaining: 96,
     fields: [
       { key: 'SCALESERP_KEY', label: 'API Key' },
     ],
@@ -95,6 +106,8 @@ const providers = [
     quota: '100/day',
     quotaType: 'Daily',
     setupTime: '10 min',
+    requestLimit: 100,
+    defaultRemaining: 100,
     fields: [
       { key: 'GOOGLE_SEARCH_API_KEY', label: 'API Key' },
       { key: 'GOOGLE_SEARCH_CX', label: 'Search Engine ID' },
@@ -108,6 +121,8 @@ const providers = [
     quota: '~1000/month',
     quotaType: 'Monthly',
     setupTime: '3 min',
+    requestLimit: 1000,
+    defaultRemaining: 1000,
     fields: [
       { key: 'BING_SEARCH_KEY', label: 'API Key' },
     ],
@@ -148,6 +163,7 @@ async function search(keyword, numResults = 10, options = {}) {
         ...options,
         credentials: providerContext.credentials,
       });
+      await consumeProviderUsageSafe(providerContext.config);
 
       if (results && results.length > 0) {
         const normalizedResults = normalizeProviderResults(results, numResults);
@@ -165,6 +181,16 @@ async function search(keyword, numResults = 10, options = {}) {
     'All configured SERP providers failed. Check your API keys and quota. ' +
     'Free tiers may have monthly limits.'
   );
+}
+
+async function consumeProviderUsageSafe(providerConfig) {
+  try {
+    await providerUsageService.consumeProviderUsage(providerConfig, 1);
+  } catch (err) {
+    console.warn(
+      `[SERP] Failed to update usage counter for ${providerConfig?.name || providerConfig?.id || 'provider'}: ${err.message}`
+    );
+  }
 }
 
 function normalizeProviderResults(results, numResults) {
@@ -355,13 +381,19 @@ function isProviderEnabled(providerId, settings = {}) {
 }
 
 async function getProviderContexts() {
-  const [settings, credentialsMap] = await Promise.all([
+  const [settings, credentialsMap, usageMap] = await Promise.all([
     providerSettingsService.getProviderSettingsMap(),
     providerCredentialsService.getProviderCredentialsMap(),
+    providerUsageService.getProviderUsageMap(providers),
   ]);
 
   return providers.map((providerConfig) => {
-    const detail = buildProviderDetail(providerConfig, settings, credentialsMap[providerConfig.id] || {});
+    const detail = buildProviderDetail(
+      providerConfig,
+      settings,
+      credentialsMap[providerConfig.id] || {},
+      usageMap[providerConfig.id] || null
+    );
 
     return {
       config: providerConfig,
@@ -371,7 +403,7 @@ async function getProviderContexts() {
   });
 }
 
-function buildProviderDetail(providerConfig, settings, storedCredentials) {
+function buildProviderDetail(providerConfig, settings, storedCredentials, usage) {
   const fields = providerConfig.fields.map((fieldConfig) => {
     const resolvedCredential = resolveCredential(fieldConfig.key, storedCredentials);
 
@@ -398,6 +430,13 @@ function buildProviderDetail(providerConfig, settings, storedCredentials) {
     docsUrl: providerConfig.docsUrl,
     quota: providerConfig.quota,
     quotaType: providerConfig.quotaType,
+    usage: {
+      limit: Number(usage?.quota_limit) || Number(providerConfig.requestLimit) || 0,
+      remaining: Number(usage?.remaining) || 0,
+      used: Number(usage?.used_count) || 0,
+      display: `${Number(usage?.quota_limit) || Number(providerConfig.requestLimit) || 0}/${Number(usage?.remaining) || 0}`,
+      format: 'limit/remaining',
+    },
     setupTime: providerConfig.setupTime,
     updatedAt: settings[providerConfig.id]?.updated_at || null,
   };

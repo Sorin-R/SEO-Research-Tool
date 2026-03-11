@@ -59,6 +59,7 @@ function createEmptyState() {
     },
     serpProviderSettings: {},
     serpProviderCredentials: {},
+    serpProviderUsage: {},
     keywordResearchHistory: [],
     keywordLists: [],
     serpAnalysisHistory: [],
@@ -108,6 +109,9 @@ async function readState() {
         : {},
       serpProviderCredentials: parsed.serpProviderCredentials && typeof parsed.serpProviderCredentials === 'object'
         ? parsed.serpProviderCredentials
+        : {},
+      serpProviderUsage: parsed.serpProviderUsage && typeof parsed.serpProviderUsage === 'object'
+        ? parsed.serpProviderUsage
         : {},
       keywordResearchHistory: Array.isArray(parsed.keywordResearchHistory)
         ? parsed.keywordResearchHistory
@@ -248,6 +252,41 @@ async function updateSerpProviderCredentials(providerId, credentials = {}) {
 
   await writeState(state);
   return state.serpProviderCredentials[providerId];
+}
+
+function parseNonNegativeInt(value, fallback = 0) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+async function getSerpProviderUsageMap() {
+  const state = await readState();
+  return { ...(state.serpProviderUsage || {}) };
+}
+
+async function consumeSerpProviderUsage(providerId, amount = 1, defaults = {}) {
+  const state = await readState();
+  const current = state.serpProviderUsage?.[providerId] || {};
+  const quotaLimit = parseNonNegativeInt(current.quota_limit, parseNonNegativeInt(defaults.quota_limit, 0));
+  const fallbackRemaining = parseNonNegativeInt(defaults.remaining, quotaLimit);
+  const currentRemaining = parseNonNegativeInt(current.remaining, fallbackRemaining);
+  const currentUsed = parseNonNegativeInt(current.used_count, Math.max(quotaLimit - currentRemaining, 0));
+  const usageDelta = Math.max(1, parseNonNegativeInt(amount, 1));
+
+  const nextUsage = {
+    quota_limit: quotaLimit,
+    remaining: Math.max(0, currentRemaining - usageDelta),
+    used_count: currentUsed + usageDelta,
+    updated_at: nowIso(),
+  };
+
+  state.serpProviderUsage = {
+    ...(state.serpProviderUsage || {}),
+    [providerId]: nextUsage,
+  };
+
+  await writeState(state);
+  return nextUsage;
 }
 
 async function saveKeyword(keyword, difficulty = null, searchVolume = null) {
@@ -1014,8 +1053,10 @@ module.exports = {
   updateRankTrackerSettings,
   getSerpProviderSettings,
   getSerpProviderCredentials,
+  getSerpProviderUsageMap,
   updateSerpProviderSetting,
   updateSerpProviderCredentials,
+  consumeSerpProviderUsage,
   saveWebsite,
   getWebsites,
   getActiveWebsites,

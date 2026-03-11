@@ -173,3 +173,14 @@ CREATE TABLE IF NOT EXISTS serp_provider_credentials (
   updated_at        TIMESTAMP    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (provider_id, credential_key)
 ) ENGINE=InnoDB;
+
+-- --------------------------------------------------------
+-- SERP provider request usage counters (remaining quota)
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS serp_provider_usage (
+  provider_id VARCHAR(64) NOT NULL PRIMARY KEY,
+  quota_limit INT         NOT NULL DEFAULT 0,
+  remaining   INT         NOT NULL DEFAULT 0,
+  used_count  INT         NOT NULL DEFAULT 0,
+  updated_at  TIMESTAMP   DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;

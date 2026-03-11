@@ -117,22 +117,132 @@ function parseStructuredPayload(payload) {
   return parseStructuredText(rawText);
 }
 
+function normalizeJsonText(value) {
+  return String(value || '')
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, '\'')
+    .trim();
+}
+
+function stripMarkdownFences(value) {
+  return String(value || '')
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+}
+
+function collectFencedJsonBlocks(value) {
+  const text = String(value || '');
+  const pattern = /```(?:json)?\s*([\s\S]*?)```/gi;
+  const blocks = [];
+  let match;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match[1] && match[1].trim()) {
+      blocks.push(match[1].trim());
+    }
+  }
+
+  return blocks;
+}
+
+function extractFirstJsonBlock(value) {
+  const text = String(value || '');
+  const openingIndexes = [];
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === '{' || char === '[') {
+      openingIndexes.push(index);
+    }
+  }
+
+  for (const startIndex of openingIndexes) {
+    const stack = [];
+    let inString = false;
+    let escaped = false;
+
+    for (let index = startIndex; index < text.length; index += 1) {
+      const char = text[index];
+
+      if (inString) {
+        if (!escaped && char === '"') {
+          inString = false;
+        }
+        escaped = !escaped && char === '\\';
+        continue;
+      }
+
+      if (char === '"') {
+        inString = true;
+        escaped = false;
+        continue;
+      }
+
+      if (char === '{' || char === '[') {
+        stack.push(char);
+        continue;
+      }
+
+      if (char === '}' || char === ']') {
+        const opener = stack.pop();
+        if (!opener) {
+          break;
+        }
+        const validPair = (opener === '{' && char === '}') || (opener === '[' && char === ']');
+        if (!validPair) {
+          break;
+        }
+
+        if (stack.length === 0) {
+          return text.slice(startIndex, index + 1).trim();
+        }
+      }
+    }
+  }
+
+  return '';
+}
+
 function parseStructuredText(rawText) {
   if (!rawText) {
     throw createServiceError('AI did not return a structured keyword response.', 502);
   }
 
-  const cleaned = String(rawText)
-    .replace(/^```json\s*/i, '')
-    .replace(/^```\s*/i, '')
-    .replace(/\s*```$/, '')
-    .trim();
+  const candidates = [];
+  const cleaned = stripMarkdownFences(rawText);
+  const fencedBlocks = collectFencedJsonBlocks(rawText);
+  const extractedJson = extractFirstJsonBlock(rawText);
 
-  try {
-    return JSON.parse(cleaned);
-  } catch (error) {
-    throw createServiceError('AI returned an invalid keyword payload.', 502);
+  if (cleaned) {
+    candidates.push(cleaned);
   }
+
+  for (const block of fencedBlocks) {
+    candidates.push(block);
+  }
+
+  if (extractedJson) {
+    candidates.push(extractedJson);
+  }
+
+  const seen = new Set();
+  for (const candidate of candidates) {
+    const normalizedCandidate = normalizeJsonText(candidate);
+    if (!normalizedCandidate || seen.has(normalizedCandidate)) {
+      continue;
+    }
+    seen.add(normalizedCandidate);
+
+    try {
+      return JSON.parse(normalizedCandidate);
+    } catch {
+      // Try next candidate.
+    }
+  }
+
+  throw createServiceError('AI returned an invalid keyword payload.', 502);
 }
 
 function extractChatCompletionText(payload) {
@@ -270,24 +380,30 @@ async function requestFilterPass({ runtime, seedKeyword, prompt, keywords, maxRe
     let parsed;
 
     if (runtime.requestMode === 'chat_completions') {
+      const requestBody = {
+        model: runtime.model,
+        temperature: Number.isFinite(NVIDIA_TEMPERATURE) ? NVIDIA_TEMPERATURE : 0.2,
+        top_p: Number.isFinite(NVIDIA_TOP_P) ? NVIDIA_TOP_P : 0.7,
+        max_tokens: Number.isFinite(NVIDIA_MAX_TOKENS) ? NVIDIA_MAX_TOKENS : 1024,
+        messages: [
+          {
+            role: 'system',
+            content: buildSchemaPrompt(responseSchema.schema),
+          },
+          {
+            role: 'user',
+            content: userInput,
+          },
+        ],
+      };
+
+      if (runtime.id === 'nvidia') {
+        requestBody.chat_template_kwargs = { thinking: false };
+      }
+
       const { data } = await axios.post(
         `${runtime.baseUrl}/chat/completions`,
-        {
-          model: runtime.model,
-          temperature: Number.isFinite(NVIDIA_TEMPERATURE) ? NVIDIA_TEMPERATURE : 0.2,
-          top_p: Number.isFinite(NVIDIA_TOP_P) ? NVIDIA_TOP_P : 0.7,
-          max_tokens: Number.isFinite(NVIDIA_MAX_TOKENS) ? NVIDIA_MAX_TOKENS : 1024,
-          messages: [
-            {
-              role: 'system',
-              content: buildSchemaPrompt(responseSchema.schema),
-            },
-            {
-              role: 'user',
-              content: userInput,
-            },
-          ],
-        },
+        requestBody,
         {
           headers: {
             Authorization: `Bearer ${runtime.apiKey}`,
@@ -403,24 +519,30 @@ async function requestResearchPass({ runtime, seedKeyword, prompt, options, maxR
     let parsed;
 
     if (runtime.requestMode === 'chat_completions') {
+      const requestBody = {
+        model: runtime.model,
+        temperature: Number.isFinite(NVIDIA_TEMPERATURE) ? NVIDIA_TEMPERATURE : 0.2,
+        top_p: Number.isFinite(NVIDIA_TOP_P) ? NVIDIA_TOP_P : 0.7,
+        max_tokens: Number.isFinite(NVIDIA_MAX_TOKENS) ? NVIDIA_MAX_TOKENS : 1024,
+        messages: [
+          {
+            role: 'system',
+            content: buildSchemaPrompt(responseSchema.schema),
+          },
+          {
+            role: 'user',
+            content: userInput,
+          },
+        ],
+      };
+
+      if (runtime.id === 'nvidia') {
+        requestBody.chat_template_kwargs = { thinking: false };
+      }
+
       const { data } = await axios.post(
         `${runtime.baseUrl}/chat/completions`,
-        {
-          model: runtime.model,
-          temperature: Number.isFinite(NVIDIA_TEMPERATURE) ? NVIDIA_TEMPERATURE : 0.2,
-          top_p: Number.isFinite(NVIDIA_TOP_P) ? NVIDIA_TOP_P : 0.7,
-          max_tokens: Number.isFinite(NVIDIA_MAX_TOKENS) ? NVIDIA_MAX_TOKENS : 1024,
-          messages: [
-            {
-              role: 'system',
-              content: buildSchemaPrompt(responseSchema.schema),
-            },
-            {
-              role: 'user',
-              content: userInput,
-            },
-          ],
-        },
+        requestBody,
         {
           headers: {
             Authorization: `Bearer ${runtime.apiKey}`,

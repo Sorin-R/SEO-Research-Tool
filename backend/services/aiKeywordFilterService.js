@@ -12,6 +12,9 @@ const DEFAULT_NVIDIA_BASE_URL = (process.env.NVAPI_BASE_URL || 'https://integrat
 const NVIDIA_TEMPERATURE = Number.parseFloat(process.env.NVAPI_TEMPERATURE || '0.2');
 const NVIDIA_TOP_P = Number.parseFloat(process.env.NVAPI_TOP_P || '0.7');
 const NVIDIA_MAX_TOKENS = Number.parseInt(process.env.NVAPI_MAX_TOKENS || '1024', 10);
+const DEFAULT_AI_TIMEOUT_MS = Number.parseInt(process.env.AI_REQUEST_TIMEOUT_MS || '120000', 10);
+const NVAPI_TIMEOUT_MS = Number.parseInt(process.env.NVAPI_TIMEOUT_MS || '180000', 10);
+const NVAPI_DEEPSEEK_TIMEOUT_MS = Number.parseInt(process.env.NVAPI_DEEPSEEK_TIMEOUT_MS || '300000', 10);
 const DEFAULT_MAX_RESULTS = 100;
 const MAX_RESULTS_LIMIT = 250;
 const PASS_CHUNK_SIZE = 180;
@@ -25,6 +28,24 @@ function createServiceError(message, statusCode = 400) {
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
+}
+
+function parsePositiveInteger(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getAiRequestTimeoutMs(runtime) {
+  if (runtime?.id === 'nvidia') {
+    const model = String(runtime.model || '').toLowerCase();
+    if (model.includes('deepseek')) {
+      return parsePositiveInteger(NVAPI_DEEPSEEK_TIMEOUT_MS, 300000);
+    }
+
+    return parsePositiveInteger(NVAPI_TIMEOUT_MS, 180000);
+  }
+
+  return parsePositiveInteger(DEFAULT_AI_TIMEOUT_MS, 120000);
 }
 
 function normalisePrompt(prompt) {
@@ -376,6 +397,7 @@ async function requestFilterPass({ runtime, seedKeyword, prompt, keywords, maxRe
       maxResults,
       keywords,
     });
+    const requestTimeoutMs = getAiRequestTimeoutMs(runtime);
 
     let parsed;
 
@@ -409,7 +431,7 @@ async function requestFilterPass({ runtime, seedKeyword, prompt, keywords, maxRe
             Authorization: `Bearer ${runtime.apiKey}`,
             'Content-Type': 'application/json',
           },
-          timeout: 120000,
+          timeout: requestTimeoutMs,
         }
       );
 
@@ -430,7 +452,7 @@ async function requestFilterPass({ runtime, seedKeyword, prompt, keywords, maxRe
             Authorization: `Bearer ${runtime.apiKey}`,
             'Content-Type': 'application/json',
           },
-          timeout: 120000,
+          timeout: requestTimeoutMs,
         }
       );
 
@@ -515,6 +537,7 @@ async function requestResearchPass({ runtime, seedKeyword, prompt, options, maxR
       maxResults,
       options,
     });
+    const requestTimeoutMs = getAiRequestTimeoutMs(runtime);
 
     let parsed;
 
@@ -548,7 +571,7 @@ async function requestResearchPass({ runtime, seedKeyword, prompt, options, maxR
             Authorization: `Bearer ${runtime.apiKey}`,
             'Content-Type': 'application/json',
           },
-          timeout: 120000,
+          timeout: requestTimeoutMs,
         }
       );
 
@@ -569,7 +592,7 @@ async function requestResearchPass({ runtime, seedKeyword, prompt, options, maxR
             Authorization: `Bearer ${runtime.apiKey}`,
             'Content-Type': 'application/json',
           },
-          timeout: 120000,
+          timeout: requestTimeoutMs,
         }
       );
 

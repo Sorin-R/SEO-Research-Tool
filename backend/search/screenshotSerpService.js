@@ -309,7 +309,7 @@ async function extractResultsFromScreenshot({ imageBase64, keyword, engine, sear
               website_title: { type: 'string' },
               url: { type: 'string' },
             },
-            required: ['position', 'title', 'url'],
+            required: ['position', 'title', 'website_title', 'url'],
             additionalProperties: false,
           },
         },

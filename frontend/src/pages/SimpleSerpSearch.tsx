@@ -20,6 +20,7 @@ type SearchResponse = {
   location?: string | null;
   results: SearchResultItem[];
   meta?: {
+    screenshotMode?: boolean;
     aiMode?: boolean;
     aiProvider?: string | null;
     aiModel?: string | null;
@@ -37,6 +38,7 @@ type SearchResponse = {
   };
   debug?: {
     prompt?: string;
+    screenshotUrl?: string | null;
     providerAttempts?: Array<{
       providerId: string;
       providerName: string;
@@ -62,7 +64,7 @@ export default function SimpleSerpSearch() {
   const [keyword, setKeyword] = useState('');
   const [location, setLocation] = useState('');
   const [target, setTarget] = useState(DEFAULT_TARGET);
-  const [aiMode, setAiMode] = useState(false);
+  const [searchMode, setSearchMode] = useState<'standard' | 'ai' | 'screenshot'>('standard');
   const [highAccuracyMode, setHighAccuracyMode] = useState(true);
   const [strictMode, setStrictMode] = useState(true);
   const [verifyUrls, setVerifyUrls] = useState(true);
@@ -142,7 +144,8 @@ export default function SimpleSerpSearch() {
         engine: targetParts.engine,
         domain: targetParts.domain,
         location: sanitizedLocation,
-        aiMode,
+        aiMode: searchMode === 'ai',
+        screenshotMode: searchMode === 'screenshot',
         highAccuracyMode,
         providerId: providerId || undefined,
         strictMode,
@@ -198,13 +201,14 @@ export default function SimpleSerpSearch() {
             ))}
           </select>
           <select
-            value={aiMode ? 'ai' : 'standard'}
-            onChange={(event) => setAiMode(event.target.value === 'ai')}
+            value={searchMode}
+            onChange={(event) => setSearchMode(event.target.value as 'standard' | 'ai' | 'screenshot')}
             className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none"
             disabled={loading}
           >
             <option value="standard">Standard SERP</option>
             <option value="ai">AI SERP</option>
+            <option value="screenshot">Screenshot OCR SERP</option>
           </select>
           <button
             type="submit"
@@ -222,7 +226,7 @@ export default function SimpleSerpSearch() {
               checked={highAccuracyMode}
               onChange={(event) => setHighAccuracyMode(event.target.checked)}
               className="h-4 w-4"
-              disabled={aiMode}
+              disabled={searchMode !== 'standard'}
             />
             High Accuracy Mode
           </label>
@@ -232,7 +236,7 @@ export default function SimpleSerpSearch() {
               checked={strictMode}
               onChange={(event) => setStrictMode(event.target.checked)}
               className="h-4 w-4"
-              disabled={aiMode || !highAccuracyMode}
+              disabled={searchMode !== 'standard' || !highAccuracyMode}
             />
             Strict Geo Params
           </label>
@@ -242,7 +246,7 @@ export default function SimpleSerpSearch() {
               checked={verifyUrls}
               onChange={(event) => setVerifyUrls(event.target.checked)}
               className="h-4 w-4"
-              disabled={aiMode || !highAccuracyMode}
+              disabled={searchMode !== 'standard' || !highAccuracyMode}
             />
             Verify Redirects
           </label>
@@ -258,7 +262,7 @@ export default function SimpleSerpSearch() {
           <select
             value={providerId}
             onChange={(event) => setProviderId(event.target.value)}
-            disabled={providersLoading || aiMode}
+            disabled={providersLoading || searchMode !== 'standard'}
             className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
           >
             <option value="">Provider: Auto fallback</option>
@@ -272,20 +276,31 @@ export default function SimpleSerpSearch() {
         {providersError ? (
           <p className="text-xs text-red-600">{providersError}</p>
         ) : null}
-        {aiMode ? (
+        {searchMode === 'ai' ? (
           <p className="text-xs text-indigo-600">
             AI SERP uses your active AI provider from AI Providers (OpenAI/NVIDIA).
+          </p>
+        ) : null}
+        {searchMode === 'screenshot' ? (
+          <p className="text-xs text-indigo-600">
+            Screenshot OCR SERP opens the engine page, captures a screenshot, then extracts top websites with OpenAI vision.
           </p>
         ) : null}
 
         <div className="rounded-md bg-gray-50 px-3 py-2">
           <p className="text-xs font-medium text-gray-600">
-            {aiMode ? 'AI SERP prompt source' : 'Default prompt template used by search logic'}
+            {searchMode === 'ai'
+              ? 'AI SERP prompt source'
+              : searchMode === 'screenshot'
+                ? 'Screenshot OCR prompt source'
+                : 'Default prompt template used by search logic'}
           </p>
           <p className="mt-1 text-xs text-gray-500">
-            {aiMode
+            {searchMode === 'ai'
               ? 'AI SERP mode uses backend aiSerpService structured prompt and active AI model.'
-              : promptPreview}
+              : searchMode === 'screenshot'
+                ? 'Screenshot mode uses browser screenshot + OpenAI vision extraction prompt on the backend.'
+                : promptPreview}
           </p>
         </div>
       </form>
@@ -320,6 +335,12 @@ export default function SimpleSerpSearch() {
                 <>
                   {' · '}
                   Model: <span className="font-medium text-gray-900">{data.meta.aiModel}</span>
+                </>
+              ) : null}
+              {data.meta?.screenshotMode ? (
+                <>
+                  {' · '}
+                  Mode: <span className="font-medium text-gray-900">Screenshot OCR</span>
                 </>
               ) : null}
             </p>
@@ -367,6 +388,9 @@ export default function SimpleSerpSearch() {
         <div className="rounded-lg border border-gray-200 bg-white p-4">
           <h3 className="text-sm font-semibold text-gray-900">Debug Payload</h3>
           <p className="mt-2 text-xs font-medium text-gray-600">Provider attempts</p>
+          {data.debug.screenshotUrl ? (
+            <p className="mt-1 text-xs text-gray-600">Captured URL: {data.debug.screenshotUrl}</p>
+          ) : null}
           <div className="mt-1 space-y-1">
             {(data.debug.providerAttempts || []).map((attempt, index) => (
               <p key={`${attempt.providerId}-${index}`} className="text-xs text-gray-600">

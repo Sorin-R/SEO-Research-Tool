@@ -3,6 +3,7 @@ const { buildSerpPrompt } = require('./buildSerpPrompt');
 const { normalizeSearchResults } = require('./normalizeSearchResults');
 const { verifySearchResults } = require('./verifySearchResults');
 const { analyzeSERPWithAI } = require('../services/aiSerpService');
+const { analyzeSERPFromScreenshot } = require('./screenshotSerpService');
 const googleProvider = require('./providers/googleProvider');
 const bingProvider = require('./providers/bingProvider');
 
@@ -43,13 +44,14 @@ function toBooleanFlag(value, fallback = false) {
   return fallback;
 }
 
-async function runSearch({ keyword, engine, domain, location, aiMode, highAccuracyMode, providerId, strictMode, verifyUrls, debug }) {
+async function runSearch({ keyword, engine, domain, location, aiMode, screenshotMode, highAccuracyMode, providerId, strictMode, verifyUrls, debug }) {
   const normalizedKeyword = sanitizeKeyword(keyword);
   if (!normalizedKeyword) {
     throw createServiceError('Keyword is required.', 400);
   }
   const normalizedLocation = sanitizeLocation(location);
   const aiModeEnabled = toBooleanFlag(aiMode, false);
+  const screenshotModeEnabled = toBooleanFlag(screenshotMode, false);
   const normalizedProviderId = String(providerId || '').trim();
   const accuracyModeEnabled = toBooleanFlag(highAccuracyMode, false);
   const strictModeEnabled = toBooleanFlag(strictMode, accuracyModeEnabled);
@@ -59,6 +61,50 @@ async function runSearch({ keyword, engine, domain, location, aiMode, highAccura
   const target = resolveSearchTarget(engine, domain);
   if (!target) {
     throw createServiceError('Invalid engine/domain. Use Google.com, Google.co.uk, Bing.com, or Bing.co.uk.', 400);
+  }
+
+  if (screenshotModeEnabled) {
+    const screenshotResult = await analyzeSERPFromScreenshot(normalizedKeyword, {
+      engine: target.engine,
+      searchDomain: target.host,
+      country: target.country,
+      location: normalizedLocation,
+      numResults: 10,
+    });
+
+    const normalizedResults = normalizeSearchResults(screenshotResult.results || [], 10);
+    const verification = await verifySearchResults(normalizedResults, {
+      enabled: verifyUrlsEnabled,
+    });
+
+    const response = {
+      keyword: normalizedKeyword,
+      engine: target.engine,
+      domain: target.domain,
+      location: normalizedLocation || null,
+      results: verification.results,
+      meta: {
+        screenshotMode: true,
+        aiMode: false,
+        aiProvider: screenshotResult.aiProvider || null,
+        aiModel: screenshotResult.aiModel || null,
+        selectedProviderId: 'screenshot-ai-serp',
+        selectedProviderName: 'Screenshot AI OCR',
+        redirectsVerified: verifyUrlsEnabled,
+        verification: verification.stats,
+      },
+    };
+
+    if (debugEnabled) {
+      response.debug = {
+        prompt: screenshotResult.debugPrompt || 'Screenshot OCR mode',
+        providerAttempts: [],
+        normalizedResultCount: normalizedResults.length,
+        screenshotUrl: screenshotResult.screenshotUrl || null,
+      };
+    }
+
+    return response;
   }
 
   if (aiModeEnabled) {

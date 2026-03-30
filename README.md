@@ -51,6 +51,7 @@ Request:
   "domain": "co.uk",
   "location": "London",
   "aiMode": false,
+  "screenshotMode": false,
   "highAccuracyMode": true,
   "providerId": "searchapi",
   "strictMode": true,
@@ -122,6 +123,7 @@ Frontend default URL: `http://localhost:5173`
 - Keyword input is trimmed/sanitized before search.
 - Keyword is sent exactly as entered; location is sent as a separate location signal.
 - `aiMode: true` enables AI SERP mode in `/api/search` using the active AI provider.
+- `screenshotMode: true` enables screenshot SERP mode (capture page screenshot, then extract results with OpenAI vision).
 - High Accuracy Mode can lock one provider, enforce strict geo params, verify redirects, and return debug attempts.
 - To add more targets, extend:
   - `backend/search/config.js`

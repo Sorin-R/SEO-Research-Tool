@@ -57,4 +57,16 @@ router.patch('/:id/credentials', async (req, res, next) => {
   }
 });
 
+router.post('/:id/test', async (req, res, next) => {
+  try {
+    const result = await gscProviderManager.testProviderConnection(req.params.id);
+    res.json(result);
+  } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    next(err);
+  }
+});
+
 module.exports = router;

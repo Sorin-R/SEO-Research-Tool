@@ -1,5 +1,6 @@
 const db = require('../database');
 const localStore = require('../utils/localStore');
+const axios = require('axios');
 
 const GSC_PROVIDERS = [
   {
@@ -248,6 +249,33 @@ async function getProviderById(providerId) {
   return details.find((provider) => provider.id === providerId) || null;
 }
 
+function getProviderDefinition(providerId) {
+  return GSC_PROVIDERS.find((provider) => provider.id === providerId) || null;
+}
+
+function normalizeSiteValue(value) {
+  const input = String(value || '').trim();
+  if (!input) {
+    return '';
+  }
+
+  if (input.toLowerCase().startsWith('sc-domain:')) {
+    return input.toLowerCase();
+  }
+
+  return input
+    .toLowerCase()
+    .replace(/\/+$/, '/');
+}
+
+function getResolvedProviderCredentials(provider, credentialsMap) {
+  return provider.fields.reduce((accumulator, field) => {
+    const resolved = resolveCredentialValue(provider, field.name, credentialsMap);
+    accumulator[field.name] = resolved.value ? String(resolved.value).trim() : '';
+    return accumulator;
+  }, {});
+}
+
 async function toggleProvider(providerId, enabled) {
   const definition = GSC_PROVIDERS.find((provider) => provider.id === providerId);
 
@@ -260,7 +288,7 @@ async function toggleProvider(providerId, enabled) {
 }
 
 async function saveProviderCredentials(providerId, credentials) {
-  const definition = GSC_PROVIDERS.find((provider) => provider.id === providerId);
+  const definition = getProviderDefinition(providerId);
 
   if (!definition) {
     throw createServiceError(`Unknown GSC provider: ${providerId}`, 404);
@@ -270,9 +298,95 @@ async function saveProviderCredentials(providerId, credentials) {
   return getProviderById(providerId);
 }
 
+async function testProviderConnection(providerId) {
+  const provider = getProviderDefinition(providerId);
+
+  if (!provider) {
+    throw createServiceError(`Unknown GSC provider: ${providerId}`, 404);
+  }
+
+  const credentialsMap = await getCredentialsMap();
+  const credentials = getResolvedProviderCredentials(provider, credentialsMap);
+  const missingFields = provider.fields
+    .filter((field) => field.required !== false && !credentials[field.name])
+    .map((field) => field.name);
+
+  if (missingFields.length > 0) {
+    throw createServiceError(`Missing required credentials: ${missingFields.join(', ')}`);
+  }
+
+  let accessToken;
+  try {
+    const tokenPayload = new URLSearchParams({
+      client_id: credentials.GOOGLE_SEARCH_CONSOLE_CLIENT_ID,
+      client_secret: credentials.GOOGLE_SEARCH_CONSOLE_CLIENT_SECRET,
+      refresh_token: credentials.GOOGLE_SEARCH_CONSOLE_REFRESH_TOKEN,
+      grant_type: 'refresh_token',
+    });
+
+    const tokenResponse = await axios.post(
+      'https://oauth2.googleapis.com/token',
+      tokenPayload.toString(),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        timeout: 20000,
+      }
+    );
+
+    accessToken = String(tokenResponse?.data?.access_token || '').trim();
+  } catch (err) {
+    const apiMessage = err.response?.data?.error_description || err.response?.data?.error || err.message;
+    throw createServiceError(`Google token request failed: ${apiMessage}`, 502);
+  }
+
+  if (!accessToken) {
+    throw createServiceError('Google token request failed: no access token received.', 502);
+  }
+
+  let siteEntries = [];
+  try {
+    const sitesResponse = await axios.get('https://www.googleapis.com/webmasters/v3/sites', {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      timeout: 20000,
+    });
+
+    siteEntries = Array.isArray(sitesResponse?.data?.siteEntry) ? sitesResponse.data.siteEntry : [];
+  } catch (err) {
+    const apiMessage = err.response?.data?.error?.message || err.response?.data?.error || err.message;
+    throw createServiceError(`Search Console API request failed: ${apiMessage}`, 502);
+  }
+
+  const configuredSiteUrl = String(credentials.GOOGLE_SEARCH_CONSOLE_SITE_URL || '').trim();
+  const normalizedConfiguredSite = normalizeSiteValue(configuredSiteUrl);
+  const matchedSite = siteEntries.find(
+    (entry) => normalizeSiteValue(entry?.siteUrl) === normalizedConfiguredSite
+  );
+
+  return {
+    providerId: provider.id,
+    connected: true,
+    siteMatched: Boolean(matchedSite),
+    configuredSiteUrl,
+    matchedSiteUrl: matchedSite?.siteUrl || null,
+    totalAccessibleProperties: siteEntries.length,
+    sampleProperties: siteEntries
+      .map((entry) => String(entry?.siteUrl || '').trim())
+      .filter(Boolean)
+      .slice(0, 10),
+    message: matchedSite
+      ? 'Connection successful and configured site is accessible.'
+      : 'Connected to Search Console, but configured site URL is not in accessible properties.',
+  };
+}
+
 module.exports = {
   getStatus,
   getProviderById,
   toggleProvider,
   saveProviderCredentials,
+  testProviderConnection,
 };

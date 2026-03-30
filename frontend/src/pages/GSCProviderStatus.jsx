@@ -5,6 +5,7 @@ import {
   getGSCProviders,
   updateGSCProvider,
   updateGSCProviderCredentials,
+  testGSCProviderConnection,
 } from '../services/api';
 
 export default function GSCProviderStatus() {
@@ -13,7 +14,9 @@ export default function GSCProviderStatus() {
   const [error, setError] = useState(null);
   const [busyProviderId, setBusyProviderId] = useState(null);
   const [savingCredentialsId, setSavingCredentialsId] = useState(null);
+  const [testingProviderId, setTestingProviderId] = useState(null);
   const [credentialDrafts, setCredentialDrafts] = useState({});
+  const [connectionChecks, setConnectionChecks] = useState({});
   const [notice, setNotice] = useState(null);
 
   useEffect(() => {
@@ -122,6 +125,33 @@ export default function GSCProviderStatus() {
     }
   }
 
+  async function handleTestConnection(provider) {
+    if (!provider?.id || !provider.configured) {
+      return;
+    }
+
+    setTestingProviderId(provider.id);
+    setError(null);
+
+    try {
+      const result = await testGSCProviderConnection(provider.id);
+      setConnectionChecks((current) => ({
+        ...current,
+        [provider.id]: result,
+      }));
+
+      if (result.siteMatched) {
+        setNotice(`GSC test successful. Property matched: ${result.matchedSiteUrl || result.configuredSiteUrl}.`);
+      } else {
+        setNotice('GSC connected, but configured site URL was not found in your accessible properties.');
+      }
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+    } finally {
+      setTestingProviderId(null);
+    }
+  }
+
   if (loading) {
     return <LoadingSpinner message="Loading Google Search Console provider..." />;
   }
@@ -171,7 +201,9 @@ export default function GSCProviderStatus() {
             {providerDetails.map((provider) => {
               const isBusy = busyProviderId === provider.id;
               const isSavingCredentials = savingCredentialsId === provider.id;
+              const isTestingConnection = testingProviderId === provider.id;
               const providerDraft = credentialDrafts[provider.id] || {};
+              const connectionCheck = connectionChecks[provider.id];
 
               return (
                 <div key={provider.id} className={`px-5 py-5 ${provider.active ? 'bg-emerald-50/50' : ''}`}>
@@ -198,29 +230,41 @@ export default function GSCProviderStatus() {
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={provider.enabled}
-                      onClick={() => handleToggleProvider(provider)}
-                      disabled={!provider.configured || isBusy}
-                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
-                        provider.enabled ? 'bg-indigo-600' : 'bg-gray-300'
-                      } ${!provider.configured || isBusy ? 'cursor-not-allowed opacity-60' : ''}`}
-                      title={
-                        !provider.configured
-                          ? 'Add the required credentials first'
-                          : provider.enabled
-                            ? 'Turn provider OFF'
-                            : 'Turn provider ON'
-                      }
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                          provider.enabled ? 'translate-x-6' : 'translate-x-1'
-                        }`}
-                      />
-                    </button>
+                    <div className="flex flex-col items-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleTestConnection(provider)}
+                        disabled={!provider.configured || isTestingConnection}
+                        className="rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        title={!provider.configured ? 'Save required credentials first' : 'Test Search Console connection'}
+                      >
+                        {isTestingConnection ? 'Testing...' : 'Test Connection'}
+                      </button>
+
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={provider.enabled}
+                        onClick={() => handleToggleProvider(provider)}
+                        disabled={!provider.configured || isBusy}
+                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                          provider.enabled ? 'bg-indigo-600' : 'bg-gray-300'
+                        } ${!provider.configured || isBusy ? 'cursor-not-allowed opacity-60' : ''}`}
+                        title={
+                          !provider.configured
+                            ? 'Add the required credentials first'
+                            : provider.enabled
+                              ? 'Turn provider OFF'
+                              : 'Turn provider ON'
+                        }
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            provider.enabled ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="mt-4 space-y-3">
@@ -265,6 +309,31 @@ export default function GSCProviderStatus() {
                       </div>
                     ))}
                   </div>
+
+                  {connectionCheck && (
+                    <div
+                      className={`mt-4 rounded-lg border px-3 py-2 text-xs ${
+                        connectionCheck.siteMatched
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                          : 'border-amber-200 bg-amber-50 text-amber-900'
+                      }`}
+                    >
+                      <div className="font-medium">
+                        {connectionCheck.siteMatched ? 'Connection OK' : 'Connected, site mismatch'}
+                      </div>
+                      <div className="mt-1">
+                        Configured: <code>{connectionCheck.configuredSiteUrl || 'N/A'}</code>
+                      </div>
+                      {connectionCheck.matchedSiteUrl && (
+                        <div className="mt-1">
+                          Matched: <code>{connectionCheck.matchedSiteUrl}</code>
+                        </div>
+                      )}
+                      <div className="mt-1 text-[11px] opacity-80">
+                        Accessible properties: {connectionCheck.totalAccessibleProperties}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}

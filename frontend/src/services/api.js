@@ -464,6 +464,11 @@ export async function updateGSCProviderCredentials(providerId, credentials) {
   return data;
 }
 
+export async function testGSCProviderConnection(providerId) {
+  const { data } = await api.post(`/gsc-providers/${providerId}/test`);
+  return data;
+}
+
 // ---- Google Ads ----
 
 export async function getGoogleAdsKeywordIdeas(keyword, bypassCache = false, country = 'US') {

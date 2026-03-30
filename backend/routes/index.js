@@ -11,6 +11,7 @@ const aiProvidersRouter = require('./aiProviders');
 const gscProvidersRouter = require('./gscProviders');
 const websitesRouter = require('./websites');
 const dashboardRouter = require('./dashboard');
+const searchRouter = require('./search');
 
 router.use('/keywords', keywordsRouter);
 router.use('/serp', serpRouter);
@@ -22,5 +23,6 @@ router.use('/ai-providers', aiProvidersRouter);
 router.use('/gsc-providers', gscProvidersRouter);
 router.use('/websites', websitesRouter);
 router.use('/dashboard', dashboardRouter);
+router.use('/search', searchRouter);
 
 module.exports = router;

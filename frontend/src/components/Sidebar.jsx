@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { to: '/competitor-keywords', label: 'Competitor Keywords', icon: '🕵️' },
   { to: '/google-ads', label: 'Google Ads Keywords', icon: '💰' },
   { to: '/serp', label: 'SERP Analyzer', icon: '🔍' },
+  { to: '/search', label: 'SERP Search MVP', icon: '🧭' },
   { to: '/analyze', label: 'Content Analyzer', icon: '📝' },
   { to: '/site-audit', label: 'Site Audit', icon: '🩺' },
   { to: '/trends', label: 'Google Trends', icon: '📈' },

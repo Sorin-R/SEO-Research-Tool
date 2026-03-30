@@ -239,6 +239,15 @@ export async function manualTrackRank(
   return data;
 }
 
+export async function searchFirstPage({ keyword, engine, domain }) {
+  const { data } = await api.post('/search', {
+    keyword,
+    engine,
+    domain,
+  });
+  return data;
+}
+
 export async function getTrackedWebsites(options = {}) {
   const { data } = await api.get('/websites', {
     params: {

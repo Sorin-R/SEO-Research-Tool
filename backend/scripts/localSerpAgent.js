@@ -22,6 +22,19 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, Number.isFinite(ms) ? ms : 1000));
 }
 
+function isDetachedFrameError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('detached frame') || message.includes('execution context was destroyed');
+}
+
+function safePageUrl(page, fallback = '') {
+  try {
+    return page.url() || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function resolveHeadlessMode() {
   const raw = String(process.env.LOCAL_SERP_AGENT_HEADLESS || 'false').trim().toLowerCase();
   if (raw === 'new') {
@@ -209,71 +222,100 @@ async function captureSerpLocally(payload) {
   });
 
   try {
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1366, height: 2300 });
-    await page.setUserAgent(USER_AGENT);
-    await page.setExtraHTTPHeaders({
-      'accept-language': payload.country === 'GB' ? 'en-GB,en;q=0.9' : 'en-US,en;q=0.9',
-    });
-    await page.evaluateOnNewDocument(() => {
-      Object.defineProperty(navigator, 'webdriver', { get: () => false });
-    });
-    await page.goto(searchUrl, {
-      waitUntil: 'domcontentloaded',
-      timeout: 45000,
-    });
+    let lastError = null;
 
-    if (payload.engine === 'google' && shouldHandleGoogleConsent(page.url())) {
-      await handleGoogleConsent(page);
-      await sleep(1300);
-    }
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      let page = null;
+      try {
+        page = await browser.newPage();
+        await page.setViewport({ width: 1366, height: 2300 });
+        await page.setUserAgent(USER_AGENT);
+        await page.setExtraHTTPHeaders({
+          'accept-language': payload.country === 'GB' ? 'en-GB,en;q=0.9' : 'en-US,en;q=0.9',
+        });
+        await page.evaluateOnNewDocument(() => {
+          Object.defineProperty(navigator, 'webdriver', { get: () => false });
+        });
+        await page.goto(searchUrl, {
+          waitUntil: 'domcontentloaded',
+          timeout: 45000,
+        });
 
-    if (payload.engine === 'google' && shouldHandleGoogleConsent(page.url()) && MANUAL_CAPTCHA_ENABLED) {
-      const waitUntil = Date.now() + CAPTCHA_WAIT_MS;
-      console.log('[LocalAgent] Google block/captcha detected. Solve it in the opened browser window...');
-
-      while (Date.now() < waitUntil) {
-        if (!shouldHandleGoogleConsent(page.url())) {
-          break;
+        if (payload.engine === 'google' && shouldHandleGoogleConsent(safePageUrl(page, searchUrl))) {
+          await handleGoogleConsent(page);
+          await sleep(1300);
         }
-        await handleGoogleConsent(page);
-        await sleep(1500);
+
+        if (payload.engine === 'google' && shouldHandleGoogleConsent(safePageUrl(page, searchUrl)) && MANUAL_CAPTCHA_ENABLED) {
+          const waitUntil = Date.now() + CAPTCHA_WAIT_MS;
+          console.log('[LocalAgent] Google block/captcha detected. Solve it in the opened browser window...');
+
+          while (Date.now() < waitUntil) {
+            const currentUrl = safePageUrl(page, searchUrl);
+            if (!shouldHandleGoogleConsent(currentUrl)) {
+              break;
+            }
+            await handleGoogleConsent(page);
+            await sleep(1500);
+          }
+        }
+
+        await waitForResults(page, payload.engine);
+        await sleep(1200);
+
+        const domResults = await extractOrganicResultsFromDom(page, payload.engine, 10);
+        const containerSelector = payload.engine === 'bing' ? '#b_results' : '#search';
+        const container = await page.$(containerSelector);
+
+        let screenshotBuffer;
+        if (container) {
+          screenshotBuffer = await container.screenshot({
+            type: 'jpeg',
+            quality: 60,
+          });
+        } else {
+          screenshotBuffer = await page.screenshot({
+            fullPage: true,
+            type: 'jpeg',
+            quality: 60,
+          });
+        }
+
+        const finalUrl = safePageUrl(page, searchUrl);
+        const imageBase64 = Buffer.from(screenshotBuffer).toString('base64');
+
+        return {
+          results: domResults,
+          screenshotUrl: finalUrl,
+          screenshotImageDataUrl: `data:image/jpeg;base64,${imageBase64}`,
+          blockedByEngine: payload.engine === 'google' && shouldHandleGoogleConsent(finalUrl),
+          debug: {
+            capturedUrl: finalUrl,
+            attempt,
+          },
+        };
+      } catch (error) {
+        lastError = error;
+
+        if (isDetachedFrameError(error) && attempt < 2) {
+          console.warn('[LocalAgent] Detached frame detected, retrying capture...');
+          await sleep(700);
+          continue;
+        }
+
+        throw error;
+      } finally {
+        if (page) {
+          try {
+            await page.close();
+          } catch {
+            // ignore close errors
+          }
+        }
       }
     }
 
-    await waitForResults(page, payload.engine);
-    await sleep(1200);
-
-    const domResults = await extractOrganicResultsFromDom(page, payload.engine, 10);
-    const containerSelector = payload.engine === 'bing' ? '#b_results' : '#search';
-    const container = await page.$(containerSelector);
-
-    let screenshotBuffer;
-    if (container) {
-      screenshotBuffer = await container.screenshot({
-        type: 'jpeg',
-        quality: 60,
-      });
-    } else {
-      screenshotBuffer = await page.screenshot({
-        fullPage: true,
-        type: 'jpeg',
-        quality: 60,
-      });
-    }
-
-    const finalUrl = page.url() || searchUrl;
-    const imageBase64 = Buffer.from(screenshotBuffer).toString('base64');
-
-    return {
-      results: domResults,
-      screenshotUrl: finalUrl,
-      screenshotImageDataUrl: `data:image/jpeg;base64,${imageBase64}`,
-      blockedByEngine: payload.engine === 'google' && shouldHandleGoogleConsent(finalUrl),
-      debug: {
-        capturedUrl: finalUrl,
-      },
-    };
+    throw lastError || new Error('Local SERP capture failed.');
   } finally {
     await browser.close();
   }

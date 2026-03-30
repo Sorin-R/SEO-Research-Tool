@@ -67,6 +67,14 @@ function buildSearchUrl({ keyword, engine, searchDomain, country, location }) {
   return url.toString();
 }
 
+async function sleep(ms) {
+  const duration = Number.isFinite(Number(ms)) ? Number(ms) : 0;
+  if (duration <= 0) {
+    return;
+  }
+  await new Promise((resolve) => setTimeout(resolve, duration));
+}
+
 function loadPuppeteer() {
   try {
     return require('puppeteer');
@@ -104,7 +112,7 @@ async function captureSerpScreenshot({ keyword, engine, searchDomain, country, l
       waitUntil: 'domcontentloaded',
       timeout: 45000,
     });
-    await page.waitForTimeout(1800);
+    await sleep(1800);
 
     const screenshot = await page.screenshot({
       fullPage: true,

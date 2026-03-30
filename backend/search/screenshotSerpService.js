@@ -84,6 +84,99 @@ function loadPuppeteer() {
   }
 }
 
+function shouldHandleGoogleConsent(pageUrl) {
+  const value = String(pageUrl || '').toLowerCase();
+  return value.includes('consent.google') || value.includes('/sorry/');
+}
+
+async function handleGoogleConsent(page) {
+  try {
+    await page.evaluate(() => {
+      const candidates = Array.from(document.querySelectorAll('button, input[type="submit"], div[role="button"]'));
+      const clickByPattern = (pattern) => {
+        for (const node of candidates) {
+          const text = String(node.textContent || node.value || '').trim().toLowerCase();
+          if (pattern.test(text)) {
+            node.click();
+            return true;
+          }
+        }
+        return false;
+      };
+
+      if (!clickByPattern(/accept all|i agree|accept/)) {
+        clickByPattern(/reject all|continue|confirm|ok/);
+      }
+    });
+  } catch {
+    // best-effort only
+  }
+}
+
+async function waitForResults(page, engine) {
+  const selectors = engine === 'bing'
+    ? ['#b_results .b_algo', '#b_results']
+    : ['#search .g', '#search'];
+
+  for (const selector of selectors) {
+    try {
+      await page.waitForSelector(selector, { timeout: 7000 });
+      return true;
+    } catch {
+      // try next selector
+    }
+  }
+
+  return false;
+}
+
+async function extractOrganicResultsFromDom(page, engine, maxResults = 10) {
+  try {
+    const extracted = await page.evaluate((runtimeEngine, runtimeMaxResults) => {
+      const rows = [];
+      const seen = new Set();
+
+      const pushRow = (title, url) => {
+        const cleanTitle = String(title || '').replace(/\s+/g, ' ').trim();
+        const cleanUrl = String(url || '').trim();
+        if (!cleanTitle || !cleanUrl || seen.has(cleanUrl)) {
+          return;
+        }
+        seen.add(cleanUrl);
+        rows.push({
+          position: rows.length + 1,
+          title: cleanTitle,
+          website_title: '',
+          url: cleanUrl,
+        });
+      };
+
+      if (runtimeEngine === 'bing') {
+        const cards = Array.from(document.querySelectorAll('#b_results .b_algo'));
+        for (const card of cards) {
+          if (rows.length >= runtimeMaxResults) break;
+          const link = card.querySelector('h2 a');
+          pushRow(link?.textContent || '', link?.href || '');
+        }
+      } else {
+        const cards = Array.from(document.querySelectorAll('#search .g'));
+        for (const card of cards) {
+          if (rows.length >= runtimeMaxResults) break;
+          const titleNode = card.querySelector('h3');
+          const link = card.querySelector('a[href^="http"]');
+          pushRow(titleNode?.textContent || '', link?.href || '');
+        }
+      }
+
+      return rows;
+    }, engine, maxResults);
+
+    return Array.isArray(extracted) ? extracted : [];
+  } catch {
+    return [];
+  }
+}
+
 async function captureSerpScreenshot({ keyword, engine, searchDomain, country, location }) {
   const puppeteer = loadPuppeteer();
   if (!puppeteer) {
@@ -113,17 +206,37 @@ async function captureSerpScreenshot({ keyword, engine, searchDomain, country, l
       waitUntil: 'domcontentloaded',
       timeout: 45000,
     });
-    await sleep(1800);
 
-    const screenshot = await page.screenshot({
-      fullPage: true,
-      type: 'jpeg',
-      quality: 60,
-    });
+    if (engine === 'google' && shouldHandleGoogleConsent(page.url())) {
+      await handleGoogleConsent(page);
+      await sleep(1300);
+    }
+
+    await waitForResults(page, engine);
+    await sleep(1700);
+
+    const domResults = await extractOrganicResultsFromDom(page, engine, 10);
+    const containerSelector = engine === 'bing' ? '#b_results' : '#search';
+    const container = await page.$(containerSelector);
+
+    let screenshot;
+    if (container) {
+      screenshot = await container.screenshot({
+        type: 'jpeg',
+        quality: 60,
+      });
+    } else {
+      screenshot = await page.screenshot({
+        fullPage: true,
+        type: 'jpeg',
+        quality: 60,
+      });
+    }
 
     return {
-      searchUrl,
+      searchUrl: page.url() || searchUrl,
       imageBase64: Buffer.from(screenshot).toString('base64'),
+      domResults,
     };
   } finally {
     await browser.close();
@@ -192,13 +305,9 @@ function extractFirstJsonBlock(value) {
 
       if (char === '}' || char === ']') {
         const opener = stack.pop();
-        if (!opener) {
-          break;
-        }
+        if (!opener) break;
         const validPair = (opener === '{' && char === '}') || (opener === '[' && char === ']');
-        if (!validPair) {
-          break;
-        }
+        if (!validPair) break;
         if (stack.length === 0) {
           return text.slice(startIndex, index + 1).trim();
         }
@@ -246,9 +355,7 @@ function normalizeResults(payloadResults, maxResults = 10) {
 
     try {
       const parsed = new URL(url);
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-        continue;
-      }
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') continue;
       url = parsed.toString();
     } catch {
       continue;
@@ -284,7 +391,13 @@ async function resolveOpenAiRuntime() {
   return {
     apiKey,
     baseUrl: String(process.env.OPENAI_BASE_URL || provider?.baseUrl || DEFAULT_OPENAI_BASE_URL).replace(/\/+$/, ''),
-    model: String(DEFAULT_OPENAI_SCREENSHOT_MODEL || provider?.selectedModel || process.env.OPENAI_MODEL || provider?.defaultModel || 'gpt-4.1').trim(),
+    model: String(
+      DEFAULT_OPENAI_SCREENSHOT_MODEL
+      || provider?.selectedModel
+      || process.env.OPENAI_MODEL
+      || provider?.defaultModel
+      || 'gpt-4.1'
+    ).trim(),
     providerName: provider?.name || 'ChatGPT (OpenAI)',
   };
 }
@@ -320,7 +433,7 @@ async function extractResultsFromScreenshot({ imageBase64, keyword, engine, sear
   };
 
   const prompt = [
-    `You are extracting organic SERP results from a screenshot of page 1.`,
+    'You are extracting organic SERP results from a screenshot of page 1.',
     `Keyword: ${keyword}`,
     `Engine: ${engine}`,
     `Domain: ${searchDomain}`,
@@ -341,20 +454,12 @@ async function extractResultsFromScreenshot({ imageBase64, keyword, engine, sear
           {
             role: 'user',
             content: [
-              {
-                type: 'input_text',
-                text: prompt,
-              },
-              {
-                type: 'input_image',
-                image_url: `data:image/jpeg;base64,${imageBase64}`,
-              },
+              { type: 'input_text', text: prompt },
+              { type: 'input_image', image_url: `data:image/jpeg;base64,${imageBase64}` },
             ],
           },
         ],
-        text: {
-          format: responseSchema,
-        },
+        text: { format: responseSchema },
       },
       {
         headers: {
@@ -384,11 +489,9 @@ async function extractResultsFromScreenshot({ imageBase64, keyword, engine, sear
         400
       );
     }
-
     if (upstreamStatus === 401 || upstreamStatus === 403) {
       throw createServiceError(`Screenshot OCR authentication failed: ${upstreamMessage}`, 401);
     }
-
     if (upstreamStatus === 429) {
       throw createServiceError('Screenshot OCR is rate limited right now. Try again shortly.', 429);
     }
@@ -425,6 +528,9 @@ async function analyzeSERPFromScreenshot(keyword, options = {}) {
     location,
   });
 
+  const fallbackDomResults = normalizeResults(screenshot.domResults || [], 10);
+  const resolvedResults = extracted.results.length > 0 ? extracted.results : fallbackDomResults;
+
   return {
     keyword: normalizedKeyword,
     country,
@@ -434,11 +540,12 @@ async function analyzeSERPFromScreenshot(keyword, options = {}) {
     screenshotMode: true,
     aiProvider: extracted.aiProvider,
     aiModel: extracted.aiModel,
-    results: extracted.results,
-    totalResults: extracted.results.length,
+    results: resolvedResults,
+    totalResults: resolvedResults.length,
     fromCache: false,
     debugPrompt: extracted.prompt,
     screenshotUrl: screenshot.searchUrl,
+    usedDomFallback: extracted.results.length === 0 && fallbackDomResults.length > 0,
   };
 }
 

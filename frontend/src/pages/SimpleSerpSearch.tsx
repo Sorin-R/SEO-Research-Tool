@@ -39,6 +39,7 @@ type SearchResponse = {
   debug?: {
     prompt?: string;
     screenshotUrl?: string | null;
+    usedDomFallback?: boolean;
     providerAttempts?: Array<{
       providerId: string;
       providerName: string;
@@ -390,6 +391,9 @@ export default function SimpleSerpSearch() {
           <p className="mt-2 text-xs font-medium text-gray-600">Provider attempts</p>
           {data.debug.screenshotUrl ? (
             <p className="mt-1 text-xs text-gray-600">Captured URL: {data.debug.screenshotUrl}</p>
+          ) : null}
+          {data.debug.usedDomFallback ? (
+            <p className="mt-1 text-xs text-amber-600">Used DOM fallback because OCR returned no rows.</p>
           ) : null}
           <div className="mt-1 space-y-1">
             {(data.debug.providerAttempts || []).map((attempt, index) => (

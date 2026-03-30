@@ -101,6 +101,7 @@ async function runSearch({ keyword, engine, domain, location, aiMode, screenshot
         providerAttempts: [],
         normalizedResultCount: normalizedResults.length,
         screenshotUrl: screenshotResult.screenshotUrl || null,
+        usedDomFallback: Boolean(screenshotResult.usedDomFallback),
       };
     }
 

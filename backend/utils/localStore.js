@@ -3,6 +3,8 @@ const path = require('path');
 const { normalizeCountryCode } = require('./searchCountry');
 
 const storePath = path.join(__dirname, '../data/runtime-store.json');
+const storeBackupPath = path.join(__dirname, '../data/runtime-store.backup.json');
+const storeTempPath = path.join(__dirname, '../data/runtime-store.tmp.json');
 const ALLOWED_SEARCH_DEPTHS = [10, 20, 50, 100];
 
 function normalizePathname(pathname) {
@@ -52,6 +54,7 @@ function createEmptyState() {
     keywords: [],
     rankings: [],
     serpCache: [],
+    serpResults: [],
     rankTrackerSettings: {
       schedule_time: '06:00',
       search_depth: 10,
@@ -60,12 +63,16 @@ function createEmptyState() {
     serpProviderSettings: {},
     serpProviderCredentials: {},
     serpProviderUsage: {},
+    gscProviderSettings: {},
+    gscProviderCredentials: {},
     keywordResearchHistory: [],
     keywordLists: [],
     serpAnalysisHistory: [],
     googleAdsKeywordHistory: [],
     contentAnalysisHistory: [],
     siteAuditHistory: [],
+    trafficSnapshots: [],
+    backlinkSnapshots: [],
   };
 }
 
@@ -85,61 +92,93 @@ async function readState() {
   try {
     const raw = await fs.readFile(storePath, 'utf8');
     const parsed = JSON.parse(raw);
-
-    return {
-      websites: Array.isArray(parsed.websites) ? parsed.websites : [],
-      keywords: Array.isArray(parsed.keywords) ? parsed.keywords : [],
-      rankings: Array.isArray(parsed.rankings) ? parsed.rankings : [],
-      serpCache: Array.isArray(parsed.serpCache) ? parsed.serpCache : [],
-      rankTrackerSettings: parsed.rankTrackerSettings && typeof parsed.rankTrackerSettings === 'object'
-        ? {
-            schedule_time: typeof parsed.rankTrackerSettings.schedule_time === 'string'
-              ? parsed.rankTrackerSettings.schedule_time
-              : '06:00',
-            search_depth: normalizeStoredSearchDepth(parsed.rankTrackerSettings.search_depth),
-            updated_at: parsed.rankTrackerSettings.updated_at || null,
-          }
-        : {
-            schedule_time: '06:00',
-            search_depth: 10,
-            updated_at: null,
-          },
-      serpProviderSettings: parsed.serpProviderSettings && typeof parsed.serpProviderSettings === 'object'
-        ? parsed.serpProviderSettings
-        : {},
-      serpProviderCredentials: parsed.serpProviderCredentials && typeof parsed.serpProviderCredentials === 'object'
-        ? parsed.serpProviderCredentials
-        : {},
-      serpProviderUsage: parsed.serpProviderUsage && typeof parsed.serpProviderUsage === 'object'
-        ? parsed.serpProviderUsage
-        : {},
-      keywordResearchHistory: Array.isArray(parsed.keywordResearchHistory)
-        ? parsed.keywordResearchHistory
-        : [],
-      keywordLists: Array.isArray(parsed.keywordLists)
-        ? parsed.keywordLists
-        : [],
-      serpAnalysisHistory: Array.isArray(parsed.serpAnalysisHistory)
-        ? parsed.serpAnalysisHistory
-        : [],
-      googleAdsKeywordHistory: Array.isArray(parsed.googleAdsKeywordHistory)
-        ? parsed.googleAdsKeywordHistory
-        : [],
-      contentAnalysisHistory: Array.isArray(parsed.contentAnalysisHistory)
-        ? parsed.contentAnalysisHistory
-        : [],
-      siteAuditHistory: Array.isArray(parsed.siteAuditHistory)
-        ? parsed.siteAuditHistory
-        : [],
-    };
+    return normalizeState(parsed);
   } catch {
-    return createEmptyState();
+    try {
+      const backupRaw = await fs.readFile(storeBackupPath, 'utf8');
+      const backupParsed = JSON.parse(backupRaw);
+      return normalizeState(backupParsed);
+    } catch {
+      return createEmptyState();
+    }
   }
 }
 
 async function writeState(state) {
   await ensureStore();
-  await fs.writeFile(storePath, JSON.stringify(state, null, 2));
+  const normalizedState = normalizeState(state);
+  const payload = JSON.stringify(normalizedState, null, 2);
+
+  try {
+    await fs.copyFile(storePath, storeBackupPath);
+  } catch {
+    // best-effort backup only
+  }
+
+  await fs.writeFile(storeTempPath, payload);
+  await fs.rename(storeTempPath, storePath);
+}
+
+function normalizeState(parsed) {
+  return {
+    websites: Array.isArray(parsed?.websites) ? parsed.websites : [],
+    keywords: Array.isArray(parsed?.keywords) ? parsed.keywords : [],
+    rankings: Array.isArray(parsed?.rankings) ? parsed.rankings : [],
+    serpCache: Array.isArray(parsed?.serpCache) ? parsed.serpCache : [],
+    serpResults: Array.isArray(parsed?.serpResults) ? parsed.serpResults : [],
+    rankTrackerSettings: parsed?.rankTrackerSettings && typeof parsed.rankTrackerSettings === 'object'
+      ? {
+          schedule_time: typeof parsed.rankTrackerSettings.schedule_time === 'string'
+            ? parsed.rankTrackerSettings.schedule_time
+            : '06:00',
+          search_depth: normalizeStoredSearchDepth(parsed.rankTrackerSettings.search_depth),
+          updated_at: parsed.rankTrackerSettings.updated_at || null,
+        }
+      : {
+          schedule_time: '06:00',
+          search_depth: 10,
+          updated_at: null,
+        },
+    serpProviderSettings: parsed?.serpProviderSettings && typeof parsed.serpProviderSettings === 'object'
+      ? parsed.serpProviderSettings
+      : {},
+    serpProviderCredentials: parsed?.serpProviderCredentials && typeof parsed.serpProviderCredentials === 'object'
+      ? parsed.serpProviderCredentials
+      : {},
+    serpProviderUsage: parsed?.serpProviderUsage && typeof parsed.serpProviderUsage === 'object'
+      ? parsed.serpProviderUsage
+      : {},
+    gscProviderSettings: parsed?.gscProviderSettings && typeof parsed.gscProviderSettings === 'object'
+      ? parsed.gscProviderSettings
+      : {},
+    gscProviderCredentials: parsed?.gscProviderCredentials && typeof parsed.gscProviderCredentials === 'object'
+      ? parsed.gscProviderCredentials
+      : {},
+    keywordResearchHistory: Array.isArray(parsed?.keywordResearchHistory)
+      ? parsed.keywordResearchHistory
+      : [],
+    keywordLists: Array.isArray(parsed?.keywordLists)
+      ? parsed.keywordLists
+      : [],
+    serpAnalysisHistory: Array.isArray(parsed?.serpAnalysisHistory)
+      ? parsed.serpAnalysisHistory
+      : [],
+    googleAdsKeywordHistory: Array.isArray(parsed?.googleAdsKeywordHistory)
+      ? parsed.googleAdsKeywordHistory
+      : [],
+    contentAnalysisHistory: Array.isArray(parsed?.contentAnalysisHistory)
+      ? parsed.contentAnalysisHistory
+      : [],
+    siteAuditHistory: Array.isArray(parsed?.siteAuditHistory)
+      ? parsed.siteAuditHistory
+      : [],
+    trafficSnapshots: Array.isArray(parsed?.trafficSnapshots)
+      ? parsed.trafficSnapshots
+      : [],
+    backlinkSnapshots: Array.isArray(parsed?.backlinkSnapshots)
+      ? parsed.backlinkSnapshots
+      : [],
+  };
 }
 
 function nextId(items) {
@@ -181,6 +220,66 @@ async function saveSerpCache(keyword, results) {
   }
 
   await writeState(state);
+}
+
+async function saveSerpResultsSnapshot({ websiteId = null, query, country = 'US', engine, results = [] }) {
+  const state = await readState();
+  const timestamp = nowIso();
+
+  state.serpResults = (state.serpResults || []).filter(
+    (item) => !(
+      String(item.website_id ?? '') === String(websiteId ?? '')
+      && String(item.query || '').toLowerCase() === String(query || '').toLowerCase()
+      && String(item.country || 'US').toUpperCase() === String(country || 'US').toUpperCase()
+      && String(item.engine || '').toLowerCase() === String(engine || '').toLowerCase()
+    )
+  );
+
+  for (const result of results.slice(0, 10)) {
+    if (!result?.url) {
+      continue;
+    }
+
+    state.serpResults.push({
+      id: nextId(state.serpResults),
+      website_id: websiteId != null ? Number(websiteId) : null,
+      query: String(query || ''),
+      country: String(country || 'US').toUpperCase(),
+      engine: String(engine || '').toLowerCase(),
+      position: Number(result.position) || 0,
+      url: String(result.url || ''),
+      domain: String(result.domain || ''),
+      title: String(result.title || ''),
+      snippet: String(result.snippet || ''),
+      fetched_at: timestamp,
+    });
+  }
+
+  await writeState(state);
+}
+
+async function getSerpResultsByScope({ websiteId = null, country = null, queryList = [] }) {
+  const state = await readState();
+  const normalizedCountry = country ? String(country).toUpperCase() : null;
+  const normalizedQueries = (Array.isArray(queryList) ? queryList : [])
+    .map((query) => String(query || '').trim().toLowerCase())
+    .filter(Boolean);
+  const allowedQueries = new Set(normalizedQueries);
+
+  return (state.serpResults || [])
+    .filter((item) => (
+      (websiteId == null || String(item.website_id ?? '') === String(websiteId))
+      && (!normalizedCountry || String(item.country || '').toUpperCase() === normalizedCountry)
+      && (allowedQueries.size === 0 || allowedQueries.has(String(item.query || '').trim().toLowerCase()))
+    ))
+    .sort((left, right) => {
+      const leftTime = new Date(left.fetched_at || 0).getTime();
+      const rightTime = new Date(right.fetched_at || 0).getTime();
+      if (rightTime !== leftTime) {
+        return rightTime - leftTime;
+      }
+      return (Number(left.position) || 0) - (Number(right.position) || 0);
+    });
 }
 
 async function getRankTrackerSettings() {
@@ -254,6 +353,57 @@ async function updateSerpProviderCredentials(providerId, credentials = {}) {
   return state.serpProviderCredentials[providerId];
 }
 
+async function getGscProviderSettings() {
+  const state = await readState();
+  return { ...(state.gscProviderSettings || {}) };
+}
+
+async function getGscProviderCredentials() {
+  const state = await readState();
+  return { ...(state.gscProviderCredentials || {}) };
+}
+
+async function updateGscProviderSetting(providerId, isEnabled) {
+  const state = await readState();
+  state.gscProviderSettings = {
+    ...(state.gscProviderSettings || {}),
+    [providerId]: {
+      is_enabled: !!isEnabled,
+      updated_at: nowIso(),
+    },
+  };
+  await writeState(state);
+  return state.gscProviderSettings[providerId];
+}
+
+async function updateGscProviderCredentials(providerId, credentials = {}) {
+  const state = await readState();
+  const existing = state.gscProviderCredentials?.[providerId] || {};
+  const nextCredentials = { ...existing };
+  const timestamp = nowIso();
+
+  for (const [credentialKey, credentialValue] of Object.entries(credentials)) {
+    const normalizedValue = String(credentialValue || '').trim();
+
+    if (!normalizedValue) {
+      continue;
+    }
+
+    nextCredentials[credentialKey] = {
+      value: normalizedValue,
+      updated_at: timestamp,
+    };
+  }
+
+  state.gscProviderCredentials = {
+    ...(state.gscProviderCredentials || {}),
+    [providerId]: nextCredentials,
+  };
+
+  await writeState(state);
+  return state.gscProviderCredentials[providerId];
+}
+
 function parseNonNegativeInt(value, fallback = 0) {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
@@ -289,9 +439,13 @@ async function consumeSerpProviderUsage(providerId, amount = 1, defaults = {}) {
   return nextUsage;
 }
 
-async function saveKeyword(keyword, difficulty = null, searchVolume = null) {
+async function saveKeyword(keyword, difficulty = null, searchVolume = null, websiteId = null) {
   const state = await readState();
-  const existing = state.keywords.find((item) => item.keyword === keyword);
+  const existing = state.keywords.find(
+    (item) =>
+      item.keyword === keyword &&
+      String(item.website_id ?? '') === String(websiteId ?? '')
+  );
   const timestamp = nowIso();
 
   if (existing) {
@@ -301,6 +455,7 @@ async function saveKeyword(keyword, difficulty = null, searchVolume = null) {
   } else {
     state.keywords.push({
       id: nextId(state.keywords),
+      website_id: websiteId != null ? Number(websiteId) : null,
       keyword,
       difficulty,
       search_volume: searchVolume,
@@ -318,10 +473,18 @@ async function saveWebsite(website) {
   const domain = String(website.domain || '').trim().toLowerCase();
   const targetUrl = normalizeStoredTargetUrl(website.target_url, domain);
   const country = normalizeCountryCode(website.country);
+  const tags = Array.isArray(website.tags)
+    ? [...new Set(website.tags.map((tag) => String(tag || '').trim().toLowerCase()).filter(Boolean))]
+    : [];
+  const projectName = String(website.project_name || website.projectName || website.name || domain).trim() || domain;
+  const archived = Boolean(website.archived);
   const existing = state.websites.find((item) => item.domain === domain);
 
   if (existing) {
     existing.name = website.name || existing.name;
+    existing.project_name = projectName;
+    existing.tags = tags;
+    existing.archived = archived;
     existing.domain = domain;
     existing.target_url = targetUrl;
     existing.country = country;
@@ -332,12 +495,19 @@ async function saveWebsite(website) {
       ...existing,
       target_url: normalizeStoredTargetUrl(existing.target_url, existing.domain),
       country: normalizeCountryCode(existing.country),
+      project_name: existing.project_name || existing.name,
+      projectName: existing.project_name || existing.name,
+      tags: Array.isArray(existing.tags) ? existing.tags : [],
+      archived: Boolean(existing.archived),
     };
   }
 
   const nextWebsite = {
     id: nextId(state.websites),
     name: website.name || domain,
+    project_name: projectName,
+    tags,
+    archived,
     domain,
     target_url: targetUrl,
     country,
@@ -352,16 +522,49 @@ async function saveWebsite(website) {
     ...nextWebsite,
     target_url: normalizeStoredTargetUrl(nextWebsite.target_url, nextWebsite.domain),
     country: normalizeCountryCode(nextWebsite.country),
+    project_name: nextWebsite.project_name,
+    projectName: nextWebsite.project_name,
+    tags: nextWebsite.tags,
+    archived: Boolean(nextWebsite.archived),
   };
 }
 
-async function getWebsites() {
+async function getWebsites(options = {}) {
   const state = await readState();
-  return [...state.websites].map((item) => ({
+  const includeArchived = options.includeArchived === true || options.includeArchived === 'true';
+  const archivedOnly = options.archivedOnly === true || options.archivedOnly === 'true';
+  const normalizedSearch = String(options.search || '').trim().toLowerCase();
+  const normalizedTag = String(options.tag || '').trim().toLowerCase();
+
+  let websites = [...state.websites].map((item) => ({
     ...item,
     target_url: normalizeStoredTargetUrl(item.target_url, item.domain),
     country: normalizeCountryCode(item.country),
-  })).sort((left, right) => {
+    project_name: item.project_name || item.name || item.domain,
+    projectName: item.project_name || item.name || item.domain,
+    tags: Array.isArray(item.tags) ? item.tags : [],
+    archived: Boolean(item.archived),
+  }));
+
+  if (archivedOnly) {
+    websites = websites.filter((item) => item.archived);
+  } else if (!includeArchived) {
+    websites = websites.filter((item) => !item.archived);
+  }
+
+  if (normalizedSearch) {
+    websites = websites.filter((item) =>
+      String(item.domain || '').toLowerCase().includes(normalizedSearch)
+      || String(item.name || '').toLowerCase().includes(normalizedSearch)
+      || String(item.project_name || '').toLowerCase().includes(normalizedSearch)
+    );
+  }
+
+  if (normalizedTag) {
+    websites = websites.filter((item) => (item.tags || []).includes(normalizedTag));
+  }
+
+  return websites.sort((left, right) => {
     const leftCreated = new Date(left.created_at || 0).getTime();
     const rightCreated = new Date(right.created_at || 0).getTime();
 
@@ -375,7 +578,7 @@ async function getWebsites() {
 
 async function getActiveWebsites() {
   const websites = await getWebsites();
-  return websites.filter((item) => item.is_active);
+  return websites.filter((item) => item.is_active && !item.archived);
 }
 
 async function getWebsiteById(id) {
@@ -385,6 +588,10 @@ async function getWebsiteById(id) {
     ...website,
     target_url: normalizeStoredTargetUrl(website.target_url, website.domain),
     country: normalizeCountryCode(website.country),
+    project_name: website.project_name || website.name || website.domain,
+    projectName: website.project_name || website.name || website.domain,
+    tags: Array.isArray(website.tags) ? website.tags : [],
+    archived: Boolean(website.archived),
   } : null;
 }
 
@@ -402,6 +609,11 @@ async function updateWebsite(id, updates = {}) {
     : website.domain;
 
   website.name = updates.name != null ? updates.name : website.name;
+  website.project_name = updates.project_name != null
+    ? String(updates.project_name || '').trim()
+    : updates.projectName != null
+      ? String(updates.projectName || '').trim()
+      : website.project_name || website.name;
   website.domain = nextDomain;
   if (Object.prototype.hasOwnProperty.call(updates, 'target_url')) {
     website.target_url = normalizeStoredTargetUrl(updates.target_url, nextDomain);
@@ -416,6 +628,17 @@ async function updateWebsite(id, updates = {}) {
   if (updates.is_active != null) {
     website.is_active = !!updates.is_active;
   }
+  if (updates.archived != null) {
+    website.archived = !!updates.archived;
+    if (website.archived) {
+      website.is_active = false;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, 'tags')) {
+    website.tags = Array.isArray(updates.tags)
+      ? [...new Set(updates.tags.map((tag) => String(tag || '').trim().toLowerCase()).filter(Boolean))]
+      : [];
+  }
   website.updated_at = timestamp;
 
   await writeState(state);
@@ -423,19 +646,37 @@ async function updateWebsite(id, updates = {}) {
     ...website,
     target_url: normalizeStoredTargetUrl(website.target_url, website.domain),
     country: normalizeCountryCode(website.country),
+    project_name: website.project_name || website.name || website.domain,
+    projectName: website.project_name || website.name || website.domain,
+    tags: Array.isArray(website.tags) ? website.tags : [],
+    archived: Boolean(website.archived),
   };
 }
 
 async function deleteWebsite(id) {
   const state = await readState();
   state.websites = state.websites.filter((item) => String(item.id) !== String(id));
+  state.keywords = state.keywords.filter((item) => String(item.website_id ?? '') !== String(id));
   state.rankings = state.rankings.filter((item) => String(item.website_id) !== String(id));
+  state.keywordResearchHistory = state.keywordResearchHistory.filter((item) => String(item.website_id ?? '') !== String(id));
+  state.keywordLists = state.keywordLists.filter((item) => String(item.website_id ?? '') !== String(id));
+  state.serpAnalysisHistory = state.serpAnalysisHistory.filter((item) => String(item.website_id ?? '') !== String(id));
+  state.googleAdsKeywordHistory = state.googleAdsKeywordHistory.filter((item) => String(item.website_id ?? '') !== String(id));
+  state.contentAnalysisHistory = state.contentAnalysisHistory.filter((item) => String(item.website_id ?? '') !== String(id));
+  state.siteAuditHistory = state.siteAuditHistory.filter((item) => String(item.website_id ?? '') !== String(id));
   await writeState(state);
 }
 
-async function getTrackedKeywords() {
+async function getTrackedKeywords(websiteId = null) {
   const state = await readState();
-  return [...state.keywords].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  return [...state.keywords]
+    .filter((item) => (
+      websiteId == null
+        ? true
+        : String(item.website_id ?? '') === String(websiteId)
+          || item.website_id == null
+    ))
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 }
 
 async function getKeywordById(id) {
@@ -525,11 +766,13 @@ async function getLatestRankings(websiteId = null) {
     });
 }
 
-async function saveKeywordResearchHistory(result, maxEntries = 12) {
+async function saveKeywordResearchHistory(result, maxEntries = 12, websiteId = null) {
   const state = await readState();
   const timestamp = nowIso();
   const keywordKey = String(result.keyword || '').trim().toLowerCase();
-  const existing = state.keywordResearchHistory.find((item) => item.keyword_key === keywordKey);
+  const existing = state.keywordResearchHistory.find(
+    (item) => item.keyword_key === keywordKey && String(item.website_id ?? '') === String(websiteId ?? '')
+  );
 
   if (existing) {
     existing.keyword = result.keyword;
@@ -540,6 +783,7 @@ async function saveKeywordResearchHistory(result, maxEntries = 12) {
   } else {
     state.keywordResearchHistory.push({
       id: nextId(state.keywordResearchHistory),
+      website_id: websiteId != null ? Number(websiteId) : null,
       keyword: result.keyword,
       keyword_key: keywordKey,
       total_suggestions: result.totalSuggestions || result.allSuggestions?.length || 0,
@@ -556,13 +800,20 @@ async function saveKeywordResearchHistory(result, maxEntries = 12) {
 
   await writeState(state);
 
-  return state.keywordResearchHistory.find((item) => item.keyword_key === keywordKey)?.id || null;
+  return state.keywordResearchHistory.find(
+    (item) => item.keyword_key === keywordKey && String(item.website_id ?? '') === String(websiteId ?? '')
+  )?.id || null;
 }
 
-async function getKeywordResearchHistory(limit = 10) {
+async function getKeywordResearchHistory(limit = 10, websiteId = null) {
   const state = await readState();
 
   return state.keywordResearchHistory
+    .filter((item) => (
+      websiteId == null
+        ? true
+        : String(item.website_id ?? '') === String(websiteId)
+    ))
     .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
     .slice(0, Math.max(1, Number(limit) || 10))
     .map((item) => ({
@@ -575,9 +826,13 @@ async function getKeywordResearchHistory(limit = 10) {
     }));
 }
 
-async function getKeywordResearchHistoryItem(id) {
+async function getKeywordResearchHistoryItem(id, websiteId = null) {
   const state = await readState();
-  const item = state.keywordResearchHistory.find((entry) => String(entry.id) === String(id));
+  const item = state.keywordResearchHistory.find(
+    (entry) =>
+      String(entry.id) === String(id)
+      && (websiteId == null || String(entry.website_id ?? '') === String(websiteId))
+  );
 
   if (!item) {
     return null;
@@ -608,10 +863,15 @@ function normalizeListKeyword(keyword) {
   return String(keyword || '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
-async function getKeywordLists() {
+async function getKeywordLists(websiteId = null) {
   const state = await readState();
 
   return state.keywordLists
+    .filter((list) => (
+      websiteId == null
+        ? true
+        : String(list.website_id ?? '') === String(websiteId)
+    ))
     .map((list) => ({
       id: list.id,
       name: list.name,
@@ -623,7 +883,7 @@ async function getKeywordLists() {
     .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
 }
 
-async function createKeywordList(name, maxLists = 20) {
+async function createKeywordList(name, maxLists = 20, websiteId = null) {
   const state = await readState();
   const normalizedName = normalizeKeywordListName(name);
 
@@ -631,7 +891,11 @@ async function createKeywordList(name, maxLists = 20) {
     throw new Error('List name is required.');
   }
 
-  const existing = state.keywordLists.find((list) => list.name.toLowerCase() === normalizedName.toLowerCase());
+  const existing = state.keywordLists.find(
+    (list) =>
+      list.name.toLowerCase() === normalizedName.toLowerCase()
+      && String(list.website_id ?? '') === String(websiteId ?? '')
+  );
   if (existing) {
     return {
       ...existing,
@@ -639,13 +903,17 @@ async function createKeywordList(name, maxLists = 20) {
     };
   }
 
-  if (state.keywordLists.length >= maxLists) {
+  const currentScopeCount = state.keywordLists.filter(
+    (list) => String(list.website_id ?? '') === String(websiteId ?? '')
+  ).length;
+  if (currentScopeCount >= maxLists) {
     throw new Error(`You can save up to ${maxLists} keyword lists.`);
   }
 
   const timestamp = nowIso();
   const list = {
     id: nextId(state.keywordLists),
+    website_id: websiteId != null ? Number(websiteId) : null,
     name: normalizedName,
     items: [],
     created_at: timestamp,
@@ -661,9 +929,13 @@ async function createKeywordList(name, maxLists = 20) {
   };
 }
 
-async function addKeywordsToList(listId, items = []) {
+async function addKeywordsToList(listId, items = [], websiteId = null) {
   const state = await readState();
-  const list = state.keywordLists.find((entry) => String(entry.id) === String(listId));
+  const list = state.keywordLists.find(
+    (entry) =>
+      String(entry.id) === String(listId)
+      && (websiteId == null || String(entry.website_id ?? '') === String(websiteId))
+  );
 
   if (!list) {
     throw new Error('Keyword list not found.');
@@ -741,12 +1013,12 @@ async function deleteKeywordListItem(listId, itemId) {
   }
 }
 
-async function saveSerpAnalysisHistory(result, maxEntries = 12) {
+async function saveSerpAnalysisHistory(result, maxEntries = 12, websiteId = null) {
   const state = await readState();
   const timestamp = nowIso();
   const keyword = String(result.keyword || '').trim();
   const country = String(result.country || 'US').trim().toUpperCase();
-  const entryKey = `${keyword.toLowerCase()}::${country}`;
+  const entryKey = `${keyword.toLowerCase()}::${country}::${websiteId ?? 'global'}`;
   const existing = state.serpAnalysisHistory.find((item) => item.entry_key === entryKey);
 
   if (existing) {
@@ -760,6 +1032,7 @@ async function saveSerpAnalysisHistory(result, maxEntries = 12) {
   } else {
     state.serpAnalysisHistory.push({
       id: nextId(state.serpAnalysisHistory),
+      website_id: websiteId != null ? Number(websiteId) : null,
       entry_key: entryKey,
       keyword,
       country,
@@ -781,10 +1054,15 @@ async function saveSerpAnalysisHistory(result, maxEntries = 12) {
   return state.serpAnalysisHistory.find((item) => item.entry_key === entryKey)?.id || null;
 }
 
-async function getSerpAnalysisHistory(limit = 10) {
+async function getSerpAnalysisHistory(limit = 10, websiteId = null) {
   const state = await readState();
 
   return state.serpAnalysisHistory
+    .filter((item) => (
+      websiteId == null
+        ? true
+        : String(item.website_id ?? '') === String(websiteId)
+    ))
     .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
     .slice(0, Math.max(1, Number(limit) || 10))
     .map((item) => ({
@@ -799,9 +1077,13 @@ async function getSerpAnalysisHistory(limit = 10) {
     }));
 }
 
-async function getSerpAnalysisHistoryItem(id) {
+async function getSerpAnalysisHistoryItem(id, websiteId = null) {
   const state = await readState();
-  const item = state.serpAnalysisHistory.find((entry) => String(entry.id) === String(id));
+  const item = state.serpAnalysisHistory.find(
+    (entry) =>
+      String(entry.id) === String(id)
+      && (websiteId == null || String(entry.website_id ?? '') === String(websiteId))
+  );
 
   if (!item) {
     return null;
@@ -824,12 +1106,12 @@ async function deleteSerpAnalysisHistoryItem(id) {
   }
 }
 
-async function saveGoogleAdsKeywordHistory(result, maxEntries = 12) {
+async function saveGoogleAdsKeywordHistory(result, maxEntries = 12, websiteId = null) {
   const state = await readState();
   const timestamp = nowIso();
   const keyword = String(result.keyword || '').trim();
   const country = String(result.country || 'US').trim().toUpperCase();
-  const entryKey = `${keyword.toLowerCase()}::${country}`;
+  const entryKey = `${keyword.toLowerCase()}::${country}::${websiteId ?? 'global'}`;
   const existing = state.googleAdsKeywordHistory.find((item) => item.entry_key === entryKey);
 
   if (existing) {
@@ -842,6 +1124,7 @@ async function saveGoogleAdsKeywordHistory(result, maxEntries = 12) {
   } else {
     state.googleAdsKeywordHistory.push({
       id: nextId(state.googleAdsKeywordHistory),
+      website_id: websiteId != null ? Number(websiteId) : null,
       entry_key: entryKey,
       keyword,
       country,
@@ -862,10 +1145,15 @@ async function saveGoogleAdsKeywordHistory(result, maxEntries = 12) {
   return state.googleAdsKeywordHistory.find((item) => item.entry_key === entryKey)?.id || null;
 }
 
-async function getGoogleAdsKeywordHistory(limit = 10) {
+async function getGoogleAdsKeywordHistory(limit = 10, websiteId = null) {
   const state = await readState();
 
   return state.googleAdsKeywordHistory
+    .filter((item) => (
+      websiteId == null
+        ? true
+        : String(item.website_id ?? '') === String(websiteId)
+    ))
     .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
     .slice(0, Math.max(1, Number(limit) || 10))
     .map((item) => ({
@@ -879,9 +1167,13 @@ async function getGoogleAdsKeywordHistory(limit = 10) {
     }));
 }
 
-async function getGoogleAdsKeywordHistoryItem(id) {
+async function getGoogleAdsKeywordHistoryItem(id, websiteId = null) {
   const state = await readState();
-  const item = state.googleAdsKeywordHistory.find((entry) => String(entry.id) === String(id));
+  const item = state.googleAdsKeywordHistory.find(
+    (entry) =>
+      String(entry.id) === String(id)
+      && (websiteId == null || String(entry.website_id ?? '') === String(websiteId))
+  );
 
   if (!item) {
     return null;
@@ -904,12 +1196,13 @@ async function deleteGoogleAdsKeywordHistoryItem(id) {
   }
 }
 
-async function saveContentAnalysisHistory(payload, maxEntries = 12) {
+async function saveContentAnalysisHistory(payload, maxEntries = 12, websiteId = null) {
   const state = await readState();
   const timestamp = nowIso();
 
   state.contentAnalysisHistory.push({
     id: nextId(state.contentAnalysisHistory),
+    website_id: websiteId != null ? Number(websiteId) : null,
     keyword: payload.keyword,
     url: payload.url || null,
     input_mode: payload.inputMode,
@@ -930,10 +1223,15 @@ async function saveContentAnalysisHistory(payload, maxEntries = 12) {
   return state.contentAnalysisHistory[0]?.id || null;
 }
 
-async function getContentAnalysisHistory(limit = 10) {
+async function getContentAnalysisHistory(limit = 10, websiteId = null) {
   const state = await readState();
 
   return state.contentAnalysisHistory
+    .filter((item) => (
+      websiteId == null
+        ? true
+        : String(item.website_id ?? '') === String(websiteId)
+    ))
     .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
     .slice(0, Math.max(1, Number(limit) || 10))
     .map((item) => ({
@@ -949,9 +1247,13 @@ async function getContentAnalysisHistory(limit = 10) {
     }));
 }
 
-async function getContentAnalysisHistoryItem(id) {
+async function getContentAnalysisHistoryItem(id, websiteId = null) {
   const state = await readState();
-  const item = state.contentAnalysisHistory.find((entry) => String(entry.id) === String(id));
+  const item = state.contentAnalysisHistory.find(
+    (entry) =>
+      String(entry.id) === String(id)
+      && (websiteId == null || String(entry.website_id ?? '') === String(websiteId))
+  );
 
   if (!item) {
     return null;
@@ -981,12 +1283,13 @@ async function deleteContentAnalysisHistoryItem(id) {
   }
 }
 
-async function saveSiteAuditHistory(payload, maxEntries = 12) {
+async function saveSiteAuditHistory(payload, maxEntries = 12, websiteId = null) {
   const state = await readState();
   const timestamp = nowIso();
 
   state.siteAuditHistory.push({
     id: nextId(state.siteAuditHistory),
+    website_id: websiteId != null ? Number(websiteId) : null,
     url: payload.url,
     total_pages: payload.result?.crawledPages ?? null,
     audit_score: payload.result?.auditScore ?? null,
@@ -1004,10 +1307,15 @@ async function saveSiteAuditHistory(payload, maxEntries = 12) {
   return state.siteAuditHistory[0]?.id || null;
 }
 
-async function getSiteAuditHistory(limit = 10) {
+async function getSiteAuditHistory(limit = 10, websiteId = null) {
   const state = await readState();
 
   return state.siteAuditHistory
+    .filter((item) => (
+      websiteId == null
+        ? true
+        : String(item.website_id ?? '') === String(websiteId)
+    ))
     .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
     .slice(0, Math.max(1, Number(limit) || 10))
     .map((item) => ({
@@ -1021,9 +1329,13 @@ async function getSiteAuditHistory(limit = 10) {
     }));
 }
 
-async function getSiteAuditHistoryItem(id) {
+async function getSiteAuditHistoryItem(id, websiteId = null) {
   const state = await readState();
-  const item = state.siteAuditHistory.find((entry) => String(entry.id) === String(id));
+  const item = state.siteAuditHistory.find(
+    (entry) =>
+      String(entry.id) === String(id)
+      && (websiteId == null || String(entry.website_id ?? '') === String(websiteId))
+  );
 
   if (!item) {
     return null;
@@ -1049,6 +1361,8 @@ async function deleteSiteAuditHistoryItem(id) {
 module.exports = {
   getCachedSERP,
   saveSerpCache,
+  saveSerpResultsSnapshot,
+  getSerpResultsByScope,
   getRankTrackerSettings,
   updateRankTrackerSettings,
   getSerpProviderSettings,
@@ -1057,6 +1371,10 @@ module.exports = {
   updateSerpProviderSetting,
   updateSerpProviderCredentials,
   consumeSerpProviderUsage,
+  getGscProviderSettings,
+  getGscProviderCredentials,
+  updateGscProviderSetting,
+  updateGscProviderCredentials,
   saveWebsite,
   getWebsites,
   getActiveWebsites,

@@ -9,25 +9,32 @@ import GoogleTrends from './pages/GoogleTrends';
 import RankTracker from './pages/RankTracker';
 import ProviderStatus from './pages/ProviderStatus';
 import AIProviderStatus from './pages/AIProviderStatus';
+import GSCProviderStatus from './pages/GSCProviderStatus';
 import SiteAudit from './pages/SiteAudit';
 import CompetitorKeywords from './pages/CompetitorKeywords';
+import Websites from './pages/Websites';
+import { WebsiteProvider } from './context/WebsiteContext';
 
 export default function App() {
   return (
-    <Routes>
-      <Route element={<Layout />}>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/keywords" element={<KeywordResearch />} />
-        <Route path="/competitor-keywords" element={<CompetitorKeywords />} />
-        <Route path="/google-ads" element={<GoogleAdsKeywordResearch />} />
-        <Route path="/serp" element={<SERPAnalyzer />} />
-        <Route path="/analyze" element={<ContentAnalyzer />} />
-        <Route path="/trends" element={<GoogleTrends />} />
-        <Route path="/rank-tracker" element={<RankTracker />} />
-        <Route path="/site-audit" element={<SiteAudit />} />
-        <Route path="/providers" element={<ProviderStatus />} />
-        <Route path="/ai-providers" element={<AIProviderStatus />} />
-      </Route>
-    </Routes>
+    <WebsiteProvider>
+      <Routes>
+        <Route element={<Layout />}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/websites" element={<Websites />} />
+          <Route path="/keywords" element={<KeywordResearch />} />
+          <Route path="/competitor-keywords" element={<CompetitorKeywords />} />
+          <Route path="/google-ads" element={<GoogleAdsKeywordResearch />} />
+          <Route path="/serp" element={<SERPAnalyzer />} />
+          <Route path="/analyze" element={<ContentAnalyzer />} />
+          <Route path="/trends" element={<GoogleTrends />} />
+          <Route path="/rank-tracker" element={<RankTracker />} />
+          <Route path="/site-audit" element={<SiteAudit />} />
+          <Route path="/providers" element={<ProviderStatus />} />
+          <Route path="/ai-providers" element={<AIProviderStatus />} />
+          <Route path="/gsc-providers" element={<GSCProviderStatus />} />
+        </Route>
+      </Routes>
+    </WebsiteProvider>
   );
 }

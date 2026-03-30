@@ -1,7 +1,9 @@
 import { NavLink } from 'react-router-dom';
+import { useWebsiteContext } from '../context/WebsiteContext';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: '📊' },
+  { to: '/websites', label: 'Websites', icon: '🌐' },
   { to: '/keywords', label: 'Keyword Research', icon: '🔑' },
   { to: '/competitor-keywords', label: 'Competitor Keywords', icon: '🕵️' },
   { to: '/google-ads', label: 'Google Ads Keywords', icon: '💰' },
@@ -12,9 +14,12 @@ const NAV_ITEMS = [
   { to: '/rank-tracker', label: 'Rank Tracker', icon: '🏆' },
   { to: '/providers', label: 'SERP Providers', icon: '⚙️' },
   { to: '/ai-providers', label: 'AI Providers', icon: '🤖' },
+  { to: '/gsc-providers', label: 'GSC Provider', icon: '📡' },
 ];
 
 export default function Sidebar() {
+  const { websites, selectedWebsiteId, setSelectedWebsiteId } = useWebsiteContext();
+
   return (
     <aside className="sticky top-0 h-screen w-64 bg-gray-900 text-gray-100 flex flex-col shrink-0">
       <div className="px-6 py-5 border-b border-gray-700">
@@ -23,6 +28,24 @@ export default function Sidebar() {
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
+        <div className="px-2 pb-3">
+          <label className="mb-1 block text-[11px] uppercase tracking-wide text-gray-400">
+            Website Scope
+          </label>
+          <select
+            value={selectedWebsiteId ?? 'all'}
+            onChange={(event) => setSelectedWebsiteId(event.target.value)}
+            className="w-full rounded-md border border-gray-700 bg-gray-800 px-2 py-2 text-xs text-gray-100 focus:border-indigo-500 focus:outline-none"
+          >
+            <option value="all">All websites</option>
+            {websites.map((website) => (
+              <option key={website.id} value={website.id}>
+                {website.project_name || website.projectName || website.domain}
+              </option>
+            ))}
+          </select>
+        </div>
+
         {NAV_ITEMS.map((item) => (
           <NavLink
             key={item.to}

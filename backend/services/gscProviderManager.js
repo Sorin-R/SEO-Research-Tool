@@ -1,0 +1,278 @@
+const db = require('../database');
+const localStore = require('../utils/localStore');
+
+const GSC_PROVIDERS = [
+  {
+    id: 'google-search-console',
+    name: 'Google Search Console',
+    description: 'Connect Search Console to use verified Google query and page performance data.',
+    docsUrl: 'https://developers.google.com/webmaster-tools/v1/quickstart/quickstart-js',
+    fields: [
+      {
+        name: 'GOOGLE_SEARCH_CONSOLE_CLIENT_ID',
+        label: 'OAuth Client ID',
+        envKey: 'GOOGLE_SEARCH_CONSOLE_CLIENT_ID',
+        required: true,
+      },
+      {
+        name: 'GOOGLE_SEARCH_CONSOLE_CLIENT_SECRET',
+        label: 'OAuth Client Secret',
+        envKey: 'GOOGLE_SEARCH_CONSOLE_CLIENT_SECRET',
+        required: true,
+      },
+      {
+        name: 'GOOGLE_SEARCH_CONSOLE_REFRESH_TOKEN',
+        label: 'OAuth Refresh Token',
+        envKey: 'GOOGLE_SEARCH_CONSOLE_REFRESH_TOKEN',
+        required: true,
+      },
+      {
+        name: 'GOOGLE_SEARCH_CONSOLE_SITE_URL',
+        label: 'Site URL (sc-domain:example.com or https://example.com/)',
+        envKey: 'GOOGLE_SEARCH_CONSOLE_SITE_URL',
+        required: true,
+      },
+    ],
+    quota: 'Google API quotas apply',
+    quotaType: 'Per-minute + per-day',
+    setupTime: '~5 min',
+  },
+];
+
+function shouldUseLocalFallback(err) {
+  if (!err) {
+    return false;
+  }
+
+  const fallbackCodes = new Set([
+    'ER_ACCESS_DENIED_ERROR',
+    'ECONNREFUSED',
+    'ECONNRESET',
+    'ENOTFOUND',
+    'ETIMEDOUT',
+    'PROTOCOL_CONNECTION_LOST',
+  ]);
+
+  if (fallbackCodes.has(err.code)) {
+    return true;
+  }
+
+  const message = String(err.message || '').toLowerCase();
+  return (
+    message.includes('access denied')
+    || message.includes('connection')
+    || message.includes('connect')
+    || message.includes('timeout')
+    || message.includes('not available')
+  );
+}
+
+function createServiceError(message, statusCode = 400) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+async function getCredentialsMap() {
+  try {
+    const rows = await db.query(
+      `SELECT provider_id, credential_key, credential_value, updated_at
+       FROM gsc_provider_credentials`
+    );
+
+    return rows.reduce((accumulator, row) => {
+      if (!accumulator[row.provider_id]) {
+        accumulator[row.provider_id] = {};
+      }
+
+      accumulator[row.provider_id][row.credential_key] = {
+        value: row.credential_value,
+        updated_at: row.updated_at || null,
+      };
+
+      return accumulator;
+    }, {});
+  } catch (err) {
+    if (!shouldUseLocalFallback(err)) {
+      throw err;
+    }
+
+    console.warn('[GSCProviderManager] DB unavailable for credentials, using local store:', err.message);
+    return localStore.getGscProviderCredentials();
+  }
+}
+
+async function updateCredentials(providerId, credentials = {}) {
+  if (!providerId || !String(providerId).trim()) {
+    throw createServiceError('Provider id is required.');
+  }
+
+  const entries = Object.entries(credentials).filter(([, value]) => String(value || '').trim());
+
+  if (entries.length === 0) {
+    throw createServiceError('At least one credential value is required.');
+  }
+
+  try {
+    for (const [credentialKey, credentialValue] of entries) {
+      await db.query(
+        `INSERT INTO gsc_provider_credentials (provider_id, credential_key, credential_value)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE credential_value = VALUES(credential_value)`,
+        [providerId, credentialKey, String(credentialValue).trim()]
+      );
+    }
+  } catch (err) {
+    if (!shouldUseLocalFallback(err)) {
+      throw err;
+    }
+
+    console.warn('[GSCProviderManager] DB unavailable for updateCredentials, using local store:', err.message);
+    await localStore.updateGscProviderCredentials(providerId, credentials);
+  }
+
+  const credentialsMap = await getCredentialsMap();
+  return credentialsMap[providerId] || {};
+}
+
+async function getSettingsMap() {
+  try {
+    const rows = await db.query(
+      `SELECT provider_id, is_enabled, updated_at
+       FROM gsc_provider_settings`
+    );
+
+    return rows.reduce((accumulator, row) => {
+      accumulator[row.provider_id] = {
+        is_enabled: Boolean(row.is_enabled),
+        updated_at: row.updated_at || null,
+      };
+      return accumulator;
+    }, {});
+  } catch (err) {
+    if (!shouldUseLocalFallback(err)) {
+      throw err;
+    }
+
+    console.warn('[GSCProviderManager] DB unavailable for settings, using local store:', err.message);
+    return localStore.getGscProviderSettings();
+  }
+}
+
+async function updateSetting(providerId, isEnabled) {
+  if (!providerId || !String(providerId).trim()) {
+    throw createServiceError('Provider id is required.');
+  }
+
+  try {
+    await db.query(
+      `INSERT INTO gsc_provider_settings (provider_id, is_enabled)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE is_enabled = VALUES(is_enabled)`,
+      [providerId, isEnabled ? 1 : 0]
+    );
+  } catch (err) {
+    if (!shouldUseLocalFallback(err)) {
+      throw err;
+    }
+
+    console.warn('[GSCProviderManager] DB unavailable for updateSetting, using local store:', err.message);
+    await localStore.updateGscProviderSetting(providerId, isEnabled);
+  }
+}
+
+function resolveCredentialValue(provider, fieldName, credentialsMap) {
+  const saved = credentialsMap[provider.id]?.[fieldName];
+  if (saved?.value) {
+    return { value: saved.value, source: 'saved' };
+  }
+
+  const field = provider.fields.find((entry) => entry.name === fieldName);
+  const envValue = field?.envKey ? process.env[field.envKey] : undefined;
+  if (envValue && envValue.trim() && !envValue.startsWith('your_')) {
+    return { value: envValue.trim(), source: 'env' };
+  }
+
+  return { value: null, source: null };
+}
+
+async function getProviderDetails() {
+  const credentialsMap = await getCredentialsMap();
+  const settingsMap = await getSettingsMap();
+
+  return GSC_PROVIDERS.map((provider) => {
+    const fields = provider.fields.map((field) => {
+      const resolved = resolveCredentialValue(provider, field.name, credentialsMap);
+      return {
+        name: field.name,
+        label: field.label,
+        required: field.required !== false,
+        hasValue: Boolean(resolved.value),
+        source: resolved.source,
+      };
+    });
+
+    const configured = fields.every((field) => !field.required || field.hasValue);
+    const setting = settingsMap[provider.id];
+    const enabled = setting ? setting.is_enabled : true;
+    const active = configured && enabled;
+
+    return {
+      id: provider.id,
+      name: provider.name,
+      description: provider.description,
+      docsUrl: provider.docsUrl,
+      fields,
+      configured,
+      enabled,
+      active,
+      quota: provider.quota,
+      quotaType: provider.quotaType,
+      setupTime: provider.setupTime,
+    };
+  });
+}
+
+async function getStatus() {
+  const details = await getProviderDetails();
+  return {
+    available: details.map((provider) => provider.name),
+    configured: details.filter((provider) => provider.configured).map((provider) => provider.name),
+    active: details.filter((provider) => provider.active).map((provider) => provider.name),
+    details,
+  };
+}
+
+async function getProviderById(providerId) {
+  const details = await getProviderDetails();
+  return details.find((provider) => provider.id === providerId) || null;
+}
+
+async function toggleProvider(providerId, enabled) {
+  const definition = GSC_PROVIDERS.find((provider) => provider.id === providerId);
+
+  if (!definition) {
+    throw createServiceError(`Unknown GSC provider: ${providerId}`, 404);
+  }
+
+  await updateSetting(providerId, enabled);
+  return getProviderById(providerId);
+}
+
+async function saveProviderCredentials(providerId, credentials) {
+  const definition = GSC_PROVIDERS.find((provider) => provider.id === providerId);
+
+  if (!definition) {
+    throw createServiceError(`Unknown GSC provider: ${providerId}`, 404);
+  }
+
+  await updateCredentials(providerId, credentials);
+  return getProviderById(providerId);
+}
+
+module.exports = {
+  getStatus,
+  getProviderById,
+  toggleProvider,
+  saveProviderCredentials,
+};

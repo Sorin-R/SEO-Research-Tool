@@ -1,8 +1,58 @@
 import axios from 'axios';
 
+export const SELECTED_WEBSITE_STORAGE_KEY = 'seo-tool:selected-website-id';
+
 const api = axios.create({
   baseURL: '/api',
   timeout: 120000, // scraping can be slow
+});
+
+function getSelectedWebsiteIdFromStorage() {
+  try {
+    const raw = window.localStorage.getItem(SELECTED_WEBSITE_STORAGE_KEY);
+    if (!raw || raw === 'all') {
+      return null;
+    }
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function shouldScopeRequest(url = '') {
+  const scopedPrefixes = ['/keywords', '/serp', '/analyze', '/site-audit', '/google-ads', '/trends', '/dashboard'];
+  const excludedPrefixes = ['/websites', '/serp/websites', '/serp/providers', '/serp/schedule', '/serp/jobs'];
+  return scopedPrefixes.some((prefix) => url.startsWith(prefix))
+    && !excludedPrefixes.some((prefix) => url.startsWith(prefix));
+}
+
+api.interceptors.request.use((config) => {
+  const selectedWebsiteId = getSelectedWebsiteIdFromStorage();
+  if (!selectedWebsiteId || !shouldScopeRequest(config.url || '')) {
+    return config;
+  }
+
+  const nextConfig = { ...config };
+  const method = String(nextConfig.method || 'get').toLowerCase();
+
+  if (method === 'get' || method === 'delete') {
+    nextConfig.params = nextConfig.params || {};
+    if (nextConfig.params.websiteId == null) {
+      nextConfig.params.websiteId = selectedWebsiteId;
+    }
+    return nextConfig;
+  }
+
+  if (nextConfig.data && typeof nextConfig.data === 'object' && !Array.isArray(nextConfig.data)) {
+    if (nextConfig.data.websiteId == null) {
+      nextConfig.data.websiteId = selectedWebsiteId;
+    }
+  } else {
+    nextConfig.data = { websiteId: selectedWebsiteId };
+  }
+
+  return nextConfig;
 });
 
 // ---- Keywords ----
@@ -79,16 +129,19 @@ export async function extractCompetitorKeywords(keyword, competitorSites, option
   return data;
 }
 
-export async function getTrackedKeywords() {
-  const { data } = await api.get('/keywords/tracked');
+export async function getTrackedKeywords(websiteId = null) {
+  const { data } = await api.get('/keywords/tracked', {
+    params: websiteId ? { websiteId } : undefined,
+  });
   return data;
 }
 
-export async function trackKeyword(keyword, difficulty, searchVolume) {
+export async function trackKeyword(keyword, difficulty, searchVolume, websiteId = null) {
   const { data } = await api.post('/keywords/track', {
     keyword,
     difficulty,
     searchVolume,
+    websiteId,
   });
   return data;
 }
@@ -172,27 +225,43 @@ export async function manualTrackRank(
   return data;
 }
 
-export async function getTrackedWebsites() {
-  const { data } = await api.get('/serp/websites');
+export async function getTrackedWebsites(options = {}) {
+  const { data } = await api.get('/websites', {
+    params: {
+      includeArchived: options.includeArchived ?? false,
+      archivedOnly: options.archivedOnly ?? false,
+      search: options.search || undefined,
+      tag: options.tag || undefined,
+    },
+  });
   return data;
 }
 
-export async function createTrackedWebsite({ name, domain, country }) {
-  const { data } = await api.post('/serp/websites', {
+export async function createTrackedWebsite({ name, projectName, domain, country, tags }) {
+  const { data } = await api.post('/websites', {
     name,
+    projectName,
     domain,
     country,
+    tags,
   });
   return data;
 }
 
 export async function updateTrackedWebsite(id, updates) {
-  const { data } = await api.patch(`/serp/websites/${id}`, updates);
+  const { data } = await api.patch(`/websites/${id}`, updates);
+  return data;
+}
+
+export async function archiveTrackedWebsite(id, archived = true) {
+  const { data } = await api.post(`/websites/${id}/archive`, {
+    archived,
+  });
   return data;
 }
 
 export async function deleteTrackedWebsite(id) {
-  const { data } = await api.delete(`/serp/websites/${id}`);
+  const { data } = await api.delete(`/websites/${id}`);
   return data;
 }
 
@@ -374,6 +443,27 @@ export async function updateAIProviderModel(providerId, model) {
   return data;
 }
 
+// ---- Google Search Console Providers ----
+
+export async function getGSCProviders() {
+  const { data } = await api.get('/gsc-providers');
+  return data;
+}
+
+export async function updateGSCProvider(providerId, enabled) {
+  const { data } = await api.patch(`/gsc-providers/${providerId}`, {
+    enabled,
+  });
+  return data;
+}
+
+export async function updateGSCProviderCredentials(providerId, credentials) {
+  const { data } = await api.patch(`/gsc-providers/${providerId}/credentials`, {
+    credentials,
+  });
+  return data;
+}
+
 // ---- Google Ads ----
 
 export async function getGoogleAdsKeywordIdeas(keyword, bypassCache = false, country = 'US') {
@@ -407,5 +497,35 @@ export async function getGoogleAdsCacheStats() {
 
 export async function clearGoogleAdsCache() {
   const { data } = await api.post('/google-ads/cache/clear');
+  return data;
+}
+
+// ---- Dashboard modules ----
+
+export async function getDashboardSerpModule({ websiteId = null, country = 'US', refresh = false } = {}) {
+  const { data } = await api.get('/dashboard/serp', {
+    params: {
+      websiteId,
+      country,
+      refresh,
+    },
+  });
+  return data;
+}
+
+export async function getDashboardAiVisibilityModule({
+  websiteId = null,
+  country = 'US',
+  dateFrom = null,
+  dateTo = null,
+} = {}) {
+  const { data } = await api.get('/dashboard/ai-visibility', {
+    params: {
+      websiteId,
+      country,
+      dateFrom,
+      dateTo,
+    },
+  });
   return data;
 }

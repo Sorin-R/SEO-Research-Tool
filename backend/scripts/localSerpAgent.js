@@ -166,9 +166,43 @@ async function extractOrganicResultsFromDom(page, engine, maxResults = 10) {
         'policies.google.com',
       ]);
 
+      const resolveCandidateUrl = (rawHref) => {
+        const value = String(rawHref || '').trim();
+        if (!value) return '';
+
+        let resolved;
+        try {
+          resolved = new URL(value, window.location.origin);
+        } catch {
+          return '';
+        }
+
+        const host = resolved.hostname.toLowerCase();
+        const path = resolved.pathname.toLowerCase();
+
+        // Google frequently wraps organic links as /url?q=<target> or /url?url=<target>.
+        if ((host.endsWith('google.com') || host.endsWith('google.co.uk')) && path === '/url') {
+          const target = resolved.searchParams.get('q') || resolved.searchParams.get('url');
+          if (!target) return '';
+          try {
+            const parsedTarget = new URL(target);
+            if (!/^https?:$/i.test(parsedTarget.protocol)) return '';
+            return parsedTarget.toString();
+          } catch {
+            return '';
+          }
+        }
+
+        if (!/^https?:$/i.test(resolved.protocol)) {
+          return '';
+        }
+
+        return resolved.toString();
+      };
+
       const pushRow = (title, url) => {
         const cleanTitle = String(title || '').replace(/\s+/g, ' ').trim();
-        const cleanUrl = String(url || '').trim();
+        const cleanUrl = resolveCandidateUrl(url);
         if (!cleanTitle || !cleanUrl || seen.has(cleanUrl)) {
           return;
         }
@@ -181,9 +215,8 @@ async function extractOrganicResultsFromDom(page, engine, maxResults = 10) {
       };
 
       const isOrganicCandidateUrl = (rawUrl) => {
-        const value = String(rawUrl || '').trim();
+        const value = resolveCandidateUrl(rawUrl);
         if (!value) return false;
-        if (!/^https?:\/\//i.test(value)) return false;
 
         try {
           const parsed = new URL(value);

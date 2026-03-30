@@ -157,6 +157,20 @@ LOCAL_SERP_AGENT_TOKEN=choose-a-long-random-token \
 npm --prefix backend run local-serp-agent
 ```
 
+Defaults:
+- visible browser (`LOCAL_SERP_AGENT_HEADLESS=false`)
+- persistent Chrome profile (`~/.local-serp-agent-profile`)
+- manual captcha wait enabled (`LOCAL_SERP_AGENT_MANUAL_CAPTCHA=true`)
+
+Useful overrides:
+
+```bash
+LOCAL_SERP_AGENT_HEADLESS=false
+LOCAL_SERP_AGENT_MANUAL_CAPTCHA=true
+LOCAL_SERP_AGENT_CAPTCHA_WAIT_MS=180000
+LOCAL_SERP_AGENT_USER_DATA_DIR="$HOME/.local-serp-agent-profile"
+```
+
 ### 3. Use UI mode
 
 In **SERP Search MVP**, select:

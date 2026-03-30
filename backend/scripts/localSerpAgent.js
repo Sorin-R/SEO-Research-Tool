@@ -1,15 +1,33 @@
 #!/usr/bin/env node
 
 const os = require('os');
+const path = require('path');
 const axios = require('axios');
 
 const API_BASE_URL = String(process.env.LOCAL_SERP_BACKEND_URL || 'http://localhost:3001/api').replace(/\/+$/, '');
 const AGENT_TOKEN = String(process.env.LOCAL_SERP_AGENT_TOKEN || '').trim();
 const AGENT_ID = String(process.env.LOCAL_SERP_AGENT_ID || `${os.hostname()}-local-serp-agent`).trim();
 const DEFAULT_POLL_MS = Number.parseInt(process.env.LOCAL_SERP_AGENT_POLL_MS || '2000', 10);
+const CAPTCHA_WAIT_MS = Number.parseInt(process.env.LOCAL_SERP_AGENT_CAPTCHA_WAIT_MS || '180000', 10);
+const USER_DATA_DIR = String(
+  process.env.LOCAL_SERP_AGENT_USER_DATA_DIR || path.join(os.homedir(), '.local-serp-agent-profile')
+).trim();
+const MANUAL_CAPTCHA_ENABLED = String(process.env.LOCAL_SERP_AGENT_MANUAL_CAPTCHA || 'true').trim().toLowerCase() !== 'false';
+const USER_AGENT = String(
+  process.env.LOCAL_SERP_AGENT_USER_AGENT
+  || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
+).trim();
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, Number.isFinite(ms) ? ms : 1000));
+}
+
+function resolveHeadlessMode() {
+  const raw = String(process.env.LOCAL_SERP_AGENT_HEADLESS || 'false').trim().toLowerCase();
+  if (raw === 'new') {
+    return 'new';
+  }
+  return raw === 'true';
 }
 
 function loadPuppeteer() {
@@ -180,13 +198,26 @@ async function captureSerpLocally(payload) {
   });
 
   const browser = await puppeteer.launch({
-    headless: 'new',
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    headless: resolveHeadlessMode(),
+    userDataDir: USER_DATA_DIR || undefined,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-blink-features=AutomationControlled',
+      '--window-size=1366,2300',
+    ],
   });
 
   try {
     const page = await browser.newPage();
     await page.setViewport({ width: 1366, height: 2300 });
+    await page.setUserAgent(USER_AGENT);
+    await page.setExtraHTTPHeaders({
+      'accept-language': payload.country === 'GB' ? 'en-GB,en;q=0.9' : 'en-US,en;q=0.9',
+    });
+    await page.evaluateOnNewDocument(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => false });
+    });
     await page.goto(searchUrl, {
       waitUntil: 'domcontentloaded',
       timeout: 45000,
@@ -195,6 +226,19 @@ async function captureSerpLocally(payload) {
     if (payload.engine === 'google' && shouldHandleGoogleConsent(page.url())) {
       await handleGoogleConsent(page);
       await sleep(1300);
+    }
+
+    if (payload.engine === 'google' && shouldHandleGoogleConsent(page.url()) && MANUAL_CAPTCHA_ENABLED) {
+      const waitUntil = Date.now() + CAPTCHA_WAIT_MS;
+      console.log('[LocalAgent] Google block/captcha detected. Solve it in the opened browser window...');
+
+      while (Date.now() < waitUntil) {
+        if (!shouldHandleGoogleConsent(page.url())) {
+          break;
+        }
+        await handleGoogleConsent(page);
+        await sleep(1500);
+      }
     }
 
     await waitForResults(page, payload.engine);
@@ -309,6 +353,9 @@ async function run() {
   console.log(`[LocalAgent] Starting local SERP agent as "${AGENT_ID}"`);
   console.log(`[LocalAgent] Backend API: ${API_BASE_URL}`);
   console.log(`[LocalAgent] Token provided: ${AGENT_TOKEN ? 'yes' : 'no'}`);
+  console.log(`[LocalAgent] Headless mode: ${resolveHeadlessMode() === false ? 'off (visible browser)' : String(resolveHeadlessMode())}`);
+  console.log(`[LocalAgent] User profile dir: ${USER_DATA_DIR}`);
+  console.log(`[LocalAgent] Manual captcha handling: ${MANUAL_CAPTCHA_ENABLED ? 'enabled' : 'disabled'}`);
 
   while (true) {
     try {

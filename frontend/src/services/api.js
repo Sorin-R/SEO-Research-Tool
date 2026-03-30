@@ -237,13 +237,14 @@ export async function getTrackedWebsites(options = {}) {
   return data;
 }
 
-export async function createTrackedWebsite({ name, projectName, domain, country, tags }) {
+export async function createTrackedWebsite({ name, projectName, domain, country, tags, gscSiteUrl }) {
   const { data } = await api.post('/websites', {
     name,
     projectName,
     domain,
     country,
     tags,
+    gscSiteUrl,
   });
   return data;
 }
@@ -464,8 +465,10 @@ export async function updateGSCProviderCredentials(providerId, credentials) {
   return data;
 }
 
-export async function testGSCProviderConnection(providerId) {
-  const { data } = await api.post(`/gsc-providers/${providerId}/test`);
+export async function testGSCProviderConnection(providerId, siteUrl = null) {
+  const { data } = await api.post(`/gsc-providers/${providerId}/test`, {
+    siteUrl: siteUrl || undefined,
+  });
   return data;
 }
 

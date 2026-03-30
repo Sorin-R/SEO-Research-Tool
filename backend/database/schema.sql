@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS websites (
   archived   TINYINT(1)   NOT NULL DEFAULT 0,
   domain     VARCHAR(255) NOT NULL,
   target_url VARCHAR(2048) DEFAULT NULL,
+  gsc_site_url VARCHAR(2048) DEFAULT NULL,
   country    CHAR(2)      NOT NULL DEFAULT 'US',
   is_active  TINYINT(1)   DEFAULT 1,
   created_at TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,

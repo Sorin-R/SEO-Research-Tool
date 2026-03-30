@@ -9,6 +9,7 @@ const schemaStatements = [
     archived TINYINT(1) NOT NULL DEFAULT 0,
     domain VARCHAR(255) NOT NULL,
     target_url VARCHAR(2048) DEFAULT NULL,
+    gsc_site_url VARCHAR(2048) DEFAULT NULL,
     country CHAR(2) NOT NULL DEFAULT 'US',
     is_active TINYINT(1) DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -310,6 +311,7 @@ async function ensureSchema() {
 
   await ensureWebsitesMetadataSchema();
   await ensureWebsitesTargetUrlSchema();
+  await ensureWebsitesGscSchema();
   await ensureWebsitesCountrySchema();
   await ensureKeywordWebsiteSchema();
   await ensureRankingsWebsiteSchema();
@@ -449,6 +451,12 @@ async function ensureWebsitesMetadataSchema() {
 async function ensureWebsitesTargetUrlSchema() {
   if (!(await hasColumn('websites', 'target_url'))) {
     await pool.query('ALTER TABLE websites ADD COLUMN target_url VARCHAR(2048) DEFAULT NULL AFTER domain');
+  }
+}
+
+async function ensureWebsitesGscSchema() {
+  if (!(await hasColumn('websites', 'gsc_site_url'))) {
+    await pool.query('ALTER TABLE websites ADD COLUMN gsc_site_url VARCHAR(2048) DEFAULT NULL AFTER target_url');
   }
 }
 

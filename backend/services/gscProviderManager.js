@@ -29,9 +29,9 @@ const GSC_PROVIDERS = [
       },
       {
         name: 'GOOGLE_SEARCH_CONSOLE_SITE_URL',
-        label: 'Site URL (sc-domain:example.com or https://example.com/)',
+        label: 'Default Site URL (optional fallback)',
         envKey: 'GOOGLE_SEARCH_CONSOLE_SITE_URL',
-        required: true,
+        required: false,
       },
     ],
     quota: 'Google API quotas apply',
@@ -298,7 +298,7 @@ async function saveProviderCredentials(providerId, credentials) {
   return getProviderById(providerId);
 }
 
-async function testProviderConnection(providerId) {
+async function testProviderConnection(providerId, options = {}) {
   const provider = getProviderDefinition(providerId);
 
   if (!provider) {
@@ -360,16 +360,16 @@ async function testProviderConnection(providerId) {
     throw createServiceError(`Search Console API request failed: ${apiMessage}`, 502);
   }
 
-  const configuredSiteUrl = String(credentials.GOOGLE_SEARCH_CONSOLE_SITE_URL || '').trim();
+  const configuredSiteUrl = String(options.siteUrl || credentials.GOOGLE_SEARCH_CONSOLE_SITE_URL || '').trim();
   const normalizedConfiguredSite = normalizeSiteValue(configuredSiteUrl);
-  const matchedSite = siteEntries.find(
-    (entry) => normalizeSiteValue(entry?.siteUrl) === normalizedConfiguredSite
-  );
+  const matchedSite = normalizedConfiguredSite
+    ? siteEntries.find((entry) => normalizeSiteValue(entry?.siteUrl) === normalizedConfiguredSite)
+    : null;
 
   return {
     providerId: provider.id,
     connected: true,
-    siteMatched: Boolean(matchedSite),
+    siteMatched: normalizedConfiguredSite ? Boolean(matchedSite) : null,
     configuredSiteUrl,
     matchedSiteUrl: matchedSite?.siteUrl || null,
     totalAccessibleProperties: siteEntries.length,
@@ -377,9 +377,11 @@ async function testProviderConnection(providerId) {
       .map((entry) => String(entry?.siteUrl || '').trim())
       .filter(Boolean)
       .slice(0, 10),
-    message: matchedSite
-      ? 'Connection successful and configured site is accessible.'
-      : 'Connected to Search Console, but configured site URL is not in accessible properties.',
+    message: !normalizedConfiguredSite
+      ? 'Connection successful. No site URL provided, so only account access was verified.'
+      : matchedSite
+        ? 'Connection successful and configured site is accessible.'
+        : 'Connected to Search Console, but configured site URL is not in accessible properties.',
   };
 }
 

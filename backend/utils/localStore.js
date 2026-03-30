@@ -43,6 +43,45 @@ function normalizeStoredTargetUrl(targetUrl, fallbackDomain = '') {
   }
 }
 
+function normalizeStoredGscSiteUrl(gscSiteUrl) {
+  if (gscSiteUrl == null) {
+    return null;
+  }
+
+  const rawValue = String(gscSiteUrl).trim();
+  if (!rawValue) {
+    return null;
+  }
+
+  if (/^sc-domain:/i.test(rawValue)) {
+    const domainPart = rawValue.replace(/^sc-domain:/i, '').trim().toLowerCase().replace(/^www\./, '');
+    if (!domainPart || domainPart.includes('/')) {
+      return null;
+    }
+    return `sc-domain:${domainPart}`;
+  }
+
+  let value = rawValue;
+  if (!/^https?:\/\//i.test(value)) {
+    value = `https://${value}`;
+  }
+
+  try {
+    const parsedUrl = new URL(value);
+    const protocol = /^https?:$/i.test(parsedUrl.protocol) ? parsedUrl.protocol.toLowerCase() : 'https:';
+    const hostname = parsedUrl.hostname.toLowerCase();
+    if (!hostname) {
+      return null;
+    }
+
+    const pathname = normalizePathname(parsedUrl.pathname || '/');
+    const normalizedPath = pathname.endsWith('/') ? pathname : `${pathname}/`;
+    return `${protocol}//${hostname}${normalizedPath}`;
+  } catch {
+    return null;
+  }
+}
+
 function normalizeStoredSearchDepth(searchDepth) {
   const value = Number.parseInt(searchDepth, 10);
   return ALLOWED_SEARCH_DEPTHS.includes(value) ? value : 10;
@@ -472,6 +511,7 @@ async function saveWebsite(website) {
   const timestamp = nowIso();
   const domain = String(website.domain || '').trim().toLowerCase();
   const targetUrl = normalizeStoredTargetUrl(website.target_url, domain);
+  const gscSiteUrl = normalizeStoredGscSiteUrl(website.gsc_site_url || website.gscSiteUrl);
   const country = normalizeCountryCode(website.country);
   const tags = Array.isArray(website.tags)
     ? [...new Set(website.tags.map((tag) => String(tag || '').trim().toLowerCase()).filter(Boolean))]
@@ -487,6 +527,7 @@ async function saveWebsite(website) {
     existing.archived = archived;
     existing.domain = domain;
     existing.target_url = targetUrl;
+    existing.gsc_site_url = gscSiteUrl;
     existing.country = country;
     existing.is_active = website.is_active != null ? !!website.is_active : existing.is_active;
     existing.updated_at = timestamp;
@@ -494,6 +535,8 @@ async function saveWebsite(website) {
     return {
       ...existing,
       target_url: normalizeStoredTargetUrl(existing.target_url, existing.domain),
+      gsc_site_url: normalizeStoredGscSiteUrl(existing.gsc_site_url),
+      gscSiteUrl: normalizeStoredGscSiteUrl(existing.gsc_site_url),
       country: normalizeCountryCode(existing.country),
       project_name: existing.project_name || existing.name,
       projectName: existing.project_name || existing.name,
@@ -510,6 +553,7 @@ async function saveWebsite(website) {
     archived,
     domain,
     target_url: targetUrl,
+    gsc_site_url: gscSiteUrl,
     country,
     is_active: website.is_active != null ? !!website.is_active : true,
     created_at: timestamp,
@@ -521,6 +565,8 @@ async function saveWebsite(website) {
   return {
     ...nextWebsite,
     target_url: normalizeStoredTargetUrl(nextWebsite.target_url, nextWebsite.domain),
+    gsc_site_url: normalizeStoredGscSiteUrl(nextWebsite.gsc_site_url),
+    gscSiteUrl: normalizeStoredGscSiteUrl(nextWebsite.gsc_site_url),
     country: normalizeCountryCode(nextWebsite.country),
     project_name: nextWebsite.project_name,
     projectName: nextWebsite.project_name,
@@ -539,6 +585,8 @@ async function getWebsites(options = {}) {
   let websites = [...state.websites].map((item) => ({
     ...item,
     target_url: normalizeStoredTargetUrl(item.target_url, item.domain),
+    gsc_site_url: normalizeStoredGscSiteUrl(item.gsc_site_url || item.gscSiteUrl),
+    gscSiteUrl: normalizeStoredGscSiteUrl(item.gsc_site_url || item.gscSiteUrl),
     country: normalizeCountryCode(item.country),
     project_name: item.project_name || item.name || item.domain,
     projectName: item.project_name || item.name || item.domain,
@@ -587,6 +635,8 @@ async function getWebsiteById(id) {
   return website ? {
     ...website,
     target_url: normalizeStoredTargetUrl(website.target_url, website.domain),
+    gsc_site_url: normalizeStoredGscSiteUrl(website.gsc_site_url || website.gscSiteUrl),
+    gscSiteUrl: normalizeStoredGscSiteUrl(website.gsc_site_url || website.gscSiteUrl),
     country: normalizeCountryCode(website.country),
     project_name: website.project_name || website.name || website.domain,
     projectName: website.project_name || website.name || website.domain,
@@ -620,6 +670,14 @@ async function updateWebsite(id, updates = {}) {
   } else if (!website.target_url) {
     website.target_url = null;
   }
+  if (
+    Object.prototype.hasOwnProperty.call(updates, 'gsc_site_url')
+    || Object.prototype.hasOwnProperty.call(updates, 'gscSiteUrl')
+  ) {
+    website.gsc_site_url = normalizeStoredGscSiteUrl(updates.gsc_site_url ?? updates.gscSiteUrl);
+  } else if (!website.gsc_site_url) {
+    website.gsc_site_url = null;
+  }
   if (updates.country != null) {
     website.country = normalizeCountryCode(updates.country);
   } else if (!website.country) {
@@ -645,6 +703,8 @@ async function updateWebsite(id, updates = {}) {
   return {
     ...website,
     target_url: normalizeStoredTargetUrl(website.target_url, website.domain),
+    gsc_site_url: normalizeStoredGscSiteUrl(website.gsc_site_url || website.gscSiteUrl),
+    gscSiteUrl: normalizeStoredGscSiteUrl(website.gsc_site_url || website.gscSiteUrl),
     country: normalizeCountryCode(website.country),
     project_name: website.project_name || website.name || website.domain,
     projectName: website.project_name || website.name || website.domain,

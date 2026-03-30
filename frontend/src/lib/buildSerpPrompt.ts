@@ -4,6 +4,7 @@ export type SerpDomain = 'com' | 'co.uk';
 export const DEFAULT_SERP_PROMPT_TEMPLATE =
   [
     'Search page 1 of {{search_engine}} for the keyword "{{keyword}}".',
+    'Location hint: "{{location}}".',
     '',
     'Task:',
     '- Identify the organic search results shown on page 1.',
@@ -41,15 +42,19 @@ export function buildSerpPrompt({
   keyword,
   engine,
   domain,
+  location,
 }: {
   keyword: string;
   engine: SerpEngine;
   domain: SerpDomain;
+  location?: string;
 }): string {
   const normalizedKeyword = String(keyword || '').replace(/\s+/g, ' ').trim();
+  const normalizedLocation = String(location || '').replace(/\s+/g, ' ').trim();
   const normalizedSearchEngine = `${engine}.${domain}`.replace(/\.+/g, '.');
 
   return DEFAULT_SERP_PROMPT_TEMPLATE
     .replaceAll('{{search_engine}}', normalizedSearchEngine)
+    .replaceAll('{{location}}', normalizedLocation || 'not specified')
     .replaceAll('{{keyword}}', normalizedKeyword.replace(/"/g, '\\"'));
 }

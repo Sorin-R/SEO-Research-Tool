@@ -6,12 +6,13 @@ const router = express.Router();
 
 /**
  * POST /api/search
- * Body: { keyword, engine, domain }
+ * Body: { keyword, engine, domain, location? }
  */
 router.post('/', async (req, res) => {
   const keyword = String(req.body?.keyword || '');
   const engine = normalizeEngine(req.body?.engine);
   const domain = normalizeDomain(req.body?.domain);
+  const location = String(req.body?.location || '');
 
   if (!keyword.trim()) {
     return res.status(400).json({ error: 'keyword is required.' });
@@ -30,6 +31,7 @@ router.post('/', async (req, res) => {
       keyword,
       engine,
       domain,
+      location,
     });
     res.json(result);
   } catch (err) {

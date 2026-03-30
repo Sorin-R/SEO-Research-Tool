@@ -239,11 +239,12 @@ export async function manualTrackRank(
   return data;
 }
 
-export async function searchFirstPage({ keyword, engine, domain }) {
+export async function searchFirstPage({ keyword, engine, domain, location }) {
   const { data } = await api.post('/search', {
     keyword,
     engine,
     domain,
+    location,
   });
   return data;
 }

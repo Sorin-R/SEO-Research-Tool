@@ -1,5 +1,6 @@
 const DEFAULT_SERP_PROMPT_TEMPLATE = [
   'Search page 1 of {{search_engine}} for the keyword "{{keyword}}".',
+  'Location hint: "{{location}}".',
   '',
   'Task:',
   '- Identify the organic search results shown on page 1.',
@@ -33,14 +34,16 @@ const DEFAULT_SERP_PROMPT_TEMPLATE = [
   '}',
 ].join('\n');
 
-function buildSerpPrompt({ keyword, engine, domain }) {
+function buildSerpPrompt({ keyword, engine, domain, location }) {
   const normalizedKeyword = String(keyword || '').replace(/\s+/g, ' ').trim();
   const normalizedEngine = String(engine || '').trim().toLowerCase();
   const normalizedDomain = String(domain || '').trim().toLowerCase();
+  const normalizedLocation = String(location || '').replace(/\s+/g, ' ').trim();
   const normalizedSearchEngine = `${normalizedEngine}.${normalizedDomain}`.replace(/\.+/g, '.');
 
   return DEFAULT_SERP_PROMPT_TEMPLATE
     .replaceAll('{{search_engine}}', normalizedSearchEngine)
+    .replaceAll('{{location}}', normalizedLocation || 'not specified')
     .replaceAll('{{keyword}}', normalizedKeyword.replace(/"/g, '\\"'));
 }
 

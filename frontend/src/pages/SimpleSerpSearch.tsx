@@ -14,6 +14,7 @@ type SearchResponse = {
   keyword: string;
   engine: 'google' | 'bing';
   domain: 'com' | 'co.uk';
+  location?: string | null;
   results: SearchResultItem[];
 };
 
@@ -21,6 +22,7 @@ const DEFAULT_TARGET = 'google.com';
 
 export default function SimpleSerpSearch() {
   const [keyword, setKeyword] = useState('');
+  const [location, setLocation] = useState('');
   const [target, setTarget] = useState(DEFAULT_TARGET);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -33,14 +35,16 @@ export default function SimpleSerpSearch() {
         keyword,
         engine: targetParts.engine,
         domain: targetParts.domain,
+        location,
       }),
-    [keyword, targetParts.domain, targetParts.engine]
+    [keyword, location, targetParts.domain, targetParts.engine]
   );
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
 
     const sanitizedKeyword = keyword.replace(/\s+/g, ' ').trim();
+    const sanitizedLocation = location.replace(/\s+/g, ' ').trim();
     if (!sanitizedKeyword) {
       setError('Please enter a keyword.');
       return;
@@ -54,6 +58,7 @@ export default function SimpleSerpSearch() {
         keyword: sanitizedKeyword,
         engine: targetParts.engine,
         domain: targetParts.domain,
+        location: sanitizedLocation,
       });
 
       setData(response);
@@ -74,12 +79,20 @@ export default function SimpleSerpSearch() {
       </div>
 
       <form onSubmit={handleSubmit} className="rounded-lg border border-gray-200 bg-white p-5 space-y-4">
-        <div className="grid gap-3 md:grid-cols-[1fr_220px_auto]">
+        <div className="grid gap-3 md:grid-cols-[1fr_1fr_220px_auto]">
           <input
             type="text"
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
             placeholder="Enter keyword..."
+            className="rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none"
+            disabled={loading}
+          />
+          <input
+            type="text"
+            value={location}
+            onChange={(event) => setLocation(event.target.value)}
+            placeholder="Location (city), e.g. London"
             className="rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none"
             disabled={loading}
           />
@@ -124,6 +137,12 @@ export default function SimpleSerpSearch() {
               <span className="font-medium text-gray-900">
                 {data.engine}.{data.domain}
               </span>
+              {data.location ? (
+                <>
+                  {' · '}
+                  Location: <span className="font-medium text-gray-900">{data.location}</span>
+                </>
+              ) : null}
             </p>
           </div>
 

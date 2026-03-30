@@ -48,7 +48,8 @@ Request:
 {
   "keyword": "auto",
   "engine": "google",
-  "domain": "co.uk"
+  "domain": "co.uk",
+  "location": "London"
 }
 ```
 
@@ -59,6 +60,7 @@ Response:
   "keyword": "auto",
   "engine": "google",
   "domain": "co.uk",
+  "location": "London",
   "results": [
     {
       "position": 1,

@@ -22,11 +22,19 @@ function sanitizeKeyword(keyword) {
     .slice(0, 140);
 }
 
-async function runSearch({ keyword, engine, domain }) {
+function sanitizeLocation(location) {
+  return String(location || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
+}
+
+async function runSearch({ keyword, engine, domain, location }) {
   const normalizedKeyword = sanitizeKeyword(keyword);
   if (!normalizedKeyword) {
     throw createServiceError('Keyword is required.', 400);
   }
+  const normalizedLocation = sanitizeLocation(location);
 
   const target = resolveSearchTarget(engine, domain);
   if (!target) {
@@ -42,12 +50,18 @@ async function runSearch({ keyword, engine, domain }) {
     keyword: normalizedKeyword,
     engine: target.engine,
     domain: target.domain,
+    location: normalizedLocation,
   });
 
+  const searchKeyword = normalizedLocation
+    ? `${normalizedKeyword} ${normalizedLocation}`.replace(/\s+/g, ' ').trim()
+    : normalizedKeyword;
+
   const rawResults = await provider.search({
-    keyword: normalizedKeyword,
+    keyword: searchKeyword,
     target,
     numResults: 10,
+    location: normalizedLocation,
     prompt,
   });
 
@@ -57,6 +71,7 @@ async function runSearch({ keyword, engine, domain }) {
     keyword: normalizedKeyword,
     engine: target.engine,
     domain: target.domain,
+    location: normalizedLocation || null,
     results,
   };
 }

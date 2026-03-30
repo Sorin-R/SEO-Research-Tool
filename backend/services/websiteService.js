@@ -15,6 +15,10 @@ function shouldUseLocalFallback(err) {
 
   const fallbackCodes = new Set([
     'ER_ACCESS_DENIED_ERROR',
+    'ER_BAD_DB_ERROR',
+    'ER_BAD_FIELD_ERROR',
+    'ER_DUP_FIELDNAME',
+    'ER_NO_SUCH_TABLE',
     'ECONNREFUSED',
     'ECONNRESET',
     'ENOTFOUND',
@@ -32,7 +36,10 @@ function shouldUseLocalFallback(err) {
     message.includes('connection') ||
     message.includes('connect') ||
     message.includes('timeout') ||
-    message.includes('not available')
+    message.includes('not available') ||
+    message.includes("doesn't exist") ||
+    message.includes('unknown column') ||
+    message.includes('table') && message.includes('exist')
   );
 }
 

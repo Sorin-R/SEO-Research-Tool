@@ -272,18 +272,18 @@ async function resolveOpenAiRuntime() {
   const provider = await aiProviderManager.getProviderById('openai');
   const apiKey = await aiProviderManager.getProviderApiKey('openai');
 
-  if (!provider?.active || !apiKey) {
+  if (!apiKey) {
     throw createServiceError(
-      'Screenshot SERP mode requires an active OpenAI provider in AI Providers.',
+      'Screenshot SERP mode requires an OpenAI API key (configure OPENAI_API_KEY in AI Providers).',
       400
     );
   }
 
   return {
     apiKey,
-    baseUrl: String(process.env.OPENAI_BASE_URL || provider.baseUrl || DEFAULT_OPENAI_BASE_URL).replace(/\/+$/, ''),
-    model: String(provider.selectedModel || process.env.OPENAI_MODEL || provider.defaultModel || 'gpt-5.4-mini').trim(),
-    providerName: provider.name,
+    baseUrl: String(process.env.OPENAI_BASE_URL || provider?.baseUrl || DEFAULT_OPENAI_BASE_URL).replace(/\/+$/, ''),
+    model: String(provider?.selectedModel || process.env.OPENAI_MODEL || provider?.defaultModel || 'gpt-5.4-mini').trim(),
+    providerName: provider?.name || 'ChatGPT (OpenAI)',
   };
 }
 

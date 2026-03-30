@@ -20,6 +20,8 @@ const API_URL = 'https://www.searchapi.io/api/v1/search';
 async function search(keyword, numResults = 10, options = {}) {
   const apiKey = options.credentials?.SEARCHAPI_KEY || process.env.SEARCHAPI_KEY;
   const country = getCountryConfig(options.country);
+  const engine = String(options.engine || 'google').toLowerCase() === 'bing' ? 'bing' : 'google';
+  const location = String(options.location || '').trim();
 
   if (!apiKey) {
     throw new Error('SEARCHAPI_KEY not set in .env');
@@ -33,10 +35,11 @@ async function search(keyword, numResults = 10, options = {}) {
         api_key: apiKey,
         q: keyword,
         num: Math.min(numResults, 10),
-        engine: 'google',
+        engine,
         gl: country.googleGl,
         hl: country.hl,
         google_domain: country.googleDomain,
+        location: location || undefined,
       },
       timeout: 15000,
     });

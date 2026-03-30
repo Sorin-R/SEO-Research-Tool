@@ -101,6 +101,7 @@ Frontend default URL: `http://localhost:5173`
 
 - Duplicate exact URLs are removed after normalization.
 - Keyword input is trimmed/sanitized before search.
+- Keyword is sent exactly as entered; location is sent as a separate location signal.
 - To add more targets, extend:
   - `backend/search/config.js`
   - `frontend/src/lib/serpTargets.ts`

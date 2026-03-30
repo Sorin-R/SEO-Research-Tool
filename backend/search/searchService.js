@@ -53,12 +53,8 @@ async function runSearch({ keyword, engine, domain, location }) {
     location: normalizedLocation,
   });
 
-  const searchKeyword = normalizedLocation
-    ? `${normalizedKeyword} ${normalizedLocation}`.replace(/\s+/g, ' ').trim()
-    : normalizedKeyword;
-
   const rawResults = await provider.search({
-    keyword: searchKeyword,
+    keyword: normalizedKeyword,
     target,
     numResults: 10,
     location: normalizedLocation,

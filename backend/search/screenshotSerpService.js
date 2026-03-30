@@ -3,6 +3,7 @@ const aiProviderManager = require('../services/aiProviderManager');
 
 const DEFAULT_OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
 const DEFAULT_AI_TIMEOUT_MS = Number.parseInt(process.env.AI_REQUEST_TIMEOUT_MS || '120000', 10);
+const DEFAULT_OPENAI_SCREENSHOT_MODEL = process.env.OPENAI_SCREENSHOT_MODEL || 'gpt-4.1';
 
 function createServiceError(message, statusCode = 400) {
   const error = new Error(message);
@@ -107,7 +108,7 @@ async function captureSerpScreenshot({ keyword, engine, searchDomain, country, l
 
   try {
     const page = await browser.newPage();
-    await page.setViewport({ width: 1440, height: 2600 });
+    await page.setViewport({ width: 1366, height: 2300 });
     await page.goto(searchUrl, {
       waitUntil: 'domcontentloaded',
       timeout: 45000,
@@ -116,7 +117,8 @@ async function captureSerpScreenshot({ keyword, engine, searchDomain, country, l
 
     const screenshot = await page.screenshot({
       fullPage: true,
-      type: 'png',
+      type: 'jpeg',
+      quality: 60,
     });
 
     return {
@@ -282,7 +284,7 @@ async function resolveOpenAiRuntime() {
   return {
     apiKey,
     baseUrl: String(process.env.OPENAI_BASE_URL || provider?.baseUrl || DEFAULT_OPENAI_BASE_URL).replace(/\/+$/, ''),
-    model: String(provider?.selectedModel || process.env.OPENAI_MODEL || provider?.defaultModel || 'gpt-5.4-mini').trim(),
+    model: String(DEFAULT_OPENAI_SCREENSHOT_MODEL || provider?.selectedModel || process.env.OPENAI_MODEL || provider?.defaultModel || 'gpt-4.1').trim(),
     providerName: provider?.name || 'ChatGPT (OpenAI)',
   };
 }
@@ -330,45 +332,69 @@ async function extractResultsFromScreenshot({ imageBase64, keyword, engine, sear
     'Return valid JSON only.',
   ].join('\n');
 
-  const { data } = await axios.post(
-    `${runtime.baseUrl}/responses`,
-    {
-      model: runtime.model,
-      input: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'input_text',
-              text: prompt,
-            },
-            {
-              type: 'input_image',
-              image_url: `data:image/png;base64,${imageBase64}`,
-            },
-          ],
+  try {
+    const { data } = await axios.post(
+      `${runtime.baseUrl}/responses`,
+      {
+        model: runtime.model,
+        input: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'input_text',
+                text: prompt,
+              },
+              {
+                type: 'input_image',
+                image_url: `data:image/jpeg;base64,${imageBase64}`,
+              },
+            ],
+          },
+        ],
+        text: {
+          format: responseSchema,
         },
-      ],
-      text: {
-        format: responseSchema,
       },
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${runtime.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      timeout: DEFAULT_AI_TIMEOUT_MS,
-    }
-  );
+      {
+        headers: {
+          Authorization: `Bearer ${runtime.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: DEFAULT_AI_TIMEOUT_MS,
+      }
+    );
 
-  const parsed = parseStructuredText(extractResponseText(data));
-  return {
-    aiProvider: runtime.providerName,
-    aiModel: runtime.model,
-    prompt,
-    results: normalizeResults(parsed?.results || [], 10),
-  };
+    const parsed = parseStructuredText(extractResponseText(data));
+    return {
+      aiProvider: runtime.providerName,
+      aiModel: runtime.model,
+      prompt,
+      results: normalizeResults(parsed?.results || [], 10),
+    };
+  } catch (err) {
+    const upstreamStatus = Number(err?.response?.status || 0);
+    const upstreamMessage = err?.response?.data?.error?.message
+      || err?.response?.data?.error
+      || err.message;
+
+    if (upstreamStatus === 400) {
+      throw createServiceError(
+        `Screenshot OCR request rejected by OpenAI: ${upstreamMessage}. Try OPENAI_SCREENSHOT_MODEL=gpt-4.1`,
+        400
+      );
+    }
+
+    if (upstreamStatus === 401 || upstreamStatus === 403) {
+      throw createServiceError(`Screenshot OCR authentication failed: ${upstreamMessage}`, 401);
+    }
+
+    if (upstreamStatus === 429) {
+      throw createServiceError('Screenshot OCR is rate limited right now. Try again shortly.', 429);
+    }
+
+    throw createServiceError(`Screenshot OCR failed: ${upstreamMessage}`, 502);
+  }
 }
 
 async function analyzeSERPFromScreenshot(keyword, options = {}) {

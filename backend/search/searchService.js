@@ -92,6 +92,8 @@ async function runSearch({ keyword, engine, domain, location, aiMode, screenshot
         selectedProviderName: 'Screenshot AI OCR',
         redirectsVerified: verifyUrlsEnabled,
         verification: verification.stats,
+        screenshotImageDataUrl: screenshotResult.screenshotImageDataUrl || null,
+        blockedByEngine: Boolean(screenshotResult.blockedByEngine),
       },
     };
 
@@ -101,7 +103,9 @@ async function runSearch({ keyword, engine, domain, location, aiMode, screenshot
         providerAttempts: [],
         normalizedResultCount: normalizedResults.length,
         screenshotUrl: screenshotResult.screenshotUrl || null,
+        screenshotImageDataUrl: screenshotResult.screenshotImageDataUrl || null,
         usedDomFallback: Boolean(screenshotResult.usedDomFallback),
+        blockedByEngine: Boolean(screenshotResult.blockedByEngine),
       };
     }
 

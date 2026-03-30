@@ -30,6 +30,8 @@ type SearchResponse = {
     selectedProviderId?: string | null;
     selectedProviderName?: string | null;
     redirectsVerified?: boolean;
+    screenshotImageDataUrl?: string | null;
+    blockedByEngine?: boolean;
     verification?: {
       enabled?: boolean;
       verifiedCount?: number;
@@ -39,7 +41,9 @@ type SearchResponse = {
   debug?: {
     prompt?: string;
     screenshotUrl?: string | null;
+    screenshotImageDataUrl?: string | null;
     usedDomFallback?: boolean;
+    blockedByEngine?: boolean;
     providerAttempts?: Array<{
       providerId: string;
       providerName: string;
@@ -98,6 +102,7 @@ export default function SimpleSerpSearch() {
       ),
     [providers, targetParts.engine]
   );
+  const screenshotPreview = data?.meta?.screenshotImageDataUrl || data?.debug?.screenshotImageDataUrl || null;
 
   useEffect(() => {
     let alive = true;
@@ -350,6 +355,11 @@ export default function SimpleSerpSearch() {
                 Redirect verification: {data.meta.verification.verifiedCount || 0} verified / {data.meta.verification.failedCount || 0} failed
               </p>
             ) : null}
+            {data.meta?.screenshotMode && data.meta?.blockedByEngine ? (
+              <p className="mt-1 text-xs text-amber-700">
+                Search engine blocked this capture (captcha/consent page). Screenshot is shown below for debugging.
+              </p>
+            ) : null}
           </div>
 
           {data.results.length === 0 ? (
@@ -378,6 +388,19 @@ export default function SimpleSerpSearch() {
               ))}
             </ul>
           )}
+          {data.meta?.screenshotMode && screenshotPreview ? (
+            <div className="border-t border-gray-200 px-4 py-4">
+              <h3 className="text-sm font-semibold text-gray-900">Captured Screenshot</h3>
+              <p className="mt-1 text-xs text-gray-500">
+                Original screenshot used by Screenshot OCR mode.
+              </p>
+              <img
+                src={screenshotPreview}
+                alt={`Captured SERP screenshot for ${data.keyword}`}
+                className="mt-3 w-full rounded-md border border-gray-200"
+              />
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="rounded-lg border border-dashed border-gray-300 bg-white px-4 py-8 text-center text-sm text-gray-500">
@@ -394,6 +417,9 @@ export default function SimpleSerpSearch() {
           ) : null}
           {data.debug.usedDomFallback ? (
             <p className="mt-1 text-xs text-amber-600">Used DOM fallback because OCR returned no rows.</p>
+          ) : null}
+          {data.debug.blockedByEngine ? (
+            <p className="mt-1 text-xs text-amber-600">Engine appears to have blocked the screenshot request.</p>
           ) : null}
           <div className="mt-1 space-y-1">
             {(data.debug.providerAttempts || []).map((attempt, index) => (

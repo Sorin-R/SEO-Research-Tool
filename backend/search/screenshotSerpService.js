@@ -233,10 +233,17 @@ async function captureSerpScreenshot({ keyword, engine, searchDomain, country, l
       });
     }
 
+    const finalUrl = page.url() || searchUrl;
+    const isBlocked = shouldHandleGoogleConsent(finalUrl);
+
+    const imageBase64 = Buffer.from(screenshot).toString('base64');
+
     return {
-      searchUrl: page.url() || searchUrl,
-      imageBase64: Buffer.from(screenshot).toString('base64'),
+      searchUrl: finalUrl,
+      imageBase64,
+      imageDataUrl: `data:image/jpeg;base64,${imageBase64}`,
       domResults,
+      isBlocked,
     };
   } finally {
     await browser.close();
@@ -545,7 +552,9 @@ async function analyzeSERPFromScreenshot(keyword, options = {}) {
     fromCache: false,
     debugPrompt: extracted.prompt,
     screenshotUrl: screenshot.searchUrl,
+    screenshotImageDataUrl: screenshot.imageDataUrl,
     usedDomFallback: extracted.results.length === 0 && fallbackDomResults.length > 0,
+    blockedByEngine: Boolean(screenshot.isBlocked),
   };
 }
 

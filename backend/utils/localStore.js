@@ -104,6 +104,8 @@ function createEmptyState() {
     serpProviderUsage: {},
     gscProviderSettings: {},
     gscProviderCredentials: {},
+    aiProviderSettings: {},
+    aiProviderCredentials: {},
     keywordResearchHistory: [],
     keywordLists: [],
     serpAnalysisHistory: [],
@@ -192,6 +194,12 @@ function normalizeState(parsed) {
       : {},
     gscProviderCredentials: parsed?.gscProviderCredentials && typeof parsed.gscProviderCredentials === 'object'
       ? parsed.gscProviderCredentials
+      : {},
+    aiProviderSettings: parsed?.aiProviderSettings && typeof parsed.aiProviderSettings === 'object'
+      ? parsed.aiProviderSettings
+      : {},
+    aiProviderCredentials: parsed?.aiProviderCredentials && typeof parsed.aiProviderCredentials === 'object'
+      ? parsed.aiProviderCredentials
       : {},
     keywordResearchHistory: Array.isArray(parsed?.keywordResearchHistory)
       ? parsed.keywordResearchHistory
@@ -441,6 +449,57 @@ async function updateGscProviderCredentials(providerId, credentials = {}) {
 
   await writeState(state);
   return state.gscProviderCredentials[providerId];
+}
+
+async function getAIProviderSettings() {
+  const state = await readState();
+  return { ...(state.aiProviderSettings || {}) };
+}
+
+async function getAIProviderCredentials() {
+  const state = await readState();
+  return { ...(state.aiProviderCredentials || {}) };
+}
+
+async function updateAIProviderSetting(providerId, isEnabled) {
+  const state = await readState();
+  state.aiProviderSettings = {
+    ...(state.aiProviderSettings || {}),
+    [providerId]: {
+      is_enabled: !!isEnabled,
+      updated_at: nowIso(),
+    },
+  };
+  await writeState(state);
+  return state.aiProviderSettings[providerId];
+}
+
+async function updateAIProviderCredentials(providerId, credentials = {}) {
+  const state = await readState();
+  const existing = state.aiProviderCredentials?.[providerId] || {};
+  const nextCredentials = { ...existing };
+  const timestamp = nowIso();
+
+  for (const [credentialKey, credentialValue] of Object.entries(credentials)) {
+    const normalizedValue = String(credentialValue || '').trim();
+
+    if (!normalizedValue) {
+      continue;
+    }
+
+    nextCredentials[credentialKey] = {
+      value: normalizedValue,
+      updated_at: timestamp,
+    };
+  }
+
+  state.aiProviderCredentials = {
+    ...(state.aiProviderCredentials || {}),
+    [providerId]: nextCredentials,
+  };
+
+  await writeState(state);
+  return state.aiProviderCredentials[providerId];
 }
 
 function parseNonNegativeInt(value, fallback = 0) {
@@ -1435,6 +1494,10 @@ module.exports = {
   getGscProviderCredentials,
   updateGscProviderSetting,
   updateGscProviderCredentials,
+  getAIProviderSettings,
+  getAIProviderCredentials,
+  updateAIProviderSetting,
+  updateAIProviderCredentials,
   saveWebsite,
   getWebsites,
   getActiveWebsites,

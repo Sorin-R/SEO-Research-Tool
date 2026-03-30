@@ -20,6 +20,8 @@ const API_URL = 'https://api.bing.microsoft.com/v7.0/search';
 async function search(keyword, numResults = 10, options = {}) {
   const apiKey = options.credentials?.BING_SEARCH_KEY || process.env.BING_SEARCH_KEY;
   const country = getCountryConfig(options.country);
+  const strictMode = options.strictMode === true;
+  const location = String(options.location || '').trim();
 
   if (!apiKey) {
     throw new Error('BING_SEARCH_KEY not set in .env');
@@ -33,6 +35,9 @@ async function search(keyword, numResults = 10, options = {}) {
         q: keyword,
         count: Math.min(numResults, 50),
         mkt: country.bingMarket,
+        cc: strictMode ? country.code : undefined,
+        setLang: strictMode ? country.hl : undefined,
+        location: location || undefined,
       },
       headers: {
         'Ocp-Apim-Subscription-Key': apiKey,

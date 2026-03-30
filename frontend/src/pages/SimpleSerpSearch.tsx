@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
-import { searchFirstPage } from '../services/api';
+import { getSearchProviders, searchFirstPage } from '../services/api';
 import { buildSerpPrompt } from '../lib/buildSerpPrompt';
 import { parseSerpTarget, SERP_TARGET_OPTIONS } from '../lib/serpTargets';
 
@@ -8,6 +8,9 @@ type SearchResultItem = {
   position: number;
   title: string;
   url: string;
+  websiteTitle?: string;
+  verified?: boolean;
+  verifyError?: string | null;
 };
 
 type SearchResponse = {
@@ -16,6 +19,38 @@ type SearchResponse = {
   domain: 'com' | 'co.uk';
   location?: string | null;
   results: SearchResultItem[];
+  meta?: {
+    highAccuracyMode?: boolean;
+    strictMode?: boolean;
+    providerLock?: string | null;
+    selectedProviderId?: string | null;
+    selectedProviderName?: string | null;
+    redirectsVerified?: boolean;
+    verification?: {
+      enabled?: boolean;
+      verifiedCount?: number;
+      failedCount?: number;
+    };
+  };
+  debug?: {
+    prompt?: string;
+    providerAttempts?: Array<{
+      providerId: string;
+      providerName: string;
+      success: boolean;
+      returnedResults?: number;
+      error?: string;
+    }>;
+    normalizedResultCount?: number;
+  };
+};
+
+type ProviderEntry = {
+  id: string;
+  name: string;
+  active: boolean;
+  configured: boolean;
+  supportedEngines?: string[];
 };
 
 const DEFAULT_TARGET = 'google.com';
@@ -24,6 +59,14 @@ export default function SimpleSerpSearch() {
   const [keyword, setKeyword] = useState('');
   const [location, setLocation] = useState('');
   const [target, setTarget] = useState(DEFAULT_TARGET);
+  const [highAccuracyMode, setHighAccuracyMode] = useState(true);
+  const [strictMode, setStrictMode] = useState(true);
+  const [verifyUrls, setVerifyUrls] = useState(true);
+  const [showDebug, setShowDebug] = useState(true);
+  const [providerId, setProviderId] = useState('');
+  const [providers, setProviders] = useState<ProviderEntry[]>([]);
+  const [providersLoading, setProvidersLoading] = useState(false);
+  const [providersError, setProvidersError] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [data, setData] = useState<SearchResponse | null>(null);
@@ -39,6 +82,42 @@ export default function SimpleSerpSearch() {
       }),
     [keyword, location, targetParts.domain, targetParts.engine]
   );
+  const providerOptions = useMemo(
+    () =>
+      providers.filter(
+        (provider) =>
+          provider.active
+          && (provider.supportedEngines || ['google']).includes(targetParts.engine)
+      ),
+    [providers, targetParts.engine]
+  );
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadProviders() {
+      setProvidersLoading(true);
+      setProvidersError('');
+
+      try {
+        const payload = await getSearchProviders();
+        if (!alive) return;
+        setProviders(Array.isArray(payload.providers) ? payload.providers : []);
+      } catch (err: any) {
+        if (!alive) return;
+        setProvidersError(err?.response?.data?.error || err?.message || 'Failed to load providers.');
+      } finally {
+        if (alive) {
+          setProvidersLoading(false);
+        }
+      }
+    }
+
+    loadProviders();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -59,6 +138,11 @@ export default function SimpleSerpSearch() {
         engine: targetParts.engine,
         domain: targetParts.domain,
         location: sanitizedLocation,
+        highAccuracyMode,
+        providerId: providerId || undefined,
+        strictMode,
+        verifyUrls,
+        debug: showDebug,
       });
 
       setData(response);
@@ -117,6 +201,63 @@ export default function SimpleSerpSearch() {
           </button>
         </div>
 
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5">
+          <label className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={highAccuracyMode}
+              onChange={(event) => setHighAccuracyMode(event.target.checked)}
+              className="h-4 w-4"
+            />
+            High Accuracy Mode
+          </label>
+          <label className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={strictMode}
+              onChange={(event) => setStrictMode(event.target.checked)}
+              className="h-4 w-4"
+              disabled={!highAccuracyMode}
+            />
+            Strict Geo Params
+          </label>
+          <label className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={verifyUrls}
+              onChange={(event) => setVerifyUrls(event.target.checked)}
+              className="h-4 w-4"
+              disabled={!highAccuracyMode}
+            />
+            Verify Redirects
+          </label>
+          <label className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={showDebug}
+              onChange={(event) => setShowDebug(event.target.checked)}
+              className="h-4 w-4"
+            />
+            Debug Payload
+          </label>
+          <select
+            value={providerId}
+            onChange={(event) => setProviderId(event.target.value)}
+            disabled={providersLoading}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+          >
+            <option value="">Provider: Auto fallback</option>
+            {providerOptions.map((provider) => (
+              <option key={provider.id} value={provider.id}>
+                Provider: {provider.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        {providersError ? (
+          <p className="text-xs text-red-600">{providersError}</p>
+        ) : null}
+
         <div className="rounded-md bg-gray-50 px-3 py-2">
           <p className="text-xs font-medium text-gray-600">Default prompt template used by search logic</p>
           <p className="mt-1 text-xs text-gray-500">{promptPreview}</p>
@@ -143,7 +284,18 @@ export default function SimpleSerpSearch() {
                   Location: <span className="font-medium text-gray-900">{data.location}</span>
                 </>
               ) : null}
+              {data.meta?.selectedProviderName ? (
+                <>
+                  {' · '}
+                  Provider: <span className="font-medium text-gray-900">{data.meta.selectedProviderName}</span>
+                </>
+              ) : null}
             </p>
+            {data.meta?.verification?.enabled ? (
+              <p className="mt-1 text-xs text-gray-500">
+                Redirect verification: {data.meta.verification.verifiedCount || 0} verified / {data.meta.verification.failedCount || 0} failed
+              </p>
+            ) : null}
           </div>
 
           {data.results.length === 0 ? (
@@ -154,6 +306,9 @@ export default function SimpleSerpSearch() {
                 <li key={`${row.position}-${row.url}`} className="px-4 py-3">
                   <p className="text-xs font-medium text-gray-500">#{row.position}</p>
                   <p className="mt-1 text-sm font-medium text-gray-900">{row.title}</p>
+                  {row.websiteTitle ? (
+                    <p className="mt-1 text-xs text-gray-500">Website title: {row.websiteTitle}</p>
+                  ) : null}
                   <a
                     href={row.url}
                     target="_blank"
@@ -162,6 +317,9 @@ export default function SimpleSerpSearch() {
                   >
                     {row.url}
                   </a>
+                  {row.verifyError ? (
+                    <p className="mt-1 text-xs text-amber-600">Verification warning: {row.verifyError}</p>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -172,6 +330,24 @@ export default function SimpleSerpSearch() {
           No search yet.
         </div>
       )}
+
+      {showDebug && data?.debug ? (
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <h3 className="text-sm font-semibold text-gray-900">Debug Payload</h3>
+          <p className="mt-2 text-xs font-medium text-gray-600">Provider attempts</p>
+          <div className="mt-1 space-y-1">
+            {(data.debug.providerAttempts || []).map((attempt, index) => (
+              <p key={`${attempt.providerId}-${index}`} className="text-xs text-gray-600">
+                {attempt.providerName} ({attempt.providerId}) - {attempt.success ? `OK (${attempt.returnedResults || 0})` : `Fail (${attempt.error || 'unknown'})`}
+              </p>
+            ))}
+          </div>
+          <p className="mt-3 text-xs font-medium text-gray-600">Prompt used</p>
+          <pre className="mt-1 max-h-64 overflow-auto rounded-md bg-gray-50 p-2 text-xs text-gray-600 whitespace-pre-wrap">
+            {data.debug.prompt}
+          </pre>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -49,7 +49,12 @@ Request:
   "keyword": "auto",
   "engine": "google",
   "domain": "co.uk",
-  "location": "London"
+  "location": "London",
+  "highAccuracyMode": true,
+  "providerId": "searchapi",
+  "strictMode": true,
+  "verifyUrls": true,
+  "debug": true
 }
 ```
 
@@ -61,15 +66,28 @@ Response:
   "engine": "google",
   "domain": "co.uk",
   "location": "London",
+  "meta": {
+    "highAccuracyMode": true,
+    "strictMode": true,
+    "providerLock": "searchapi",
+    "selectedProviderId": "searchapi",
+    "selectedProviderName": "SearchAPI",
+    "redirectsVerified": true
+  },
   "results": [
     {
       "position": 1,
       "title": "Example",
-      "url": "https://example.com"
+      "url": "https://example.com",
+      "websiteTitle": "Example Home"
     }
   ]
 }
 ```
+
+### `GET /api/search/providers`
+
+Returns configured providers that can be used with `providerId` lock.
 
 ## Local Setup
 
@@ -102,6 +120,7 @@ Frontend default URL: `http://localhost:5173`
 - Duplicate exact URLs are removed after normalization.
 - Keyword input is trimmed/sanitized before search.
 - Keyword is sent exactly as entered; location is sent as a separate location signal.
+- High Accuracy Mode can lock one provider, enforce strict geo params, verify redirects, and return debug attempts.
 - To add more targets, extend:
   - `backend/search/config.js`
   - `frontend/src/lib/serpTargets.ts`

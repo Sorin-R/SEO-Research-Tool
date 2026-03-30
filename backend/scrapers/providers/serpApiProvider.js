@@ -22,6 +22,7 @@ async function search(keyword, numResults = 10, options = {}) {
   const country = getCountryConfig(options.country);
   const engine = String(options.engine || 'google').toLowerCase() === 'bing' ? 'bing' : 'google';
   const location = String(options.location || '').trim();
+  const googleDomain = String(options.googleDomain || country.googleDomain || '').trim();
 
   if (!apiKey) {
     throw new Error('SERPAPI_KEY not set in .env');
@@ -38,7 +39,7 @@ async function search(keyword, numResults = 10, options = {}) {
         engine,
         gl: country.googleGl,
         hl: country.hl,
-        google_domain: country.googleDomain,
+        google_domain: googleDomain || undefined,
         location: location || undefined,
       },
       timeout: 15000,

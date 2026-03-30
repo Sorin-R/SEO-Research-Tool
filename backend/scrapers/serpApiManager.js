@@ -32,6 +32,7 @@ const providers = [
     id: 'serpapi',
     name: 'SerpAPI',
     provider: serpApiProvider,
+    supportedEngines: ['google', 'bing'],
     docsUrl: 'https://serpapi.com/',
     quota: '100/month',
     quotaType: 'Monthly',
@@ -46,6 +47,7 @@ const providers = [
     id: 'serpstack',
     name: 'Serpstack',
     provider: serpstackProvider,
+    supportedEngines: ['google'],
     docsUrl: 'https://serpstack.com/',
     quota: '100/month',
     quotaType: 'Monthly',
@@ -60,6 +62,7 @@ const providers = [
     id: 'zenserp',
     name: 'Zenserp',
     provider: zenserpProvider,
+    supportedEngines: ['google'],
     docsUrl: 'https://zenserp.com/',
     quota: '100/month',
     quotaType: 'Monthly',
@@ -74,6 +77,7 @@ const providers = [
     id: 'searchapi',
     name: 'SearchAPI',
     provider: searchApiProvider,
+    supportedEngines: ['google', 'bing'],
     docsUrl: 'https://www.searchapi.io/',
     quota: '100/month',
     quotaType: 'Monthly',
@@ -88,6 +92,7 @@ const providers = [
     id: 'scaleserp',
     name: 'ScaleSERP',
     provider: scaleserpProvider,
+    supportedEngines: ['google'],
     docsUrl: 'https://www.scaleserp.com/',
     quota: '100/month',
     quotaType: 'Monthly',
@@ -102,6 +107,7 @@ const providers = [
     id: 'google-custom-search',
     name: 'Google Custom Search',
     provider: googleSearchProvider,
+    supportedEngines: ['google'],
     docsUrl: 'https://programmablesearchengine.google.com/',
     quota: '100/day',
     quotaType: 'Daily',
@@ -117,6 +123,7 @@ const providers = [
     id: 'bing-search-api',
     name: 'Bing Search API',
     provider: bingSearchProvider,
+    supportedEngines: ['bing'],
     docsUrl: 'https://www.microsoft.com/en-us/bing/apis/bing-web-search-api',
     quota: '~1000/month',
     quotaType: 'Monthly',
@@ -142,8 +149,13 @@ async function search(keyword, numResults = 10, options = {}) {
     throw new Error('Keyword is required.');
   }
 
+  const engine = normalizeEngine(options.engine);
   const providerContexts = await getProviderContexts();
-  const enabledProviders = providerContexts.filter((providerContext) => providerContext.detail.active);
+  const enabledProviders = providerContexts.filter(
+    (providerContext) =>
+      providerContext.detail.active
+      && providerSupportsEngine(providerContext.config, engine)
+  );
 
   if (enabledProviders.length === 0) {
     throw new Error(
@@ -154,6 +166,7 @@ async function search(keyword, numResults = 10, options = {}) {
   console.log(
     `[SERP] ${enabledProviders.length} provider(s) configured: ${enabledProviders.map((providerContext) => providerContext.detail.name).join(', ')}`
   );
+  const attempts = [];
 
   // Try each provider in order
   for (const providerContext of enabledProviders) {
@@ -161,6 +174,7 @@ async function search(keyword, numResults = 10, options = {}) {
       console.log(`[SERP] Trying provider: ${providerContext.detail.name}...`);
       const results = await providerContext.config.provider.search(keyword, numResults, {
         ...options,
+        engine,
         credentials: providerContext.credentials,
       });
       await consumeProviderUsageSafe(providerContext.config);
@@ -168,19 +182,101 @@ async function search(keyword, numResults = 10, options = {}) {
       if (results && results.length > 0) {
         const normalizedResults = normalizeProviderResults(results, numResults);
         console.log(`[SERP] ✓ ${providerContext.detail.name} returned ${normalizedResults.length} results`);
+        if (options.withMeta === true) {
+          attempts.push({
+            providerId: providerContext.config.id,
+            providerName: providerContext.detail.name,
+            success: true,
+            returnedResults: normalizedResults.length,
+          });
+
+          return {
+            results: normalizedResults,
+            meta: {
+              selectedProviderId: providerContext.config.id,
+              selectedProviderName: providerContext.detail.name,
+              attempts,
+            },
+          };
+        }
         return normalizedResults;
       }
 
       console.warn(`[SERP] ${providerContext.detail.name} returned no results, trying next provider...`);
+      attempts.push({
+        providerId: providerContext.config.id,
+        providerName: providerContext.detail.name,
+        success: false,
+        returnedResults: 0,
+        error: 'Provider returned no results',
+      });
     } catch (err) {
       console.warn(`[SERP] ${providerContext.detail.name} failed: ${err.message}, trying next provider...`);
+      attempts.push({
+        providerId: providerContext.config.id,
+        providerName: providerContext.detail.name,
+        success: false,
+        returnedResults: 0,
+        error: err.message,
+      });
     }
   }
 
-  throw new Error(
+  const error = new Error(
     'All configured SERP providers failed. Check your API keys and quota. ' +
     'Free tiers may have monthly limits.'
   );
+  if (options.withMeta === true) {
+    error.attempts = attempts;
+  }
+  throw error;
+}
+
+async function searchByProviderId(providerId, keyword, numResults = 10, options = {}) {
+  const engine = normalizeEngine(options.engine);
+  const providerContext = (await getProviderContexts()).find(
+    (context) => context.config.id === providerId
+  );
+
+  if (!providerContext) {
+    throw new Error(`Provider not found: ${providerId}`);
+  }
+
+  if (!providerContext.detail.active) {
+    throw new Error(`Provider "${providerContext.detail.name}" is not active.`);
+  }
+
+  if (!providerSupportsEngine(providerContext.config, engine)) {
+    throw new Error(`Provider "${providerContext.detail.name}" does not support ${engine} engine.`);
+  }
+
+  const results = await providerContext.config.provider.search(keyword, numResults, {
+    ...options,
+    engine,
+    credentials: providerContext.credentials,
+  });
+  await consumeProviderUsageSafe(providerContext.config);
+  const normalizedResults = normalizeProviderResults(results, numResults);
+
+  if (options.withMeta === true) {
+    return {
+      results: normalizedResults,
+      meta: {
+        selectedProviderId: providerContext.config.id,
+        selectedProviderName: providerContext.detail.name,
+        attempts: [
+          {
+            providerId: providerContext.config.id,
+            providerName: providerContext.detail.name,
+            success: true,
+            returnedResults: normalizedResults.length,
+          },
+        ],
+      },
+    };
+  }
+
+  return normalizedResults;
 }
 
 async function consumeProviderUsageSafe(providerConfig) {
@@ -422,6 +518,7 @@ function buildProviderDetail(providerConfig, settings, storedCredentials, usage)
   return {
     id: providerConfig.id,
     name: providerConfig.name,
+    supportedEngines: Array.isArray(providerConfig.supportedEngines) ? providerConfig.supportedEngines : ['google'],
     configured,
     enabled,
     active: configured && enabled,
@@ -447,6 +544,18 @@ function buildResolvedCredentials(providerConfig, storedCredentials) {
     accumulator[fieldConfig.key] = resolveCredential(fieldConfig.key, storedCredentials).value;
     return accumulator;
   }, {});
+}
+
+function normalizeEngine(engine) {
+  const normalized = String(engine || 'google').trim().toLowerCase();
+  return normalized === 'bing' ? 'bing' : 'google';
+}
+
+function providerSupportsEngine(providerConfig, engine) {
+  const supportedEngines = Array.isArray(providerConfig.supportedEngines)
+    ? providerConfig.supportedEngines
+    : ['google'];
+  return supportedEngines.includes(normalizeEngine(engine));
 }
 
 function resolveCredential(fieldKey, storedCredentials) {
@@ -477,6 +586,7 @@ function resolveCredential(fieldKey, storedCredentials) {
 
 module.exports = {
   search,
+  searchByProviderId,
   getStatus,
   updateProviderState,
   updateProviderCredentials,

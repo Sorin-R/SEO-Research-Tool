@@ -302,13 +302,14 @@ function buildSchemaPrompt(schema) {
   ].join('\n');
 }
 
-function buildUserPrompt({ keyword, engine, searchDomain, country, numResults }) {
+function buildUserPrompt({ keyword, engine, searchDomain, country, location, numResults }) {
   return [
     `Task: Return the top ${numResults} organic SERP results for this query.`,
     `Keyword: ${keyword}`,
     `Search engine: ${engine}`,
     `Search domain: ${searchDomain}`,
     `Country hint: ${country}`,
+    `Location hint: ${String(location || '').trim() || 'not specified'}`,
     '',
     'Rules:',
     '- Return only organic web results (no ads, no maps pack, no videos carousel metadata).',
@@ -353,7 +354,7 @@ async function resolveKeywordAIRuntime() {
   );
 }
 
-async function requestAiSerpPayload({ runtime, keyword, engine, searchDomain, country, numResults }) {
+async function requestAiSerpPayload({ runtime, keyword, engine, searchDomain, country, location, numResults }) {
   const responseSchema = {
     type: 'json_schema',
     name: 'ai_serp_top_results',
@@ -388,6 +389,7 @@ async function requestAiSerpPayload({ runtime, keyword, engine, searchDomain, co
     engine,
     searchDomain,
     country,
+    location,
     numResults,
   });
 
@@ -506,6 +508,7 @@ async function analyzeSERPWithAI(keyword, options = {}) {
   const engine = normalizeEngine(options.engine);
   const searchDomain = normalizeSearchDomain(options.searchDomain, engine);
   const country = String(options.country || 'US').trim().toUpperCase() || 'US';
+  const location = String(options.location || '').trim();
   const numResults = Math.min(Math.max(Number.parseInt(options.numResults, 10) || 10, 1), 10);
   const runtime = await resolveKeywordAIRuntime();
   const aiPayload = await requestAiSerpPayload({
@@ -514,6 +517,7 @@ async function analyzeSERPWithAI(keyword, options = {}) {
     engine,
     searchDomain,
     country,
+    location,
     numResults,
   });
 
@@ -523,6 +527,7 @@ async function analyzeSERPWithAI(keyword, options = {}) {
   return {
     keyword: normalizedKeyword,
     country,
+    location: location || null,
     engine,
     searchDomain,
     aiOnly: true,

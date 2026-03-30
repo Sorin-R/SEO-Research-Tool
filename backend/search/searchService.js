@@ -2,6 +2,7 @@ const { resolveSearchTarget } = require('./config');
 const { buildSerpPrompt } = require('./buildSerpPrompt');
 const { normalizeSearchResults } = require('./normalizeSearchResults');
 const { verifySearchResults } = require('./verifySearchResults');
+const { analyzeSERPWithAI } = require('../services/aiSerpService');
 const googleProvider = require('./providers/googleProvider');
 const bingProvider = require('./providers/bingProvider');
 
@@ -42,12 +43,13 @@ function toBooleanFlag(value, fallback = false) {
   return fallback;
 }
 
-async function runSearch({ keyword, engine, domain, location, highAccuracyMode, providerId, strictMode, verifyUrls, debug }) {
+async function runSearch({ keyword, engine, domain, location, aiMode, highAccuracyMode, providerId, strictMode, verifyUrls, debug }) {
   const normalizedKeyword = sanitizeKeyword(keyword);
   if (!normalizedKeyword) {
     throw createServiceError('Keyword is required.', 400);
   }
   const normalizedLocation = sanitizeLocation(location);
+  const aiModeEnabled = toBooleanFlag(aiMode, false);
   const normalizedProviderId = String(providerId || '').trim();
   const accuracyModeEnabled = toBooleanFlag(highAccuracyMode, false);
   const strictModeEnabled = toBooleanFlag(strictMode, accuracyModeEnabled);
@@ -57,6 +59,48 @@ async function runSearch({ keyword, engine, domain, location, highAccuracyMode, 
   const target = resolveSearchTarget(engine, domain);
   if (!target) {
     throw createServiceError('Invalid engine/domain. Use Google.com, Google.co.uk, Bing.com, or Bing.co.uk.', 400);
+  }
+
+  if (aiModeEnabled) {
+    const aiResult = await analyzeSERPWithAI(normalizedKeyword, {
+      engine: target.engine,
+      searchDomain: target.host,
+      country: target.country,
+      location: normalizedLocation,
+      numResults: 10,
+    });
+
+    const normalizedResults = normalizeSearchResults(aiResult.results || [], 10);
+    const verification = await verifySearchResults(normalizedResults, {
+      enabled: verifyUrlsEnabled,
+    });
+
+    const response = {
+      keyword: normalizedKeyword,
+      engine: target.engine,
+      domain: target.domain,
+      location: normalizedLocation || null,
+      results: verification.results,
+      meta: {
+        aiMode: true,
+        aiProvider: aiResult.aiProvider || null,
+        aiModel: aiResult.aiModel || null,
+        selectedProviderId: 'ai-serp',
+        selectedProviderName: aiResult.aiProvider || 'AI SERP',
+        redirectsVerified: verifyUrlsEnabled,
+        verification: verification.stats,
+      },
+    };
+
+    if (debugEnabled) {
+      response.debug = {
+        prompt: 'AI SERP mode uses backend aiSerpService structured prompt.',
+        providerAttempts: [],
+        normalizedResultCount: normalizedResults.length,
+      };
+    }
+
+    return response;
   }
 
   const provider = providerMap[target.engine];
@@ -92,6 +136,7 @@ async function runSearch({ keyword, engine, domain, location, highAccuracyMode, 
   const results = verification.results;
 
   const meta = {
+    aiMode: false,
     highAccuracyMode: accuracyModeEnabled,
     strictMode: strictModeEnabled,
     providerLock: normalizedProviderId || null,

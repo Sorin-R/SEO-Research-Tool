@@ -20,6 +20,9 @@ type SearchResponse = {
   location?: string | null;
   results: SearchResultItem[];
   meta?: {
+    aiMode?: boolean;
+    aiProvider?: string | null;
+    aiModel?: string | null;
     highAccuracyMode?: boolean;
     strictMode?: boolean;
     providerLock?: string | null;
@@ -59,6 +62,7 @@ export default function SimpleSerpSearch() {
   const [keyword, setKeyword] = useState('');
   const [location, setLocation] = useState('');
   const [target, setTarget] = useState(DEFAULT_TARGET);
+  const [aiMode, setAiMode] = useState(false);
   const [highAccuracyMode, setHighAccuracyMode] = useState(true);
   const [strictMode, setStrictMode] = useState(true);
   const [verifyUrls, setVerifyUrls] = useState(true);
@@ -138,6 +142,7 @@ export default function SimpleSerpSearch() {
         engine: targetParts.engine,
         domain: targetParts.domain,
         location: sanitizedLocation,
+        aiMode,
         highAccuracyMode,
         providerId: providerId || undefined,
         strictMode,
@@ -163,7 +168,7 @@ export default function SimpleSerpSearch() {
       </div>
 
       <form onSubmit={handleSubmit} className="rounded-lg border border-gray-200 bg-white p-5 space-y-4">
-        <div className="grid gap-3 md:grid-cols-[1fr_1fr_220px_auto]">
+        <div className="grid gap-3 md:grid-cols-[1fr_1fr_220px_180px_auto]">
           <input
             type="text"
             value={keyword}
@@ -192,6 +197,15 @@ export default function SimpleSerpSearch() {
               </option>
             ))}
           </select>
+          <select
+            value={aiMode ? 'ai' : 'standard'}
+            onChange={(event) => setAiMode(event.target.value === 'ai')}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none"
+            disabled={loading}
+          >
+            <option value="standard">Standard SERP</option>
+            <option value="ai">AI SERP</option>
+          </select>
           <button
             type="submit"
             className="rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
@@ -208,6 +222,7 @@ export default function SimpleSerpSearch() {
               checked={highAccuracyMode}
               onChange={(event) => setHighAccuracyMode(event.target.checked)}
               className="h-4 w-4"
+              disabled={aiMode}
             />
             High Accuracy Mode
           </label>
@@ -217,7 +232,7 @@ export default function SimpleSerpSearch() {
               checked={strictMode}
               onChange={(event) => setStrictMode(event.target.checked)}
               className="h-4 w-4"
-              disabled={!highAccuracyMode}
+              disabled={aiMode || !highAccuracyMode}
             />
             Strict Geo Params
           </label>
@@ -227,7 +242,7 @@ export default function SimpleSerpSearch() {
               checked={verifyUrls}
               onChange={(event) => setVerifyUrls(event.target.checked)}
               className="h-4 w-4"
-              disabled={!highAccuracyMode}
+              disabled={aiMode || !highAccuracyMode}
             />
             Verify Redirects
           </label>
@@ -243,7 +258,7 @@ export default function SimpleSerpSearch() {
           <select
             value={providerId}
             onChange={(event) => setProviderId(event.target.value)}
-            disabled={providersLoading}
+            disabled={providersLoading || aiMode}
             className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
           >
             <option value="">Provider: Auto fallback</option>
@@ -257,10 +272,21 @@ export default function SimpleSerpSearch() {
         {providersError ? (
           <p className="text-xs text-red-600">{providersError}</p>
         ) : null}
+        {aiMode ? (
+          <p className="text-xs text-indigo-600">
+            AI SERP uses your active AI provider from AI Providers (OpenAI/NVIDIA).
+          </p>
+        ) : null}
 
         <div className="rounded-md bg-gray-50 px-3 py-2">
-          <p className="text-xs font-medium text-gray-600">Default prompt template used by search logic</p>
-          <p className="mt-1 text-xs text-gray-500">{promptPreview}</p>
+          <p className="text-xs font-medium text-gray-600">
+            {aiMode ? 'AI SERP prompt source' : 'Default prompt template used by search logic'}
+          </p>
+          <p className="mt-1 text-xs text-gray-500">
+            {aiMode
+              ? 'AI SERP mode uses backend aiSerpService structured prompt and active AI model.'
+              : promptPreview}
+          </p>
         </div>
       </form>
 
@@ -288,6 +314,12 @@ export default function SimpleSerpSearch() {
                 <>
                   {' · '}
                   Provider: <span className="font-medium text-gray-900">{data.meta.selectedProviderName}</span>
+                </>
+              ) : null}
+              {data.meta?.aiMode && data.meta?.aiModel ? (
+                <>
+                  {' · '}
+                  Model: <span className="font-medium text-gray-900">{data.meta.aiModel}</span>
                 </>
               ) : null}
             </p>

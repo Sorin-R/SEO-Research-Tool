@@ -50,6 +50,7 @@ Request:
   "engine": "google",
   "domain": "co.uk",
   "location": "London",
+  "aiMode": false,
   "highAccuracyMode": true,
   "providerId": "searchapi",
   "strictMode": true,
@@ -120,6 +121,7 @@ Frontend default URL: `http://localhost:5173`
 - Duplicate exact URLs are removed after normalization.
 - Keyword input is trimmed/sanitized before search.
 - Keyword is sent exactly as entered; location is sent as a separate location signal.
+- `aiMode: true` enables AI SERP mode in `/api/search` using the active AI provider.
 - High Accuracy Mode can lock one provider, enforce strict geo params, verify redirects, and return debug attempts.
 - To add more targets, extend:
   - `backend/search/config.js`

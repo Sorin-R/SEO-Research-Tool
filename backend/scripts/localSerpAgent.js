@@ -155,6 +155,16 @@ async function extractOrganicResultsFromDom(page, engine, maxResults = 10) {
     const extracted = await page.evaluate((runtimeEngine, runtimeMaxResults) => {
       const rows = [];
       const seen = new Set();
+      const blockedHosts = new Set([
+        'google.com',
+        'www.google.com',
+        'google.co.uk',
+        'www.google.co.uk',
+        'webcache.googleusercontent.com',
+        'accounts.google.com',
+        'support.google.com',
+        'policies.google.com',
+      ]);
 
       const pushRow = (title, url) => {
         const cleanTitle = String(title || '').replace(/\s+/g, ' ').trim();
@@ -168,6 +178,26 @@ async function extractOrganicResultsFromDom(page, engine, maxResults = 10) {
           title: cleanTitle,
           url: cleanUrl,
         });
+      };
+
+      const isOrganicCandidateUrl = (rawUrl) => {
+        const value = String(rawUrl || '').trim();
+        if (!value) return false;
+        if (!/^https?:\/\//i.test(value)) return false;
+
+        try {
+          const parsed = new URL(value);
+          const host = parsed.hostname.toLowerCase();
+          if (blockedHosts.has(host)) return false;
+          if (host.endsWith('.google.com') || host.endsWith('.google.co.uk')) return false;
+
+          const path = parsed.pathname.toLowerCase();
+          if (path.startsWith('/search')) return false;
+          if (path.startsWith('/aclk')) return false;
+          return true;
+        } catch {
+          return false;
+        }
       };
 
       if (runtimeEngine === 'bing') {
@@ -184,6 +214,42 @@ async function extractOrganicResultsFromDom(page, engine, maxResults = 10) {
           const titleNode = card.querySelector('h3');
           const link = card.querySelector('a[href^="http"]');
           pushRow(titleNode?.textContent || '', link?.href || '');
+        }
+
+        if (rows.length < runtimeMaxResults) {
+          const root = document.querySelector('#search') || document.body;
+
+          const titleNodes = Array.from(root.querySelectorAll('h3'));
+          for (const titleNode of titleNodes) {
+            if (rows.length >= runtimeMaxResults) break;
+
+            const anchor = titleNode.closest('a[href^="http"]')
+              || titleNode.parentElement?.querySelector('a[href^="http"]')
+              || titleNode.parentElement?.parentElement?.querySelector('a[href^="http"]');
+
+            const href = anchor?.href || '';
+            if (!isOrganicCandidateUrl(href)) continue;
+            pushRow(titleNode.textContent || '', href);
+          }
+        }
+
+        if (rows.length < runtimeMaxResults) {
+          const root = document.querySelector('#search') || document.body;
+          const anchors = Array.from(root.querySelectorAll('a[href^="http"]'));
+
+          for (const anchor of anchors) {
+            if (rows.length >= runtimeMaxResults) break;
+            const href = anchor.href || '';
+            if (!isOrganicCandidateUrl(href)) continue;
+
+            const titleNode = anchor.querySelector('h3')
+              || anchor.closest('div')?.querySelector('h3')
+              || anchor.parentElement?.querySelector('h3');
+            const fallbackTitle = titleNode?.textContent || anchor.textContent || '';
+
+            if (!String(fallbackTitle || '').trim()) continue;
+            pushRow(fallbackTitle, href);
+          }
         }
       }
 

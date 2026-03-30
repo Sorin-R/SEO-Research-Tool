@@ -52,6 +52,7 @@ Request:
   "location": "London",
   "aiMode": false,
   "screenshotMode": false,
+  "localAgentMode": false,
   "highAccuracyMode": true,
   "providerId": "searchapi",
   "strictMode": true,
@@ -124,7 +125,42 @@ Frontend default URL: `http://localhost:5173`
 - Keyword is sent exactly as entered; location is sent as a separate location signal.
 - `aiMode: true` enables AI SERP mode in `/api/search` using the active AI provider.
 - `screenshotMode: true` enables screenshot SERP mode (capture page screenshot, then extract results with OpenAI vision).
+- `localAgentMode: true` sends the SERP request to your own PC agent (your IP/browser), then returns normalized results + screenshot.
 - High Accuracy Mode can lock one provider, enforce strict geo params, verify redirects, and return debug attempts.
 - To add more targets, extend:
   - `backend/search/config.js`
   - `frontend/src/lib/serpTargets.ts`
+
+## Local PC Agent (Captcha-Resistant Mode)
+
+Use this when hosted server IP is blocked by Google/Bing.
+
+### 1. Set token on backend (recommended)
+
+In `backend/.env`:
+
+```bash
+LOCAL_SERP_AGENT_TOKEN=choose-a-long-random-token
+```
+
+Restart backend:
+
+```bash
+npm --prefix backend run dev
+```
+
+### 2. Run agent on your computer
+
+```bash
+LOCAL_SERP_BACKEND_URL=https://your-domain.com/api \
+LOCAL_SERP_AGENT_TOKEN=choose-a-long-random-token \
+npm --prefix backend run local-serp-agent
+```
+
+### 3. Use UI mode
+
+In **SERP Search MVP**, select:
+
+- `Local PC Agent SERP`
+
+The app will queue the job, your local agent will execute it, and results/screenshot will appear in the page.

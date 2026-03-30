@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon --watch . --ext js,mjs,cjs,json --ignore \"data/runtime-store.json\" --ignore \"data/*.json\" --exec \"node server.js\"",
+    "local-serp-agent": "node scripts/localSerpAgent.js"
   },
   "dependencies": {
     "axios": "^1.7.2",

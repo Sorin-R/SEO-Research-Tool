@@ -21,6 +21,7 @@ type SearchResponse = {
   results: SearchResultItem[];
   meta?: {
     screenshotMode?: boolean;
+    localAgentMode?: boolean;
     aiMode?: boolean;
     aiProvider?: string | null;
     aiModel?: string | null;
@@ -44,6 +45,8 @@ type SearchResponse = {
     screenshotImageDataUrl?: string | null;
     usedDomFallback?: boolean;
     blockedByEngine?: boolean;
+    localAgentJobId?: string;
+    localAgentDebug?: any;
     providerAttempts?: Array<{
       providerId: string;
       providerName: string;
@@ -69,7 +72,7 @@ export default function SimpleSerpSearch() {
   const [keyword, setKeyword] = useState('');
   const [location, setLocation] = useState('');
   const [target, setTarget] = useState(DEFAULT_TARGET);
-  const [searchMode, setSearchMode] = useState<'standard' | 'ai' | 'screenshot'>('standard');
+  const [searchMode, setSearchMode] = useState<'standard' | 'ai' | 'screenshot' | 'local-agent'>('standard');
   const [highAccuracyMode, setHighAccuracyMode] = useState(true);
   const [strictMode, setStrictMode] = useState(true);
   const [verifyUrls, setVerifyUrls] = useState(true);
@@ -152,6 +155,7 @@ export default function SimpleSerpSearch() {
         location: sanitizedLocation,
         aiMode: searchMode === 'ai',
         screenshotMode: searchMode === 'screenshot',
+        localAgentMode: searchMode === 'local-agent',
         highAccuracyMode,
         providerId: providerId || undefined,
         strictMode,
@@ -208,13 +212,14 @@ export default function SimpleSerpSearch() {
           </select>
           <select
             value={searchMode}
-            onChange={(event) => setSearchMode(event.target.value as 'standard' | 'ai' | 'screenshot')}
+            onChange={(event) => setSearchMode(event.target.value as 'standard' | 'ai' | 'screenshot' | 'local-agent')}
             className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none"
             disabled={loading}
           >
             <option value="standard">Standard SERP</option>
             <option value="ai">AI SERP</option>
             <option value="screenshot">Screenshot OCR SERP</option>
+            <option value="local-agent">Local PC Agent SERP</option>
           </select>
           <button
             type="submit"
@@ -292,6 +297,11 @@ export default function SimpleSerpSearch() {
             Screenshot OCR SERP opens the engine page, captures a screenshot, then extracts top websites with OpenAI vision.
           </p>
         ) : null}
+        {searchMode === 'local-agent' ? (
+          <p className="text-xs text-indigo-600">
+            Local PC Agent mode runs browser capture on your own computer IP and sends results back to this app.
+          </p>
+        ) : null}
 
         <div className="rounded-md bg-gray-50 px-3 py-2">
           <p className="text-xs font-medium text-gray-600">
@@ -299,6 +309,8 @@ export default function SimpleSerpSearch() {
               ? 'AI SERP prompt source'
               : searchMode === 'screenshot'
                 ? 'Screenshot OCR prompt source'
+                : searchMode === 'local-agent'
+                  ? 'Local PC Agent mode'
                 : 'Default prompt template used by search logic'}
           </p>
           <p className="mt-1 text-xs text-gray-500">
@@ -306,6 +318,8 @@ export default function SimpleSerpSearch() {
               ? 'AI SERP mode uses backend aiSerpService structured prompt and active AI model.'
               : searchMode === 'screenshot'
                 ? 'Screenshot mode uses browser screenshot + OpenAI vision extraction prompt on the backend.'
+                : searchMode === 'local-agent'
+                  ? 'Local PC Agent mode sends a job to your running local agent (backend/scripts/localSerpAgent.js).'
                 : promptPreview}
           </p>
         </div>
@@ -349,13 +363,19 @@ export default function SimpleSerpSearch() {
                   Mode: <span className="font-medium text-gray-900">Screenshot OCR</span>
                 </>
               ) : null}
+              {data.meta?.localAgentMode ? (
+                <>
+                  {' · '}
+                  Mode: <span className="font-medium text-gray-900">Local PC Agent</span>
+                </>
+              ) : null}
             </p>
             {data.meta?.verification?.enabled ? (
               <p className="mt-1 text-xs text-gray-500">
                 Redirect verification: {data.meta.verification.verifiedCount || 0} verified / {data.meta.verification.failedCount || 0} failed
               </p>
             ) : null}
-            {data.meta?.screenshotMode && data.meta?.blockedByEngine ? (
+            {(data.meta?.screenshotMode || data.meta?.localAgentMode) && data.meta?.blockedByEngine ? (
               <p className="mt-1 text-xs text-amber-700">
                 Search engine blocked this capture (captcha/consent page). Screenshot is shown below for debugging.
               </p>
@@ -388,11 +408,11 @@ export default function SimpleSerpSearch() {
               ))}
             </ul>
           )}
-          {data.meta?.screenshotMode && screenshotPreview ? (
+          {(data.meta?.screenshotMode || data.meta?.localAgentMode) && screenshotPreview ? (
             <div className="border-t border-gray-200 px-4 py-4">
               <h3 className="text-sm font-semibold text-gray-900">Captured Screenshot</h3>
               <p className="mt-1 text-xs text-gray-500">
-                Original screenshot used by Screenshot OCR mode.
+                Original screenshot used by this SERP mode.
               </p>
               <img
                 src={screenshotPreview}
@@ -420,6 +440,9 @@ export default function SimpleSerpSearch() {
           ) : null}
           {data.debug.blockedByEngine ? (
             <p className="mt-1 text-xs text-amber-600">Engine appears to have blocked the screenshot request.</p>
+          ) : null}
+          {data.debug.localAgentJobId ? (
+            <p className="mt-1 text-xs text-gray-600">Local Agent Job ID: {data.debug.localAgentJobId}</p>
           ) : null}
           <div className="mt-1 space-y-1">
             {(data.debug.providerAttempts || []).map((attempt, index) => (

@@ -20,7 +20,7 @@ router.get('/providers', async (_req, res) => {
 
 /**
  * POST /api/search
- * Body: { keyword, engine, domain, location?, aiMode?, screenshotMode?, highAccuracyMode?, providerId?, strictMode?, verifyUrls?, debug? }
+ * Body: { keyword, engine, domain, location?, aiMode?, screenshotMode?, localAgentMode?, highAccuracyMode?, providerId?, strictMode?, verifyUrls?, debug? }
  */
 router.post('/', async (req, res) => {
   const keyword = String(req.body?.keyword || '');
@@ -29,6 +29,7 @@ router.post('/', async (req, res) => {
   const location = String(req.body?.location || '');
   const aiMode = req.body?.aiMode;
   const screenshotMode = req.body?.screenshotMode;
+  const localAgentMode = req.body?.localAgentMode;
   const highAccuracyMode = req.body?.highAccuracyMode;
   const providerId = String(req.body?.providerId || '');
   const strictMode = req.body?.strictMode;
@@ -55,6 +56,7 @@ router.post('/', async (req, res) => {
       location,
       aiMode,
       screenshotMode,
+      localAgentMode,
       highAccuracyMode,
       providerId,
       strictMode,

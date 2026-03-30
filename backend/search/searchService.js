@@ -4,6 +4,7 @@ const { normalizeSearchResults } = require('./normalizeSearchResults');
 const { verifySearchResults } = require('./verifySearchResults');
 const { analyzeSERPWithAI } = require('../services/aiSerpService');
 const { analyzeSERPFromScreenshot } = require('./screenshotSerpService');
+const { createJob, waitForJob } = require('./localSerpAgentQueue');
 const googleProvider = require('./providers/googleProvider');
 const bingProvider = require('./providers/bingProvider');
 
@@ -44,7 +45,7 @@ function toBooleanFlag(value, fallback = false) {
   return fallback;
 }
 
-async function runSearch({ keyword, engine, domain, location, aiMode, screenshotMode, highAccuracyMode, providerId, strictMode, verifyUrls, debug }) {
+async function runSearch({ keyword, engine, domain, location, aiMode, screenshotMode, localAgentMode, highAccuracyMode, providerId, strictMode, verifyUrls, debug }) {
   const normalizedKeyword = sanitizeKeyword(keyword);
   if (!normalizedKeyword) {
     throw createServiceError('Keyword is required.', 400);
@@ -52,6 +53,7 @@ async function runSearch({ keyword, engine, domain, location, aiMode, screenshot
   const normalizedLocation = sanitizeLocation(location);
   const aiModeEnabled = toBooleanFlag(aiMode, false);
   const screenshotModeEnabled = toBooleanFlag(screenshotMode, false);
+  const localAgentModeEnabled = toBooleanFlag(localAgentMode, false);
   const normalizedProviderId = String(providerId || '').trim();
   const accuracyModeEnabled = toBooleanFlag(highAccuracyMode, false);
   const strictModeEnabled = toBooleanFlag(strictMode, accuracyModeEnabled);
@@ -106,6 +108,73 @@ async function runSearch({ keyword, engine, domain, location, aiMode, screenshot
         screenshotImageDataUrl: screenshotResult.screenshotImageDataUrl || null,
         usedDomFallback: Boolean(screenshotResult.usedDomFallback),
         blockedByEngine: Boolean(screenshotResult.blockedByEngine),
+      };
+    }
+
+    return response;
+  }
+
+  if (localAgentModeEnabled) {
+    const queuedJob = createJob({
+      keyword: normalizedKeyword,
+      engine: target.engine,
+      searchDomain: target.host,
+      country: target.country,
+      location: normalizedLocation || null,
+      requestedAt: new Date().toISOString(),
+    });
+
+    const completedJob = await waitForJob(queuedJob.id);
+    if (!completedJob) {
+      throw createServiceError('Local PC SERP job could not be loaded.', 500);
+    }
+
+    if (completedJob.status === 'timeout') {
+      throw createServiceError(
+        'Local PC agent did not respond in time. Keep your local agent running and try again.',
+        504
+      );
+    }
+
+    if (completedJob.status === 'failed') {
+      const failReason = completedJob.error?.message || 'Local PC agent failed.';
+      throw createServiceError(failReason, 502);
+    }
+
+    const localResult = completedJob.result || {};
+    const normalizedResults = normalizeSearchResults(localResult.results || [], 10);
+    const verification = await verifySearchResults(normalizedResults, {
+      enabled: verifyUrlsEnabled,
+    });
+
+    const response = {
+      keyword: normalizedKeyword,
+      engine: target.engine,
+      domain: target.domain,
+      location: normalizedLocation || null,
+      results: verification.results,
+      meta: {
+        localAgentMode: true,
+        aiMode: false,
+        selectedProviderId: 'local-pc-agent',
+        selectedProviderName: 'Local PC Agent',
+        redirectsVerified: verifyUrlsEnabled,
+        verification: verification.stats,
+        screenshotImageDataUrl: localResult.screenshotImageDataUrl || null,
+        blockedByEngine: Boolean(localResult.blockedByEngine),
+      },
+    };
+
+    if (debugEnabled) {
+      response.debug = {
+        prompt: 'Local PC Agent mode uses your own machine browser for SERP capture.',
+        providerAttempts: [],
+        normalizedResultCount: normalizedResults.length,
+        screenshotUrl: localResult.screenshotUrl || null,
+        screenshotImageDataUrl: localResult.screenshotImageDataUrl || null,
+        blockedByEngine: Boolean(localResult.blockedByEngine),
+        localAgentJobId: queuedJob.id,
+        localAgentDebug: localResult.debug || null,
       };
     }
 

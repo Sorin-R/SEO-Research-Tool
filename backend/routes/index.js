@@ -12,6 +12,7 @@ const gscProvidersRouter = require('./gscProviders');
 const websitesRouter = require('./websites');
 const dashboardRouter = require('./dashboard');
 const searchRouter = require('./search');
+const localSerpAgentRouter = require('./localSerpAgent');
 
 router.use('/keywords', keywordsRouter);
 router.use('/serp', serpRouter);
@@ -24,5 +25,6 @@ router.use('/gsc-providers', gscProvidersRouter);
 router.use('/websites', websitesRouter);
 router.use('/dashboard', dashboardRouter);
 router.use('/search', searchRouter);
+router.use('/local-serp-agent', localSerpAgentRouter);
 
 module.exports = router;

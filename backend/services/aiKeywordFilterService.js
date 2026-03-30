@@ -5,7 +5,7 @@ const DEFAULT_PROMPT =
   'Keep only the keywords that are the closest match to the seed keyword. Remove broad, weak, or loosely related phrases.';
 const DEFAULT_RESEARCH_PROMPT =
   'Generate the closest, highest-intent keywords a real buyer would search for around the seed keyword. Favor commercially useful, tightly relevant terms and avoid weak tangents.';
-const DEFAULT_OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const DEFAULT_OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-5.4-mini';
 const DEFAULT_OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
 const DEFAULT_NVIDIA_MODEL = process.env.NVAPI_MODEL || 'meta/llama-3.3-70b-instruct';
 const DEFAULT_NVIDIA_BASE_URL = (process.env.NVAPI_BASE_URL || 'https://integrate.api.nvidia.com/v1').replace(/\/+$/, '');

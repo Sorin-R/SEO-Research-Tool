@@ -153,9 +153,23 @@ export async function deleteTrackedKeyword(id) {
 
 // ---- SERP ----
 
-export async function analyzeSERP(keyword, refresh = false, country = 'US', syncTrackedRankings = true) {
+export async function analyzeSERP(
+  keyword,
+  refresh = false,
+  country = 'US',
+  syncTrackedRankings = true,
+  options = {}
+) {
   const { data } = await api.get('/serp', {
-    params: { q: keyword, refresh, country, syncTrackedRankings },
+    params: {
+      q: keyword,
+      refresh,
+      country,
+      syncTrackedRankings,
+      aiOnly: options.aiOnly === true,
+      engine: options.engine || undefined,
+      searchDomain: options.searchDomain || undefined,
+    },
   });
   return data;
 }

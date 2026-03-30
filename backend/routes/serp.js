@@ -6,12 +6,26 @@ const { rescheduleRankTrackerScheduler, runRankTrackerJob, getJobHistory } = req
 const { serpApiManager } = require('../scrapers');
 const { normalizeCountryCode } = require('../utils/searchCountry');
 
+function normalizeWebsiteId(value) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 /**
  * GET /api/serp?q=vegan+cupcakes&refresh=false
  * Get full SERP analysis with difficulty score.
  */
 router.get('/', async (req, res) => {
-  const { q, refresh, country, syncTrackedRankings } = req.query;
+  const {
+    q,
+    refresh,
+    country,
+    syncTrackedRankings,
+    websiteId,
+    aiOnly,
+    engine,
+    searchDomain,
+  } = req.query;
 
   if (!q || !q.trim()) {
     return res.status(400).json({ error: 'Query parameter "q" is required.' });
@@ -19,9 +33,14 @@ router.get('/', async (req, res) => {
 
   try {
     const normalizedCountry = normalizeCountryCode(country);
+    const normalizedWebsiteId = normalizeWebsiteId(websiteId);
     const result = await serpService.getSERPAnalysis(q.trim(), {
       forceRefresh: refresh === 'true',
       country: normalizedCountry,
+      websiteId: normalizedWebsiteId,
+      aiOnly: aiOnly === 'true',
+      engine,
+      searchDomain,
     });
 
     if (syncTrackedRankings !== 'false') {
@@ -76,7 +95,10 @@ router.patch('/schedule', async (req, res) => {
  */
 router.get('/history', async (req, res) => {
   try {
-    const history = await serpService.getSERPAnalysisHistory(req.query.limit);
+    const history = await serpService.getSERPAnalysisHistory(
+      req.query.limit,
+      normalizeWebsiteId(req.query.websiteId)
+    );
     res.json(history);
   } catch (err) {
     console.error('[Route /serp/history] Error:', err.message);
@@ -90,7 +112,10 @@ router.get('/history', async (req, res) => {
  */
 router.get('/history/:id', async (req, res) => {
   try {
-    const item = await serpService.getSERPAnalysisHistoryItem(req.params.id);
+    const item = await serpService.getSERPAnalysisHistoryItem(
+      req.params.id,
+      normalizeWebsiteId(req.query.websiteId)
+    );
 
     if (!item) {
       return res.status(404).json({ error: 'SERP analysis history item not found.' });
@@ -105,7 +130,10 @@ router.get('/history/:id', async (req, res) => {
 
 router.delete('/history/:id', async (req, res) => {
   try {
-    await serpService.deleteSERPAnalysisHistoryItem(req.params.id);
+    await serpService.deleteSERPAnalysisHistoryItem(
+      req.params.id,
+      normalizeWebsiteId(req.query.websiteId)
+    );
     res.json({ message: 'SERP analysis history item deleted.' });
   } catch (err) {
     console.error('[Route /serp/history/:id DELETE] Error:', err.message);
@@ -203,7 +231,12 @@ router.post('/track', async (req, res) => {
 
 router.get('/websites', async (_req, res) => {
   try {
-    const websites = await websiteService.getWebsites();
+    const websites = await websiteService.getWebsites({
+      includeArchived: _req.query?.includeArchived ?? true,
+      archivedOnly: _req.query?.archivedOnly,
+      search: _req.query?.search,
+      tag: _req.query?.tag,
+    });
     res.json(websites);
   } catch (err) {
     console.error('[Route /serp/websites] Error:', err.message);
@@ -212,14 +245,21 @@ router.get('/websites', async (_req, res) => {
 });
 
 router.post('/websites', async (req, res) => {
-  const { name, domain, country } = req.body || {};
+  const { name, projectName, domain, country, tags } = req.body || {};
 
   if (!domain || !String(domain).trim()) {
     return res.status(400).json({ error: 'Website domain is required.' });
   }
 
   try {
-    const website = await websiteService.createWebsite({ name, domain, country, isActive: true });
+    const website = await websiteService.createWebsite({
+      name,
+      projectName,
+      domain,
+      country,
+      tags,
+      isActive: true,
+    });
     res.status(201).json(website);
   } catch (err) {
     console.error('[Route /serp/websites POST] Error:', err.message);
@@ -228,14 +268,17 @@ router.post('/websites', async (req, res) => {
 });
 
 router.patch('/websites/:id', async (req, res) => {
-  const { name, domain, country, isActive } = req.body || {};
+  const { name, projectName, domain, country, isActive, archived, tags } = req.body || {};
 
   try {
     const website = await websiteService.updateWebsite(req.params.id, {
       name,
+      projectName,
       domain,
       country,
       isActive,
+      archived,
+      tags,
     });
     res.json(website);
   } catch (err) {

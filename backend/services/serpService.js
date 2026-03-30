@@ -2,6 +2,7 @@ const db = require('../database');
 const { analyzeSERP } = require('../analyzers/serpAnalyzer');
 const { calculateDifficulty } = require('../analyzers/keywordDifficulty');
 const { fetchSERPResults } = require('../scrapers/googleSERP');
+const { analyzeSERPWithAI } = require('./aiSerpService');
 const localStore = require('../utils/localStore');
 const { getCountryConfig, normalizeCountryCode } = require('../utils/searchCountry');
 
@@ -16,6 +17,14 @@ const ALLOWED_TRACKING_DEPTHS = [10, 20, 50, 100];
 
 function clampLimit(limit, min, max) {
   return Math.min(Math.max(Number.parseInt(limit, 10) || min, min), max);
+}
+
+function normalizeWebsiteId(value) {
+  if (value == null || value === '') {
+    return null;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 function parseStoredResult(value) {
@@ -34,7 +43,7 @@ function normalizeTrackingDepth(depth) {
   return ALLOWED_TRACKING_DEPTHS.includes(value) ? value : 10;
 }
 
-async function persistSERPAnalysisHistory(result) {
+async function persistSERPAnalysisHistory(result, websiteId = null) {
   const keyword = result.keyword?.trim();
   const country = normalizeCountryCode(result.country);
 
@@ -46,16 +55,19 @@ async function persistSERPAnalysisHistory(result) {
     ...result,
     keyword,
     country,
+    websiteId,
   };
 
   try {
     const existing = await db.query(
       `SELECT id
        FROM serp_analysis_history
-       WHERE LOWER(keyword) = LOWER(?) AND country = ?
+       WHERE LOWER(keyword) = LOWER(?)
+         AND country = ?
+         AND website_id <=> ?
        ORDER BY updated_at DESC
        LIMIT 1`,
-      [keyword, country]
+      [keyword, country, websiteId]
     );
 
     let historyId;
@@ -65,15 +77,15 @@ async function persistSERPAnalysisHistory(result) {
 
       await db.query(
         `UPDATE serp_analysis_history
-         SET keyword = ?, country = ?, result = ?, updated_at = CURRENT_TIMESTAMP
+         SET website_id = ?, keyword = ?, country = ?, result = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
-        [keyword, country, JSON.stringify(payload), historyId]
+        [websiteId, keyword, country, JSON.stringify(payload), historyId]
       );
     } else {
       const insertResult = await db.query(
-        `INSERT INTO serp_analysis_history (keyword, country, result)
-         VALUES (?, ?, ?)`,
-        [keyword, country, JSON.stringify(payload)]
+        `INSERT INTO serp_analysis_history (website_id, keyword, country, result)
+         VALUES (?, ?, ?, ?)`,
+        [websiteId, keyword, country, JSON.stringify(payload)]
       );
       historyId = insertResult.insertId;
     }
@@ -93,7 +105,7 @@ async function persistSERPAnalysisHistory(result) {
     return historyId;
   } catch (err) {
     console.warn('[SERPService] DB unavailable, using local store for persistSERPAnalysisHistory:', err.message);
-    return localStore.saveSerpAnalysisHistory(payload, MAX_SERP_HISTORY_ENTRIES);
+    return localStore.saveSerpAnalysisHistory(payload, MAX_SERP_HISTORY_ENTRIES, websiteId);
   }
 }
 
@@ -107,8 +119,16 @@ async function persistSERPAnalysisHistory(result) {
  */
 async function getSERPAnalysis(keyword, options = {}) {
   const country = normalizeCountryCode(options.country);
+  const websiteId = normalizeWebsiteId(options.websiteId);
+  const aiOnly = options.aiOnly === true || options.aiOnly === 'true';
+  const engine = normalizeSearchEngine(options.engine);
+  const searchDomain = normalizeSearchDomain(options.searchDomain, engine, country);
   const countryConfig = getCountryConfig(country);
-  const cacheKey = buildCacheKey(keyword, country);
+  const cacheKey = buildCacheKey(keyword, country, {
+    aiOnly,
+    engine,
+    searchDomain,
+  });
   let result;
 
   // Check cache first (unless forced refresh)
@@ -119,6 +139,9 @@ async function getSERPAnalysis(keyword, options = {}) {
         ...cached,
         country,
         countryName: countryConfig.name,
+        engine: cached.engine || engine,
+        searchDomain: cached.searchDomain || searchDomain,
+        aiOnly: Boolean(cached.aiOnly),
         fromCache: true,
       };
     }
@@ -126,7 +149,17 @@ async function getSERPAnalysis(keyword, options = {}) {
 
   if (!result) {
     // Perform fresh analysis
-    const analysis = await analyzeSERP(keyword, 10, { country });
+    const analysis = aiOnly
+      ? await analyzeSERPWithAI(keyword, {
+          country,
+          engine,
+          searchDomain,
+          numResults: 10,
+        })
+      : await analyzeSERP(keyword, 10, {
+          country,
+          engine,
+        });
 
     // Calculate difficulty
     const difficulty = calculateDifficulty(analysis);
@@ -135,6 +168,9 @@ async function getSERPAnalysis(keyword, options = {}) {
       ...analysis,
       country,
       countryName: countryConfig.name,
+      engine,
+      searchDomain,
+      aiOnly,
       difficulty,
       fromCache: false,
     };
@@ -144,9 +180,9 @@ async function getSERPAnalysis(keyword, options = {}) {
   }
 
   try {
-    const historyId = await persistSERPAnalysisHistory(result);
-    if (historyId) {
-      result.historyId = historyId;
+    const persistedHistoryId = await persistSERPAnalysisHistory(result, websiteId);
+    if (persistedHistoryId) {
+      result.historyId = persistedHistoryId;
     }
   } catch (err) {
     console.warn('[SERPService] Failed to persist SERP analysis history:', err.message);
@@ -521,15 +557,24 @@ async function getLatestRankings(websiteId = null) {
   }
 }
 
-async function getSERPAnalysisHistory(limit = 10) {
+async function getSERPAnalysisHistory(limit = 10, websiteId = null) {
   const safeLimit = clampLimit(limit, 1, MAX_SERP_HISTORY_ENTRIES);
+  const normalizedWebsiteId = normalizeWebsiteId(websiteId);
 
   try {
+    const params = [];
+    let sql = `SELECT id, website_id, keyword, country, result, created_at, updated_at
+       FROM serp_analysis_history`;
+    if (normalizedWebsiteId != null) {
+      sql += ' WHERE website_id = ?';
+      params.push(normalizedWebsiteId);
+    }
+    sql += ` ORDER BY updated_at DESC
+       LIMIT ${safeLimit}`;
+
     const rows = await db.query(
-      `SELECT id, keyword, country, result, created_at, updated_at
-       FROM serp_analysis_history
-       ORDER BY updated_at DESC
-       LIMIT ${safeLimit}`
+      sql,
+      params
     );
 
     return rows
@@ -538,6 +583,7 @@ async function getSERPAnalysisHistory(limit = 10) {
 
         return {
           id: row.id,
+          website_id: row.website_id ?? null,
           keyword: row.keyword,
           country: row.country,
           country_name: parsed?.countryName || row.country,
@@ -549,18 +595,26 @@ async function getSERPAnalysisHistory(limit = 10) {
       });
   } catch (err) {
     console.warn('[SERPService] DB unavailable, using local store for getSERPAnalysisHistory:', err.message);
-    return localStore.getSerpAnalysisHistory(safeLimit);
+    return localStore.getSerpAnalysisHistory(safeLimit, normalizedWebsiteId);
   }
 }
 
-async function getSERPAnalysisHistoryItem(id) {
+async function getSERPAnalysisHistoryItem(id, websiteId = null) {
+  const normalizedWebsiteId = normalizeWebsiteId(websiteId);
   try {
-    const rows = await db.query(
-      `SELECT id, result, updated_at
+    const params = [id];
+    let sql = `SELECT id, website_id, result, updated_at
        FROM serp_analysis_history
-       WHERE id = ?
-       LIMIT 1`,
-      [id]
+       WHERE id = ?`;
+    if (normalizedWebsiteId != null) {
+      sql += ' AND website_id = ?';
+      params.push(normalizedWebsiteId);
+    }
+    sql += ' LIMIT 1';
+
+    const rows = await db.query(
+      sql,
+      params
     );
 
     const row = rows[0];
@@ -575,17 +629,23 @@ async function getSERPAnalysisHistoryItem(id) {
           ...parsed,
           historyId: row.id,
           savedAt: row.updated_at,
+          websiteId: row.website_id ?? null,
         }
       : null;
   } catch (err) {
     console.warn('[SERPService] DB unavailable, using local store for getSERPAnalysisHistoryItem:', err.message);
-    return localStore.getSerpAnalysisHistoryItem(id);
+    return localStore.getSerpAnalysisHistoryItem(id, normalizedWebsiteId);
   }
 }
 
-async function deleteSERPAnalysisHistoryItem(id) {
+async function deleteSERPAnalysisHistoryItem(id, websiteId = null) {
+  const normalizedWebsiteId = normalizeWebsiteId(websiteId);
   try {
-    await db.query('DELETE FROM serp_analysis_history WHERE id = ?', [id]);
+    if (normalizedWebsiteId == null) {
+      await db.query('DELETE FROM serp_analysis_history WHERE id = ?', [id]);
+    } else {
+      await db.query('DELETE FROM serp_analysis_history WHERE id = ? AND website_id = ?', [id, normalizedWebsiteId]);
+    }
   } catch (err) {
     console.warn('[SERPService] DB unavailable, using local store for deleteSERPAnalysisHistoryItem:', err.message);
     await localStore.deleteSerpAnalysisHistoryItem(id);
@@ -775,8 +835,30 @@ module.exports = {
   getUnreadAlertCount,
 };
 
-function buildCacheKey(keyword, country) {
-  return `${normalizeCountryCode(country)}::${keyword.trim().toLowerCase()}`;
+function normalizeSearchEngine(value) {
+  return String(value || 'google').toLowerCase() === 'bing' ? 'bing' : 'google';
+}
+
+function normalizeSearchDomain(value, engine, country) {
+  const resolvedEngine = normalizeSearchEngine(engine);
+
+  if (resolvedEngine === 'bing') {
+    return 'bing.com';
+  }
+
+  const raw = String(value || '').trim().toLowerCase();
+  if (/^([a-z0-9-]+\.)?google\.[a-z.]+$/.test(raw)) {
+    return raw;
+  }
+
+  return getCountryConfig(country).googleDomain || 'google.com';
+}
+
+function buildCacheKey(keyword, country, options = {}) {
+  const prefix = options.aiOnly ? 'ai' : 'standard';
+  const engine = normalizeSearchEngine(options.engine);
+  const domain = normalizeSearchDomain(options.searchDomain, engine, country);
+  return `${prefix}::${engine}::${domain}::${normalizeCountryCode(country)}::${keyword.trim().toLowerCase()}`;
 }
 
 async function getWebsiteByIdForMatching(websiteId) {

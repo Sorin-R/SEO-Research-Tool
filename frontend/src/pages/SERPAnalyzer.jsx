@@ -17,10 +17,28 @@ import { SERP_COUNTRIES } from '../constants/serpCountries';
 const STORAGE_KEY = 'seo-tool:serp-analyzer:last-session';
 const RANK_TRACKER_SYNC_KEY = 'seo-tool:rank-tracker:sync-event';
 const HISTORY_LIMIT = 10;
+const SEARCH_ENGINES = [
+  { value: 'google', label: 'Google' },
+  { value: 'bing', label: 'Bing' },
+];
+const GOOGLE_DOMAINS = [
+  'google.com',
+  'google.co.uk',
+  'google.ca',
+  'google.com.au',
+  'google.co.in',
+  'google.de',
+  'google.fr',
+  'google.es',
+  'google.it',
+];
 
 export default function SERPAnalyzer() {
   const [keyword, setKeyword] = useState('');
   const [country, setCountry] = useState('US');
+  const [aiOnlyMode, setAiOnlyMode] = useState(false);
+  const [engine, setEngine] = useState('google');
+  const [searchDomain, setSearchDomain] = useState('google.com');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [liveRefreshing, setLiveRefreshing] = useState(false);
@@ -49,6 +67,18 @@ export default function SERPAnalyzer() {
 
       if (typeof parsed.country === 'string') {
         setCountry(parsed.country);
+      }
+
+      if (typeof parsed.aiOnlyMode === 'boolean') {
+        setAiOnlyMode(parsed.aiOnlyMode);
+      }
+
+      if (typeof parsed.engine === 'string') {
+        setEngine(parsed.engine === 'bing' ? 'bing' : 'google');
+      }
+
+      if (typeof parsed.searchDomain === 'string') {
+        setSearchDomain(parsed.searchDomain);
       }
 
       if (parsed.data) {
@@ -108,6 +138,9 @@ export default function SERPAnalyzer() {
         JSON.stringify({
           keyword,
           country,
+          aiOnlyMode,
+          engine,
+          searchDomain,
           data,
           savedAt: new Date().toISOString(),
         })
@@ -115,7 +148,7 @@ export default function SERPAnalyzer() {
     } catch {
       // Ignore storage quota issues.
     }
-  }, [country, data, keyword, storageHydrated]);
+  }, [aiOnlyMode, country, data, engine, keyword, searchDomain, storageHydrated]);
 
   async function refreshHistory() {
     try {
@@ -138,10 +171,23 @@ export default function SERPAnalyzer() {
     setError(null);
     setRestoreNotice(null);
     try {
-      const result = await analyzeSERP(searchKeyword, forceRefresh, country, true);
+      const result = await analyzeSERP(
+        searchKeyword,
+        forceRefresh,
+        country,
+        !aiOnlyMode,
+        {
+          aiOnly: aiOnlyMode,
+          engine,
+          searchDomain: engine === 'bing' ? 'bing.com' : searchDomain,
+        }
+      );
       setData(result);
       setKeyword(result.keyword || searchKeyword);
       setCountry(result.country || country);
+      setAiOnlyMode(Boolean(result.aiOnly));
+      setEngine(result.engine === 'bing' ? 'bing' : engine);
+      setSearchDomain(result.searchDomain || searchDomain);
       setRestoreNotice(buildSERPNotice(result, forceRefresh));
       notifyRankTrackerSync(result);
       await refreshHistory();
@@ -162,6 +208,9 @@ export default function SERPAnalyzer() {
       setData(result);
       setKeyword(result.keyword || '');
       setCountry(result.country || 'US');
+      setAiOnlyMode(Boolean(result.aiOnly));
+      setEngine(result.engine === 'bing' ? 'bing' : 'google');
+      setSearchDomain(result.searchDomain || 'google.com');
       setRestoreNotice('Loaded a saved SERP analysis from history.');
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -211,7 +260,7 @@ export default function SERPAnalyzer() {
     <div>
       <h2 className="text-2xl font-bold text-gray-900 mb-1">SERP Analyzer</h2>
       <p className="text-sm text-gray-500 mb-6">
-        Analyze top 10 Google results for any keyword. Get word counts, meta data, and difficulty scores.
+        Analyze top 10 results by engine/domain, or run AI-only SERP mode for fast experimental snapshots.
       </p>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-3 lg:flex-row">
@@ -235,6 +284,55 @@ export default function SERPAnalyzer() {
             </option>
           ))}
         </select>
+        <select
+          value={aiOnlyMode ? 'ai-only' : 'standard'}
+          onChange={(event) => setAiOnlyMode(event.target.value === 'ai-only')}
+          className="px-4 py-2.5 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+          disabled={loading}
+        >
+          <option value="standard">Standard SERP</option>
+          <option value="ai-only">AI-only SERP (Experimental)</option>
+        </select>
+        <select
+          value={engine}
+          onChange={(event) => {
+            const nextEngine = event.target.value === 'bing' ? 'bing' : 'google';
+            setEngine(nextEngine);
+            if (nextEngine === 'bing') {
+              setSearchDomain('bing.com');
+            } else if (searchDomain === 'bing.com') {
+              setSearchDomain('google.com');
+            }
+          }}
+          className="px-4 py-2.5 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+          disabled={loading}
+        >
+          {SEARCH_ENGINES.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        {engine === 'google' ? (
+          <select
+            value={searchDomain}
+            onChange={(event) => setSearchDomain(event.target.value)}
+            className="px-4 py-2.5 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            disabled={loading}
+          >
+            {GOOGLE_DOMAINS.map((domain) => (
+              <option key={domain} value={domain}>
+                {domain}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            value="bing.com"
+            disabled
+            className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-100 text-gray-500"
+          />
+        )}
         <button
           type="submit"
           disabled={loading || !keyword.trim()}
@@ -324,6 +422,10 @@ export default function SERPAnalyzer() {
 
           <p className="text-sm text-gray-500">
             Scanned country: <span className="font-medium text-gray-700">{data.countryName || country}</span>
+            {' · '}Engine: <span className="font-medium text-gray-700">{data.engine === 'bing' ? 'Bing' : 'Google'}</span>
+            {' · '}Domain: <span className="font-medium text-gray-700">{data.searchDomain || (data.engine === 'bing' ? 'bing.com' : 'google.com')}</span>
+            {data.aiOnly ? ' · Mode: AI-only' : ' · Mode: Standard'}
+            {data.aiOnly && data.aiProvider ? ` · AI: ${data.aiProvider}${data.aiModel ? ` (${data.aiModel})` : ''}` : ''}
             {data.savedAt ? ` · Saved ${formatSavedAt(data.savedAt)}` : ''}
           </p>
 
@@ -467,6 +569,10 @@ function buildSERPNotice(result, forceRefresh) {
 }
 
 function notifyRankTrackerSync(result) {
+  if (result?.aiOnly) {
+    return;
+  }
+
   if (!result?.rankTrackerSync?.tracked || result.rankTrackerSync.updated <= 0) {
     return;
   }

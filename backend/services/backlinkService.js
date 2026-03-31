@@ -330,11 +330,14 @@ async function getLatestBacklinkSnapshot(websiteId) {
        FROM backlink_snapshots
        WHERE website_id = ?
        ORDER BY snapshot_date DESC, id DESC
-       LIMIT 1`,
+       LIMIT 50`,
       [normalizedWebsiteId]
     );
 
-    const row = rows[0];
+    const row = rows.find((item) => {
+      const parsed = parseSnapshotResult(item) || {};
+      return String(parsed.source || '').toLowerCase() === 'dataforseo';
+    });
     if (!row) {
       return createEmptyResult(normalizedWebsiteId, website.domain, website.country || 'US', 'no-snapshot');
     }
@@ -368,7 +371,7 @@ async function getLatestBacklinkSnapshot(websiteId) {
 
     console.warn('[BacklinkService] DB unavailable, using local store for latest snapshot:', err.message);
     const fallback = await localStore.getLatestBacklinkSnapshot(normalizedWebsiteId);
-    if (!fallback) {
+    if (!fallback || String(fallback.source || '').toLowerCase() !== 'dataforseo') {
       return createEmptyResult(normalizedWebsiteId, website.domain, website.country || 'US', 'no-snapshot');
     }
     return {
@@ -433,14 +436,10 @@ async function getDashboardBacklinksModule({
   }
 
   if (refresh) {
-    try {
-      return await runBacklinkScan({
-        websiteId: normalizedWebsiteId,
-        country,
-      });
-    } catch (err) {
-      console.warn('[BacklinkService] Refresh scan failed, returning latest snapshot if any:', err.message);
-    }
+    return runBacklinkScan({
+      websiteId: normalizedWebsiteId,
+      country,
+    });
   }
 
   return getLatestBacklinkSnapshot(normalizedWebsiteId);

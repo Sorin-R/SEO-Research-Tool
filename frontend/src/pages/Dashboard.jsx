@@ -299,6 +299,7 @@ export default function Dashboard() {
     );
     const latestSiteAudit = filteredSiteAudits[0] || null;
     const aiVisibilityScore = data.aiVisibilityModule?.score?.value ?? null;
+    const aiVisibilityMetric = String(data.aiVisibilityModule?.metadata?.metric || '');
 
     const rankedRows = filteredRankings.filter((item) => item.position != null);
     const estimatedTraffic = rankedRows.length
@@ -323,6 +324,7 @@ export default function Dashboard() {
 
     return {
       aiVisibilityScore,
+      aiVisibilityMetric,
       siteHealthScore: latestSiteAudit?.audit_score != null ? Math.round(Number(latestSiteAudit.audit_score)) : null,
       organicTrafficValue: hasRealTraffic ? gscClicks : estimatedTraffic,
       organicTrafficBadge: hasRealTraffic ? 'GSC' : 'Estimated',
@@ -349,16 +351,23 @@ export default function Dashboard() {
             const aiSerpCitations = Number(sampleSize.aiSerpCitations || 0);
             const aiSerpPrompts = Number(sampleSize.aiSerpPrompts || 0);
 
+            if (aiVisibilityMetric === 'average-position') {
+              return `AI SERP citations: ${aiSerpCitations} across ${aiSerpPrompts} prompts (lower position is better)`;
+            }
+
             if (aiSerpCitations > 0 && serpRows === 0 && contentAnalyses === 0) {
               return `AI SERP only: ${aiSerpCitations} citations across ${aiSerpPrompts} prompts`;
             }
 
             return `SERP rows: ${serpRows} • Content analyses: ${contentAnalyses} • AI citations: ${aiSerpCitations}`;
           })()
-        : 'AI visibility score from AI SERP citations',
+        : aiVisibilityMetric === 'average-position'
+          ? 'Average citation position from AI SERP runs'
+          : 'AI visibility score from AI SERP citations',
     };
   }, [
     data.aiVisibilityModule?.metadata?.sampleSize,
+    data.aiVisibilityModule?.metadata?.metric,
     data.aiVisibilityModule?.score?.value,
     data.rankingSummary,
     data.serpModule?.snapshots,
@@ -408,7 +417,11 @@ export default function Dashboard() {
         <DashboardGrid>
           <KpiCard
             title="AI Visibility"
-            value={kpiValues.aiVisibilityScore != null ? `${kpiValues.aiVisibilityScore}/100` : null}
+            value={kpiValues.aiVisibilityScore != null
+              ? (kpiValues.aiVisibilityMetric === 'average-position'
+                ? `#${Number(kpiValues.aiVisibilityScore).toFixed(2)}`
+                : `${kpiValues.aiVisibilityScore}/100`)
+              : null}
             subtitle={kpiValues.aiVisibilitySubtitle}
             badge={data.aiVisibilityModule?.metadata?.modeled ? 'Modeled' : 'AI SERP'}
             isLoading={loading}

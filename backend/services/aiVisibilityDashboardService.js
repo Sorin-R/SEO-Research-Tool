@@ -259,6 +259,46 @@ function buildTrendFromRows(rows, myDomains, staticSignals) {
     });
 }
 
+function buildAveragePositionTrend(rows, myDomains) {
+  const byDate = new Map();
+
+  for (const row of rows) {
+    const key = toDateKey(row.fetched_at || row.created_at || new Date());
+    if (!key) continue;
+    if (!byDate.has(key)) {
+      byDate.set(key, []);
+    }
+    byDate.get(key).push(row);
+  }
+
+  return [...byDate.entries()]
+    .sort(([leftDate], [rightDate]) => leftDate.localeCompare(rightDate))
+    .map(([date, dayRows]) => {
+      const dayMyRows = dayRows.filter((row) => (
+        Number(row.appears_on_site) === 1 || rowMatchesMyDomain(row, myDomains)
+      ));
+      const positions = dayMyRows
+        .map((row) => Number(row.position))
+        .filter((value) => Number.isFinite(value) && value > 0);
+      const averagePosition = positions.length
+        ? Number((positions.reduce((sum, value) => sum + value, 0) / positions.length).toFixed(2))
+        : null;
+
+      return {
+        date,
+        score: averagePosition,
+        mentionRate: Math.round(safeDivide(dayMyRows.length, dayRows.length || 1) * 100),
+        shareOfVoice: Math.round(safeDivide(
+          dayMyRows.reduce((sum, row) => sum + rankWeight(row.position), 0),
+          dayRows.reduce((sum, row) => sum + rankWeight(row.position), 0)
+        ) * 100),
+        myCitations: dayMyRows.length,
+        totalCitations: dayRows.length,
+      };
+    })
+    .filter((entry) => entry.score != null);
+}
+
 function buildTopPages(myRows, queryCount) {
   const byPage = new Map();
 
@@ -864,19 +904,26 @@ async function getAiVisibilityDashboardModule({
     dataConfidence,
   });
   const hasAiCitationData = aiTotalRows > 0;
+  const averagePosition = aiMyRows.length
+    ? Number((
+      aiMyRows
+        .map((row) => Number(row.position))
+        .filter((value) => Number.isFinite(value) && value > 0)
+        .reduce((sum, value) => sum + value, 0)
+      / Math.max(1, aiMyRows
+        .map((row) => Number(row.position))
+        .filter((value) => Number.isFinite(value) && value > 0).length)
+    ).toFixed(2))
+    : null;
   const aiCitationScore = Math.round(((aiCitationRate * 0.7) + (aiPromptCoverageRate * 0.3)) * 100);
-  const score = hasAiCitationData ? aiCitationScore : 0;
+  const score = hasAiCitationData ? averagePosition : null;
 
-  const staticQualityScore = Math.round(((contentStructureRate * 0.55) + (topicalCoverageRate * 0.45)) * 100);
-  const trendFromRows = buildTrendFromRows(sourceRows, myDomains, {
-    staticQualityScore,
-    primaryBrandTerm,
-  });
+  const trendFromRows = buildAveragePositionTrend(sourceRows, myDomains);
 
   await saveAiVisibilitySnapshot({
     websiteId: normalizedWebsiteId,
     country: normalizedCountry,
-    score,
+    score: score ?? 0,
     breakdown: {
       brandMentionRate,
       domainCitationRate,
@@ -892,17 +939,7 @@ async function getAiVisibilityDashboardModule({
     },
   });
 
-  const snapshotTrend = await getSnapshotTrend({
-    websiteId: normalizedWebsiteId,
-    country: normalizedCountry,
-    dateFrom: normalizedDateFrom,
-    dateTo: normalizedDateTo,
-  });
-
-  const trendByDate = new Map();
-  snapshotTrend.forEach((entry) => trendByDate.set(entry.date, entry));
-  trendFromRows.forEach((entry) => trendByDate.set(entry.date, entry));
-  const mergedTrend = [...trendByDate.values()].sort((left, right) => left.date.localeCompare(right.date));
+  const mergedTrend = trendFromRows;
 
   const topPages = buildTopPages(myRows, queryCount);
   const competitorComparison = buildCompetitorComparison(sourceRows, myDomains);
@@ -940,10 +977,11 @@ async function getAiVisibilityDashboardModule({
       modeled: !hasAiCitationData,
       dataSource: hasAiCitationData ? 'ai-serp' : 'none',
       modelVersion: 'ai-visibility-proxy-v1',
+      metric: 'average-position',
       generatedAt: new Date().toISOString(),
       notes: [
         hasAiCitationData
-          ? 'AI-only score from AI SERP citation data.'
+          ? 'AI-only metric from AI SERP citations. Lower average position is better.'
           : 'No AI SERP citation data yet. Run AI SERP Workspace scans first.',
         hasAiCitationData
           ? 'AI SERP data is sourced from workspace scans.'
@@ -970,6 +1008,8 @@ async function getAiVisibilityDashboardModule({
         topicalCoverage: Math.round(topicalCoverageRate * 100),
         aiCitationShare: Math.round(aiCitationRate * 100),
         aiPromptCoverage: Math.round(aiPromptCoverageRate * 100),
+        averagePosition,
+        citationScore: aiCitationScore,
       },
     },
     trend: mergedTrend.slice(-30),

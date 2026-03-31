@@ -10,6 +10,7 @@ const providerSettingsService = require('./providerSettingsService');
 const aiProviderManager = require('./aiProviderManager');
 const gscProviderManager = require('./gscProviderManager');
 const aiSerpWorkspaceService = require('./aiSerpWorkspaceService');
+const backlinkService = require('./backlinkService');
 
 module.exports = {
   keywordService,
@@ -24,4 +25,5 @@ module.exports = {
   aiProviderManager,
   gscProviderManager,
   aiSerpWorkspaceService,
+  backlinkService,
 };

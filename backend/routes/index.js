@@ -14,6 +14,7 @@ const dashboardRouter = require('./dashboard');
 const aiSerpRouter = require('./aiSerp');
 const searchRouter = require('./search');
 const localSerpAgentRouter = require('./localSerpAgent');
+const backlinksRouter = require('./backlinks');
 
 router.use('/keywords', keywordsRouter);
 router.use('/serp', serpRouter);
@@ -28,5 +29,6 @@ router.use('/dashboard', dashboardRouter);
 router.use('/ai-serp', aiSerpRouter);
 router.use('/search', searchRouter);
 router.use('/local-serp-agent', localSerpAgentRouter);
+router.use('/backlinks', backlinksRouter);
 
 module.exports = router;

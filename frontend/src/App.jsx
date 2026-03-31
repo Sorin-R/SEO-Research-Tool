@@ -12,6 +12,7 @@ import RankTracker from './pages/RankTracker';
 import ProviderStatus from './pages/ProviderStatus';
 import AIProviderStatus from './pages/AIProviderStatus';
 import GSCProviderStatus from './pages/GSCProviderStatus';
+import BacklinkProviderStatus from './pages/BacklinkProviderStatus';
 import SiteAudit from './pages/SiteAudit';
 import CompetitorKeywords from './pages/CompetitorKeywords';
 import Websites from './pages/Websites';
@@ -35,6 +36,7 @@ export default function App() {
           <Route path="/rank-tracker" element={<RankTracker />} />
           <Route path="/site-audit" element={<SiteAudit />} />
           <Route path="/providers" element={<ProviderStatus />} />
+          <Route path="/backlink-providers" element={<BacklinkProviderStatus />} />
           <Route path="/ai-providers" element={<AIProviderStatus />} />
           <Route path="/gsc-providers" element={<GSCProviderStatus />} />
         </Route>

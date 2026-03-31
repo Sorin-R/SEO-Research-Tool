@@ -15,6 +15,7 @@ const NAV_ITEMS = [
   { to: '/trends', label: 'Google Trends', icon: '📈' },
   { to: '/rank-tracker', label: 'Rank Tracker', icon: '🏆' },
   { to: '/providers', label: 'SERP Providers', icon: '⚙️' },
+  { to: '/backlink-providers', label: 'Backlink Provider', icon: '🔗' },
   { to: '/ai-providers', label: 'AI Providers', icon: '🤖' },
   { to: '/gsc-providers', label: 'GSC Provider', icon: '📡' },
 ];

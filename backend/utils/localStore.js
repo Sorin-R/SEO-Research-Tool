@@ -103,6 +103,8 @@ function createEmptyState() {
     serpProviderSettings: {},
     serpProviderCredentials: {},
     serpProviderUsage: {},
+    backlinkProviderSettings: {},
+    backlinkProviderCredentials: {},
     gscProviderSettings: {},
     gscProviderCredentials: {},
     aiProviderSettings: {},
@@ -219,6 +221,12 @@ function normalizeState(parsed) {
       : {},
     serpProviderUsage: parsed?.serpProviderUsage && typeof parsed.serpProviderUsage === 'object'
       ? parsed.serpProviderUsage
+      : {},
+    backlinkProviderSettings: parsed?.backlinkProviderSettings && typeof parsed.backlinkProviderSettings === 'object'
+      ? parsed.backlinkProviderSettings
+      : {},
+    backlinkProviderCredentials: parsed?.backlinkProviderCredentials && typeof parsed.backlinkProviderCredentials === 'object'
+      ? parsed.backlinkProviderCredentials
       : {},
     gscProviderSettings: parsed?.gscProviderSettings && typeof parsed.gscProviderSettings === 'object'
       ? parsed.gscProviderSettings
@@ -549,6 +557,57 @@ async function getSerpProviderUsageMap() {
   return { ...(state.serpProviderUsage || {}) };
 }
 
+async function getBacklinkProviderSettings() {
+  const state = await readState();
+  return { ...(state.backlinkProviderSettings || {}) };
+}
+
+async function getBacklinkProviderCredentials() {
+  const state = await readState();
+  return { ...(state.backlinkProviderCredentials || {}) };
+}
+
+async function updateBacklinkProviderSetting(providerId, isEnabled) {
+  const state = await readState();
+  state.backlinkProviderSettings = {
+    ...(state.backlinkProviderSettings || {}),
+    [providerId]: {
+      is_enabled: !!isEnabled,
+      updated_at: nowIso(),
+    },
+  };
+  await writeState(state);
+  return state.backlinkProviderSettings[providerId];
+}
+
+async function updateBacklinkProviderCredentials(providerId, credentials = {}) {
+  const state = await readState();
+  const existing = state.backlinkProviderCredentials?.[providerId] || {};
+  const nextCredentials = { ...existing };
+  const timestamp = nowIso();
+
+  for (const [credentialKey, credentialValue] of Object.entries(credentials)) {
+    const normalizedValue = String(credentialValue || '').trim();
+
+    if (!normalizedValue) {
+      continue;
+    }
+
+    nextCredentials[credentialKey] = {
+      value: normalizedValue,
+      updated_at: timestamp,
+    };
+  }
+
+  state.backlinkProviderCredentials = {
+    ...(state.backlinkProviderCredentials || {}),
+    [providerId]: nextCredentials,
+  };
+
+  await writeState(state);
+  return state.backlinkProviderCredentials[providerId];
+}
+
 async function consumeSerpProviderUsage(providerId, amount = 1, defaults = {}) {
   const state = await readState();
   const current = state.serpProviderUsage?.[providerId] || {};
@@ -822,6 +881,7 @@ async function deleteWebsite(id) {
   state.googleAdsKeywordHistory = state.googleAdsKeywordHistory.filter((item) => String(item.website_id ?? '') !== String(id));
   state.contentAnalysisHistory = state.contentAnalysisHistory.filter((item) => String(item.website_id ?? '') !== String(id));
   state.siteAuditHistory = state.siteAuditHistory.filter((item) => String(item.website_id ?? '') !== String(id));
+  state.backlinkSnapshots = state.backlinkSnapshots.filter((item) => String(item.website_id ?? '') !== String(id));
   await writeState(state);
 }
 
@@ -1659,6 +1719,88 @@ async function deleteSiteAuditHistoryItem(id) {
   }
 }
 
+async function saveBacklinkSnapshot(payload = {}) {
+  const state = await readState();
+  const timestamp = nowIso();
+  const snapshotDate = String(payload.snapshotDate || timestamp).slice(0, 10);
+  const websiteId = payload.websiteId != null ? Number(payload.websiteId) : null;
+  const summary = payload.summary || {};
+
+  const row = {
+    id: nextId(state.backlinkSnapshots || []),
+    website_id: websiteId,
+    snapshot_date: snapshotDate,
+    backlinks_count: Number(summary.backlinksCount || 0),
+    referring_domains_count: Number(summary.referringDomainsCount || 0),
+    result: payload,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+
+  state.backlinkSnapshots = Array.isArray(state.backlinkSnapshots) ? state.backlinkSnapshots : [];
+  state.backlinkSnapshots.push(row);
+  await writeState(state);
+  return row.id;
+}
+
+async function getLatestBacklinkSnapshot(websiteId = null) {
+  const state = await readState();
+  const snapshots = (state.backlinkSnapshots || [])
+    .filter((item) => (
+      websiteId == null
+        ? true
+        : String(item.website_id ?? '') === String(websiteId)
+    ))
+    .sort((left, right) => {
+      const leftDate = `${left.snapshot_date || ''}::${left.id || 0}`;
+      const rightDate = `${right.snapshot_date || ''}::${right.id || 0}`;
+      return rightDate.localeCompare(leftDate);
+    });
+
+  const item = snapshots[0];
+  if (!item) {
+    return null;
+  }
+
+  const payload = item.result || {};
+  return {
+    ...payload,
+    snapshotId: item.id,
+    snapshotDate: item.snapshot_date,
+    summary: {
+      ...(payload.summary || {}),
+      backlinksCount: Number(item.backlinks_count || payload?.summary?.backlinksCount || 0),
+      referringDomainsCount: Number(item.referring_domains_count || payload?.summary?.referringDomainsCount || 0),
+    },
+  };
+}
+
+async function getBacklinkHistory(websiteId = null, limit = 20) {
+  const state = await readState();
+  const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 120);
+
+  return (state.backlinkSnapshots || [])
+    .filter((item) => (
+      websiteId == null
+        ? true
+        : String(item.website_id ?? '') === String(websiteId)
+    ))
+    .sort((left, right) => {
+      const leftDate = `${left.snapshot_date || ''}::${left.id || 0}`;
+      const rightDate = `${right.snapshot_date || ''}::${right.id || 0}`;
+      return rightDate.localeCompare(leftDate);
+    })
+    .slice(0, safeLimit)
+    .map((item) => ({
+      id: item.id,
+      website_id: item.website_id,
+      snapshot_date: item.snapshot_date,
+      backlinks_count: Number(item.backlinks_count || 0),
+      referring_domains_count: Number(item.referring_domains_count || 0),
+      created_at: item.created_at,
+    }));
+}
+
 module.exports = {
   getCachedSERP,
   saveSerpCache,
@@ -1669,8 +1811,12 @@ module.exports = {
   getSerpProviderSettings,
   getSerpProviderCredentials,
   getSerpProviderUsageMap,
+  getBacklinkProviderSettings,
+  getBacklinkProviderCredentials,
   updateSerpProviderSetting,
   updateSerpProviderCredentials,
+  updateBacklinkProviderSetting,
+  updateBacklinkProviderCredentials,
   consumeSerpProviderUsage,
   getGscProviderSettings,
   getGscProviderCredentials,
@@ -1722,4 +1868,7 @@ module.exports = {
   getSiteAuditHistory,
   getSiteAuditHistoryItem,
   deleteSiteAuditHistoryItem,
+  saveBacklinkSnapshot,
+  getLatestBacklinkSnapshot,
+  getBacklinkHistory,
 };

@@ -4,7 +4,9 @@ const trendService = require('./trendService');
 const googleAdsService = require('./googleAdsService');
 const contentAnalysisService = require('./contentAnalysisService');
 const siteAuditService = require('./siteAuditService');
+const backlinkService = require('./backlinkService');
 const websiteService = require('./websiteService');
+const backlinkProviderManager = require('./backlinkProviderManager');
 const providerCredentialsService = require('./providerCredentialsService');
 const providerSettingsService = require('./providerSettingsService');
 const aiProviderManager = require('./aiProviderManager');
@@ -18,7 +20,9 @@ module.exports = {
   googleAdsService,
   contentAnalysisService,
   siteAuditService,
+  backlinkService,
   websiteService,
+  backlinkProviderManager,
   providerCredentialsService,
   providerSettingsService,
   aiProviderManager,

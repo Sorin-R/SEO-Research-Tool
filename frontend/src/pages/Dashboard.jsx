@@ -11,6 +11,7 @@ import SerpSnapshotView from '../components/dashboard/SerpSnapshotView';
 import { useWebsiteContext } from '../context/WebsiteContext';
 import {
   getDashboardAiVisibilityModule,
+  getDashboardBacklinksModule,
   getDashboardSerpModule,
   getDashboardTrafficModule,
   getLatestRankings,
@@ -108,6 +109,11 @@ export default function Dashboard() {
       source: 'estimate',
       summary: null,
     },
+    backlinksModule: {
+      available: false,
+      source: 'dataforseo',
+      summary: null,
+    },
     aiVisibilityModule: {
       metadata: null,
       score: null,
@@ -161,6 +167,11 @@ export default function Dashboard() {
         dateFrom,
         dateTo,
       }),
+      backlinksModule: getDashboardBacklinksModule({
+        websiteId: selectedWebsiteId,
+        country,
+        refresh: forceSerpRefresh,
+      }),
       aiVisibilityModule: getDashboardAiVisibilityModule({
         websiteId: selectedWebsiteId,
         country,
@@ -185,6 +196,11 @@ export default function Dashboard() {
       trafficModule: {
         available: false,
         source: 'estimate',
+        summary: null,
+      },
+      backlinksModule: {
+        available: false,
+        source: 'dataforseo',
         summary: null,
       },
       aiVisibilityModule: {
@@ -219,6 +235,7 @@ export default function Dashboard() {
       } else {
         const message = entry.reason?.response?.data?.error || entry.reason?.message || 'Failed to load.';
         if (key === 'siteAudits') nextCardErrors.siteHealth = message;
+        if (key === 'backlinksModule') nextCardErrors.backlinks = message;
         if (key === 'aiVisibilityModule') {
           nextCardErrors.aiVisibility = message;
           nextCardErrors.aiVisibilityModule = message;
@@ -317,6 +334,12 @@ export default function Dashboard() {
     const gscCtrPercent = Number(data.trafficModule?.summary?.ctr || 0) * 100;
 
     const serpModuleSnapshots = Array.isArray(data.serpModule?.snapshots) ? data.serpModule.snapshots : [];
+    const backlinksSummary = data.backlinksModule?.summary || null;
+    const backlinksCount = Number(backlinksSummary?.backlinksCount || 0);
+    const backlinksRefDomains = Number(backlinksSummary?.referringDomainsCount || 0);
+    const backlinksRows = Number(backlinksSummary?.rowsReturned || 0);
+    const hasBacklinksData = Boolean(data.backlinksModule?.available);
+    const backlinksSource = String(data.backlinksModule?.source || '').toLowerCase();
     const coveragePercent = totalKeywords > 0
       ? Math.round((top10Keywords / totalKeywords) * 100)
       : null;
@@ -329,7 +352,13 @@ export default function Dashboard() {
       organicTrafficValue: hasRealTraffic ? gscClicks : estimatedTraffic,
       organicTrafficBadge: hasRealTraffic ? 'GSC' : 'Estimated',
       organicKeywordsValue: totalKeywords > 0 ? `${rankedKeywords} / ${totalKeywords}` : null,
-      backlinksValue: null,
+      backlinksValue: hasBacklinksData ? backlinksCount.toLocaleString() : null,
+      backlinksSubtitle: hasBacklinksData
+        ? `${backlinksRefDomains} referring domains${backlinksRows ? ` • ${backlinksRows} rows fetched` : ''}`
+        : null,
+      backlinksBadge: hasBacklinksData
+        ? (backlinksSource === 'dataforseo' ? 'DataForSEO' : 'Backlinks')
+        : null,
       serpCoverageValue: coveragePercent == null ? null : `${coveragePercent}%`,
       serpCoverageSubtitle: totalKeywords > 0
         ? `${top10Keywords} keywords in top 10 • ${serpSnapshots} SERP snapshots`
@@ -369,6 +398,9 @@ export default function Dashboard() {
     data.aiVisibilityModule?.metadata?.sampleSize,
     data.aiVisibilityModule?.metadata?.metric,
     data.aiVisibilityModule?.score?.value,
+    data.backlinksModule?.available,
+    data.backlinksModule?.source,
+    data.backlinksModule?.summary,
     data.rankingSummary,
     data.serpModule?.snapshots,
     data.serpModule?.table,
@@ -456,9 +488,11 @@ export default function Dashboard() {
           <KpiCard
             title="Backlinks"
             value={kpiValues.backlinksValue}
-            subtitle="Provider integration not connected yet."
+            subtitle={kpiValues.backlinksSubtitle}
+            badge={kpiValues.backlinksBadge}
             isLoading={loading}
-            emptyMessage="Backlink module is not configured yet."
+            error={cardErrors.backlinks}
+            emptyMessage="No backlink snapshot yet. Configure DataForSEO and click refresh."
           />
           <KpiCard
             title="SERP Coverage"

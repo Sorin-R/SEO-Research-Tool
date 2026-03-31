@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getSerpDashboardModule } = require('../services/serpDashboardService');
 const { getAiVisibilityDashboardModule } = require('../services/aiVisibilityDashboardService');
-const { gscProviderManager, websiteService } = require('../services');
+const { gscProviderManager, websiteService, backlinkService } = require('../services');
 
 function normalizeWebsiteId(value) {
   const parsed = Number.parseInt(value, 10);
@@ -94,6 +94,22 @@ router.get('/traffic', async (req, res) => {
       source: 'estimate',
       reason: 'gsc-unavailable',
       message,
+    });
+  }
+});
+
+router.get('/backlinks', async (req, res) => {
+  try {
+    const moduleData = await backlinkService.getDashboardBacklinksModule({
+      websiteId: normalizeWebsiteId(req.query.websiteId),
+      country: req.query.country || 'US',
+      refresh: req.query.refresh === 'true',
+    });
+    res.json(moduleData);
+  } catch (err) {
+    console.error('[Route /dashboard/backlinks] Error:', err.message);
+    res.status(err.statusCode || 500).json({
+      error: err.message || 'Failed to build backlinks dashboard module.',
     });
   }
 });

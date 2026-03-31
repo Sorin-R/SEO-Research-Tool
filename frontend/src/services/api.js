@@ -24,8 +24,8 @@ function getSelectedWebsiteIdFromStorage() {
 }
 
 function shouldScopeRequest(url = '') {
-  const scopedPrefixes = ['/keywords', '/serp', '/analyze', '/site-audit', '/google-ads', '/trends', '/dashboard', '/ai-serp'];
-  const excludedPrefixes = ['/websites', '/serp/websites', '/serp/providers', '/serp/schedule', '/serp/jobs'];
+  const scopedPrefixes = ['/keywords', '/serp', '/analyze', '/site-audit', '/backlinks', '/google-ads', '/trends', '/dashboard', '/ai-serp'];
+  const excludedPrefixes = ['/websites', '/serp/websites', '/serp/providers', '/serp/schedule', '/serp/jobs', '/backlinks/providers'];
   return scopedPrefixes.some((prefix) => url.startsWith(prefix))
     && !excludedPrefixes.some((prefix) => url.startsWith(prefix));
 }
@@ -361,6 +361,56 @@ export async function getRankingTrendsSummary(websiteId = null) {
   return data;
 }
 
+// ---- Backlinks ----
+
+export async function getBacklinkProviders() {
+  const { data } = await api.get('/backlinks/providers');
+  return data;
+}
+
+export async function updateBacklinkProvider(providerId, enabled) {
+  const { data } = await api.patch(`/backlinks/providers/${providerId}`, {
+    enabled,
+  });
+  return data;
+}
+
+export async function updateBacklinkProviderCredentials(providerId, credentials) {
+  const { data } = await api.patch(`/backlinks/providers/${providerId}/credentials`, {
+    credentials,
+  });
+  return data;
+}
+
+export async function runBacklinkScan({
+  websiteId = null,
+  country = 'US',
+  maxBacklinks = 100,
+  includeSubdomains = true,
+} = {}) {
+  const { data } = await api.post('/backlinks/scan', {
+    websiteId,
+    country,
+    maxBacklinks,
+    includeSubdomains,
+  });
+  return data;
+}
+
+export async function getLatestBacklinkSnapshot(websiteId = null) {
+  const { data } = await api.get('/backlinks/latest', {
+    params: { websiteId },
+  });
+  return data;
+}
+
+export async function getBacklinkHistory(websiteId = null, limit = 20) {
+  const { data } = await api.get('/backlinks/history', {
+    params: { websiteId, limit },
+  });
+  return data;
+}
+
 export async function getJobHistory() {
   const { data } = await api.get('/serp/jobs');
   return data;
@@ -607,6 +657,21 @@ export async function getDashboardTrafficModule({
       country,
       dateFrom,
       dateTo,
+    },
+  });
+  return data;
+}
+
+export async function getDashboardBacklinksModule({
+  websiteId = null,
+  country = 'US',
+  refresh = false,
+} = {}) {
+  const { data } = await api.get('/dashboard/backlinks', {
+    params: {
+      websiteId,
+      country,
+      refresh,
     },
   });
   return data;

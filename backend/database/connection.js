@@ -206,6 +206,18 @@ const schemaStatements = [
     used_count INT NOT NULL DEFAULT 0,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   ) ENGINE=InnoDB`,
+  `CREATE TABLE IF NOT EXISTS backlink_provider_settings (
+    provider_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB`,
+  `CREATE TABLE IF NOT EXISTS backlink_provider_credentials (
+    provider_id VARCHAR(64) NOT NULL,
+    credential_key VARCHAR(128) NOT NULL,
+    credential_value TEXT NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (provider_id, credential_key)
+  ) ENGINE=InnoDB`,
   `CREATE TABLE IF NOT EXISTS ai_provider_settings (
     provider_id VARCHAR(64) NOT NULL PRIMARY KEY,
     is_enabled TINYINT(1) NOT NULL DEFAULT 1,

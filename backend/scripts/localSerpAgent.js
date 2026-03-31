@@ -36,7 +36,7 @@ function safePageUrl(page, fallback = '') {
 }
 
 function resolveHeadlessMode() {
-  const raw = String(process.env.LOCAL_SERP_AGENT_HEADLESS || 'false').trim().toLowerCase();
+  const raw = String(process.env.LOCAL_SERP_AGENT_HEADLESS || 'new').trim().toLowerCase();
   if (raw === 'new') {
     return 'new';
   }

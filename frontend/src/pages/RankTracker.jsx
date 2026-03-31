@@ -22,6 +22,7 @@ import {
   manualTrackRank,
   markAlertsRead,
   runManualJob,
+  SELECTED_WEBSITE_STORAGE_KEY,
   trackKeyword,
   updateRankTrackerSchedule,
   updateTrackedWebsite,
@@ -100,6 +101,18 @@ export default function RankTracker() {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ selectedId, selectedWebsiteId, newKeyword }));
     } catch { /* ignore */ }
   }, [newKeyword, selectedId, selectedWebsiteId, storageHydrated]);
+
+  useEffect(() => {
+    try {
+      if (selectedWebsiteId == null) {
+        window.localStorage.setItem(SELECTED_WEBSITE_STORAGE_KEY, 'all');
+      } else {
+        window.localStorage.setItem(SELECTED_WEBSITE_STORAGE_KEY, String(selectedWebsiteId));
+      }
+    } catch {
+      // ignore storage failures
+    }
+  }, [selectedWebsiteId]);
 
   useEffect(() => {
     if (loading) return;
@@ -301,7 +314,7 @@ export default function RankTracker() {
     event.preventDefault();
     if (!newKeyword.trim() || websites.length === 0) return;
     try {
-      await trackKeyword(newKeyword.trim());
+      await trackKeyword(newKeyword.trim(), null, null, selectedWebsiteId);
       setNewKeyword('');
       setRestoreNotice(null);
       await loadBaseData();

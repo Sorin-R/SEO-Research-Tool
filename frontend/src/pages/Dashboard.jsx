@@ -5,6 +5,7 @@ import AiVisibilityModuleView from '../components/dashboard/AiVisibilityModuleVi
 import DashboardHeader from '../components/dashboard/DashboardHeader';
 import KpiCard from '../components/dashboard/KpiCard';
 import { DashboardGrid, DashboardSection, DashboardShell } from '../components/dashboard/DashboardLayout';
+import SiteHealthModuleView from '../components/dashboard/SiteHealthModuleView';
 import SerpKeywordTable from '../components/dashboard/SerpKeywordTable';
 import SerpOpportunityCards from '../components/dashboard/SerpOpportunityCards';
 import SerpSnapshotView from '../components/dashboard/SerpSnapshotView';
@@ -12,12 +13,12 @@ import { useWebsiteContext } from '../context/WebsiteContext';
 import {
   getDashboardAiVisibilityModule,
   getDashboardBacklinksModule,
+  getDashboardSiteHealthModule,
   getDashboardSerpModule,
   getDashboardTrafficModule,
   getLatestRankings,
   getRankingTrendsSummary,
   getSERPAnalysisHistory,
-  getSiteAuditHistory,
   getTrackedKeywords,
 } from '../services/api';
 
@@ -102,8 +103,18 @@ export default function Dashboard() {
     trackedKeywords: [],
     rankings: [],
     rankingSummary: null,
-    siteAudits: [],
     serpHistory: [],
+    siteHealthModule: {
+      available: false,
+      source: 'site-audit',
+      score: null,
+      issueCounts: null,
+      checks: [],
+      topIssues: [],
+      affectedPages: [],
+      metadata: null,
+      insights: [],
+    },
     trafficModule: {
       available: false,
       source: 'estimate',
@@ -159,8 +170,12 @@ export default function Dashboard() {
       trackedKeywords: getTrackedKeywords(selectedWebsiteId),
       rankings: getLatestRankings(selectedWebsiteId),
       rankingSummary: getRankingTrendsSummary(selectedWebsiteId),
-      siteAudits: getSiteAuditHistory(50),
       serpHistory: getSERPAnalysisHistory(50),
+      siteHealthModule: getDashboardSiteHealthModule({
+        websiteId: selectedWebsiteId,
+        dateFrom,
+        dateTo,
+      }),
       trafficModule: getDashboardTrafficModule({
         websiteId: selectedWebsiteId,
         country,
@@ -191,8 +206,18 @@ export default function Dashboard() {
       trackedKeywords: [],
       rankings: [],
       rankingSummary: null,
-      siteAudits: [],
       serpHistory: [],
+      siteHealthModule: {
+        available: false,
+        source: 'site-audit',
+        score: null,
+        issueCounts: null,
+        checks: [],
+        topIssues: [],
+        affectedPages: [],
+        metadata: null,
+        insights: [],
+      },
       trafficModule: {
         available: false,
         source: 'estimate',
@@ -234,7 +259,10 @@ export default function Dashboard() {
         successCount += 1;
       } else {
         const message = entry.reason?.response?.data?.error || entry.reason?.message || 'Failed to load.';
-        if (key === 'siteAudits') nextCardErrors.siteHealth = message;
+        if (key === 'siteHealthModule') {
+          nextCardErrors.siteHealth = message;
+          nextCardErrors.siteHealthModule = message;
+        }
         if (key === 'backlinksModule') nextCardErrors.backlinks = message;
         if (key === 'aiVisibilityModule') {
           nextCardErrors.aiVisibility = message;
@@ -276,11 +304,6 @@ export default function Dashboard() {
     [customStartDate, dateRange]
   );
 
-  const filteredSiteAudits = useMemo(
-    () => filterRowsByDate(data.siteAudits, 'created_at', rangeStart, customEndDate),
-    [customEndDate, data.siteAudits, rangeStart]
-  );
-
   const filteredRankings = useMemo(
     () => filterRowsByDate(data.rankings, 'date', rangeStart, customEndDate),
     [customEndDate, data.rankings, rangeStart]
@@ -314,7 +337,9 @@ export default function Dashboard() {
       rankedKeywords,
       top10Keywords
     );
-    const latestSiteAudit = filteredSiteAudits[0] || null;
+    const siteHealthScore = Number(data.siteHealthModule?.score?.value);
+    const siteHealthIssueCounts = data.siteHealthModule?.issueCounts || null;
+    const siteHealthCheckedAt = data.siteHealthModule?.metadata?.checkedAt || null;
     const aiVisibilityScore = data.aiVisibilityModule?.score?.value ?? null;
     const aiVisibilityMetric = String(data.aiVisibilityModule?.metadata?.metric || '');
 
@@ -348,7 +373,7 @@ export default function Dashboard() {
     return {
       aiVisibilityScore,
       aiVisibilityMetric,
-      siteHealthScore: latestSiteAudit?.audit_score != null ? Math.round(Number(latestSiteAudit.audit_score)) : null,
+      siteHealthScore: Number.isFinite(siteHealthScore) ? siteHealthScore : null,
       organicTrafficValue: hasRealTraffic ? gscClicks : estimatedTraffic,
       organicTrafficBadge: hasRealTraffic ? 'GSC' : 'Estimated',
       organicKeywordsValue: totalKeywords > 0 ? `${rankedKeywords} / ${totalKeywords}` : null,
@@ -366,8 +391,8 @@ export default function Dashboard() {
       organicKeywordsSubtitle: totalKeywords > 0
         ? `${top10Keywords} keywords in top 10`
         : null,
-      siteHealthSubtitle: latestSiteAudit?.created_at
-        ? `Latest crawl: ${new Date(latestSiteAudit.created_at).toLocaleDateString()}`
+      siteHealthSubtitle: siteHealthCheckedAt
+        ? `Latest check: ${new Date(siteHealthCheckedAt).toLocaleDateString()} • ${siteHealthIssueCounts?.failingChecks || 0} failing checks`
         : null,
       trafficSubtitle: hasRealTraffic
         ? `${gscImpressions.toLocaleString()} impressions • ${gscCtrPercent.toFixed(2)}% CTR`
@@ -401,6 +426,9 @@ export default function Dashboard() {
     data.backlinksModule?.available,
     data.backlinksModule?.source,
     data.backlinksModule?.summary,
+    data.siteHealthModule?.issueCounts,
+    data.siteHealthModule?.metadata?.checkedAt,
+    data.siteHealthModule?.score?.value,
     data.rankingSummary,
     data.serpModule?.snapshots,
     data.serpModule?.table,
@@ -409,7 +437,6 @@ export default function Dashboard() {
     data.trafficModule?.summary,
     filteredRankings,
     filteredSerpHistory.length,
-    filteredSiteAudits,
   ]);
 
   const allKpisEmpty = useMemo(() => (
@@ -509,6 +536,17 @@ export default function Dashboard() {
             Empty state: add a website, track keywords, run SERP analysis, and run site audits to populate this dashboard.
           </div>
         ) : null}
+      </DashboardSection>
+
+      <DashboardSection
+        title="Site Health Module"
+        description="Actionable technical SEO checks: broken links, redirects, missing metadata, canonical issues, robots.txt, sitemap, and noindex."
+      >
+        <SiteHealthModuleView
+          moduleData={data.siteHealthModule}
+          loading={loading}
+          error={cardErrors.siteHealthModule}
+        />
       </DashboardSection>
 
       <DashboardSection

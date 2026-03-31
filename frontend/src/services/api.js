@@ -628,6 +628,21 @@ export async function getDashboardSerpModule({ websiteId = null, country = 'US',
   return data;
 }
 
+export async function getDashboardSiteHealthModule({
+  websiteId = null,
+  dateFrom = null,
+  dateTo = null,
+} = {}) {
+  const { data } = await api.get('/dashboard/site-health', {
+    params: {
+      websiteId,
+      dateFrom,
+      dateTo,
+    },
+  });
+  return data;
+}
+
 export async function getDashboardAiVisibilityModule({
   websiteId = null,
   country = 'US',

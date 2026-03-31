@@ -122,6 +122,29 @@ CREATE TABLE IF NOT EXISTS site_audits (
 ) ENGINE=InnoDB;
 
 -- --------------------------------------------------------
+-- Normalized site issues for dashboard site health module
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS site_issues (
+  id             INT AUTO_INCREMENT PRIMARY KEY,
+  website_id     INT DEFAULT NULL,
+  site_audit_id  INT DEFAULT NULL,
+  scope          ENUM('site', 'page') NOT NULL DEFAULT 'page',
+  page_url       VARCHAR(2048) DEFAULT NULL,
+  issue_key      VARCHAR(128) NOT NULL,
+  issue_label    VARCHAR(255) NOT NULL,
+  severity       ENUM('critical', 'high', 'medium', 'low') NOT NULL DEFAULT 'low',
+  recommendation TEXT DEFAULT NULL,
+  detected_at    DATETIME NOT NULL,
+  created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_site_issues_website (website_id),
+  KEY idx_site_issues_audit (site_audit_id),
+  KEY idx_site_issues_severity (severity),
+  CONSTRAINT fk_site_issues_website FOREIGN KEY (website_id) REFERENCES websites(id) ON DELETE CASCADE,
+  CONSTRAINT fk_site_issues_audit FOREIGN KEY (site_audit_id) REFERENCES site_audits(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- --------------------------------------------------------
 -- Saved keyword research history
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS keyword_research_history (

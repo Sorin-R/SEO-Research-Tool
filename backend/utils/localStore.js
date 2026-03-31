@@ -117,6 +117,7 @@ function createEmptyState() {
     googleAdsKeywordHistory: [],
     contentAnalysisHistory: [],
     siteAuditHistory: [],
+    siteIssues: [],
     trafficSnapshots: [],
     backlinkSnapshots: [],
   };
@@ -263,6 +264,9 @@ function normalizeState(parsed) {
       : [],
     siteAuditHistory: Array.isArray(parsed?.siteAuditHistory)
       ? parsed.siteAuditHistory
+      : [],
+    siteIssues: Array.isArray(parsed?.siteIssues)
+      ? parsed.siteIssues
       : [],
     trafficSnapshots: Array.isArray(parsed?.trafficSnapshots)
       ? parsed.trafficSnapshots
@@ -881,6 +885,7 @@ async function deleteWebsite(id) {
   state.googleAdsKeywordHistory = state.googleAdsKeywordHistory.filter((item) => String(item.website_id ?? '') !== String(id));
   state.contentAnalysisHistory = state.contentAnalysisHistory.filter((item) => String(item.website_id ?? '') !== String(id));
   state.siteAuditHistory = state.siteAuditHistory.filter((item) => String(item.website_id ?? '') !== String(id));
+  state.siteIssues = state.siteIssues.filter((item) => String(item.website_id ?? '') !== String(id));
   state.backlinkSnapshots = state.backlinkSnapshots.filter((item) => String(item.website_id ?? '') !== String(id));
   await writeState(state);
 }
@@ -1713,10 +1718,47 @@ async function deleteSiteAuditHistoryItem(id) {
   const state = await readState();
   const beforeCount = state.siteAuditHistory.length;
   state.siteAuditHistory = state.siteAuditHistory.filter((entry) => String(entry.id) !== String(id));
+  state.siteIssues = state.siteIssues.filter((entry) => String(entry.site_audit_id ?? '') !== String(id));
 
   if (state.siteAuditHistory.length !== beforeCount) {
     await writeState(state);
   }
+}
+
+async function replaceSiteIssuesForAudit(siteAuditId, websiteId = null, issues = []) {
+  const state = await readState();
+  const normalizedWebsiteId = websiteId != null ? Number(websiteId) : null;
+  const normalizedAuditId = siteAuditId != null ? Number(siteAuditId) : null;
+
+  state.siteIssues = (state.siteIssues || []).filter((item) => {
+    if (normalizedAuditId != null) {
+      return String(item.site_audit_id ?? '') !== String(normalizedAuditId);
+    }
+    return String(item.website_id ?? '') !== String(normalizedWebsiteId ?? '');
+  });
+
+  const timestamp = nowIso();
+  const rows = Array.isArray(issues) ? issues : [];
+  const nextIdBase = nextId(state.siteIssues || []);
+
+  for (let index = 0; index < rows.length; index += 1) {
+    const issue = rows[index] || {};
+    state.siteIssues.push({
+      id: nextIdBase + index,
+      website_id: issue.website_id != null ? Number(issue.website_id) : normalizedWebsiteId,
+      site_audit_id: issue.site_audit_id != null ? Number(issue.site_audit_id) : normalizedAuditId,
+      scope: issue.scope || 'page',
+      page_url: issue.page_url || null,
+      issue_key: issue.issue_key || issue.issueKey || '',
+      issue_label: issue.issue_label || issue.issueLabel || '',
+      severity: issue.severity || 'low',
+      recommendation: issue.recommendation || null,
+      detected_at: issue.detected_at || issue.detectedAt || timestamp,
+      created_at: timestamp,
+    });
+  }
+
+  await writeState(state);
 }
 
 async function saveBacklinkSnapshot(payload = {}) {
@@ -1868,6 +1910,7 @@ module.exports = {
   getSiteAuditHistory,
   getSiteAuditHistoryItem,
   deleteSiteAuditHistoryItem,
+  replaceSiteIssuesForAudit,
   saveBacklinkSnapshot,
   getLatestBacklinkSnapshot,
   getBacklinkHistory,

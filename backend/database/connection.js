@@ -90,6 +90,25 @@ const schemaStatements = [
     KEY idx_site_audits_website (website_id),
     CONSTRAINT fk_site_audits_website FOREIGN KEY (website_id) REFERENCES websites(id) ON DELETE CASCADE
   ) ENGINE=InnoDB`,
+  `CREATE TABLE IF NOT EXISTS site_issues (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    website_id INT NULL,
+    site_audit_id INT NULL,
+    scope ENUM('site', 'page') NOT NULL DEFAULT 'page',
+    page_url VARCHAR(2048) DEFAULT NULL,
+    issue_key VARCHAR(128) NOT NULL,
+    issue_label VARCHAR(255) NOT NULL,
+    severity ENUM('critical', 'high', 'medium', 'low') NOT NULL DEFAULT 'low',
+    recommendation TEXT DEFAULT NULL,
+    detected_at DATETIME NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_site_issues_website (website_id),
+    KEY idx_site_issues_audit (site_audit_id),
+    KEY idx_site_issues_severity (severity),
+    CONSTRAINT fk_site_issues_website FOREIGN KEY (website_id) REFERENCES websites(id) ON DELETE CASCADE,
+    CONSTRAINT fk_site_issues_audit FOREIGN KEY (site_audit_id) REFERENCES site_audits(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB`,
   `CREATE TABLE IF NOT EXISTS keyword_research_history (
     id INT AUTO_INCREMENT PRIMARY KEY,
     website_id INT NULL,

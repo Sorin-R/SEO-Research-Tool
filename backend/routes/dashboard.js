@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getSerpDashboardModule } = require('../services/serpDashboardService');
 const { getAiVisibilityDashboardModule } = require('../services/aiVisibilityDashboardService');
+const { getSiteHealthDashboardModule } = require('../services/siteHealthDashboardService');
 const { gscProviderManager, websiteService, backlinkService } = require('../services');
 
 function normalizeWebsiteId(value) {
@@ -39,6 +40,23 @@ router.get('/ai-visibility', async (req, res) => {
     console.error('[Route /dashboard/ai-visibility] Error:', err.message);
     res.status(500).json({
       error: 'Failed to build AI Visibility dashboard module.',
+      details: err.message,
+    });
+  }
+});
+
+router.get('/site-health', async (req, res) => {
+  try {
+    const moduleData = await getSiteHealthDashboardModule({
+      websiteId: req.query.websiteId,
+      dateFrom: req.query.dateFrom || null,
+      dateTo: req.query.dateTo || null,
+    });
+    res.json(moduleData);
+  } catch (err) {
+    console.error('[Route /dashboard/site-health] Error:', err.message);
+    res.status(500).json({
+      error: 'Failed to build Site Health dashboard module.',
       details: err.message,
     });
   }

@@ -11,6 +11,7 @@ const searchApiProvider = require('./providers/searchApiProvider');
 const scaleserpProvider = require('./providers/scaleserpProvider');
 const googleSearchProvider = require('./providers/googleSearchProvider');
 const bingSearchProvider = require('./providers/bingSearchProvider');
+const localPcAgentProvider = require('./providers/localPcAgentProvider');
 const providerCredentialsService = require('../services/providerCredentialsService');
 const providerSettingsService = require('../services/providerSettingsService');
 const providerUsageService = require('../services/providerUsageService');
@@ -28,6 +29,21 @@ function hasConfiguredValue(value) {
  * Each provider has a search() method to fetch results.
  */
 const providers = [
+  {
+    id: 'local-pc-agent',
+    name: 'Local PC Agent',
+    provider: localPcAgentProvider,
+    supportedEngines: ['google', 'bing'],
+    docsUrl: 'https://github.com/Sorin-R/SEO-Research-Tool',
+    quota: 'Local PC session',
+    quotaType: 'Runtime',
+    setupTime: '1 min',
+    requestLimit: 0,
+    defaultRemaining: 0,
+    fields: [],
+    defaultEnabled: false,
+    skipUsage: true,
+  },
   {
     id: 'serpapi',
     name: 'SerpAPI',
@@ -280,6 +296,10 @@ async function searchByProviderId(providerId, keyword, numResults = 10, options 
 }
 
 async function consumeProviderUsageSafe(providerConfig) {
+  if (providerConfig?.skipUsage) {
+    return;
+  }
+
   try {
     await providerUsageService.consumeProviderUsage(providerConfig, 1);
   } catch (err) {
@@ -468,12 +488,16 @@ async function updateProviderCredentials(providerId, credentials) {
   return status.availableProviders.find((entry) => entry.id === providerId) || null;
 }
 
-function isProviderEnabled(providerId, settings = {}) {
-  if (!settings[providerId]) {
+function isProviderEnabled(providerConfig, settings = {}) {
+  if (!providerConfig) {
     return true;
   }
 
-  return Boolean(settings[providerId].is_enabled);
+  if (!settings[providerConfig.id]) {
+    return providerConfig.defaultEnabled !== false;
+  }
+
+  return Boolean(settings[providerConfig.id].is_enabled);
 }
 
 async function getProviderContexts() {
@@ -513,7 +537,7 @@ function buildProviderDetail(providerConfig, settings, storedCredentials, usage)
   });
 
   const configured = fields.every((field) => field.hasValue);
-  const enabled = isProviderEnabled(providerConfig.id, settings);
+  const enabled = isProviderEnabled(providerConfig, settings);
 
   return {
     id: providerConfig.id,
@@ -527,13 +551,15 @@ function buildProviderDetail(providerConfig, settings, storedCredentials, usage)
     docsUrl: providerConfig.docsUrl,
     quota: providerConfig.quota,
     quotaType: providerConfig.quotaType,
-    usage: {
-      limit: Number(usage?.quota_limit) || Number(providerConfig.requestLimit) || 0,
-      remaining: Number(usage?.remaining) || 0,
-      used: Number(usage?.used_count) || 0,
-      display: `${Number(usage?.quota_limit) || Number(providerConfig.requestLimit) || 0}/${Number(usage?.remaining) || 0}`,
-      format: 'limit/remaining',
-    },
+    usage: providerConfig.skipUsage
+      ? null
+      : {
+          limit: Number(usage?.quota_limit) || Number(providerConfig.requestLimit) || 0,
+          remaining: Number(usage?.remaining) || 0,
+          used: Number(usage?.used_count) || 0,
+          display: `${Number(usage?.quota_limit) || Number(providerConfig.requestLimit) || 0}/${Number(usage?.remaining) || 0}`,
+          format: 'limit/remaining',
+        },
     setupTime: providerConfig.setupTime,
     updatedAt: settings[providerConfig.id]?.updated_at || null,
   };

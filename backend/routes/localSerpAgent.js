@@ -4,6 +4,8 @@ const {
   completeJob,
   failJob,
   getQueueStats,
+  registerAgentHeartbeat,
+  getAgentStats,
 } = require('../search/localSerpAgentQueue');
 
 const router = express.Router();
@@ -45,12 +47,14 @@ router.get('/status', requireAuth, (req, res) => {
   res.json({
     ok: true,
     queue: getQueueStats(),
+    agents: getAgentStats(),
     tokenRequired: Boolean(String(process.env.LOCAL_SERP_AGENT_TOKEN || '').trim()),
   });
 });
 
 router.post('/poll', requireAuth, (req, res) => {
   const agentId = String(req.body?.agentId || req.query?.agentId || 'local-agent').trim() || 'local-agent';
+  registerAgentHeartbeat(agentId);
   const claimed = claimNextJob(agentId);
 
   if (!claimed) {

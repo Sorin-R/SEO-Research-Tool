@@ -126,6 +126,7 @@ Frontend default URL: `http://localhost:5173`
 - `aiMode: true` enables AI SERP mode in `/api/search` using the active AI provider.
 - `screenshotMode: true` enables screenshot SERP mode (capture page screenshot, then extract results with OpenAI vision).
 - `localAgentMode: true` sends the SERP request to your own PC agent (your IP/browser), then returns normalized results + screenshot.
+- You can also enable **Local PC Agent** in **SERP Providers**; when ON, it becomes available to all SERP-based modules (SERP Analyzer, Rank Tracker, Dashboard SERP module, keyword SERP checks).
 - High Accuracy Mode can lock one provider, enforce strict geo params, verify redirects, and return debug attempts.
 - To add more targets, extend:
   - `backend/search/config.js`
@@ -178,3 +179,8 @@ In **SERP Search MVP**, select:
 - `Local PC Agent SERP`
 
 The app will queue the job, your local agent will execute it, and results/screenshot will appear in the page.
+
+### 4. Enable Local PC Agent globally
+
+Open **SERP Providers** in the app and turn **Local PC Agent** ON.
+Once enabled, the shared SERP provider manager can use it across SERP-related features.

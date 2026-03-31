@@ -4,9 +4,11 @@ const DEFAULT_WAIT_POLL_MS = Number.parseInt(process.env.LOCAL_SERP_WAIT_POLL_MS
 const DEFAULT_JOB_TIMEOUT_MS = Number.parseInt(process.env.LOCAL_SERP_JOB_TIMEOUT_MS || '180000', 10);
 const DEFAULT_CLAIM_TIMEOUT_MS = Number.parseInt(process.env.LOCAL_SERP_CLAIM_TIMEOUT_MS || '120000', 10);
 const DEFAULT_RETENTION_MS = Number.parseInt(process.env.LOCAL_SERP_RETENTION_MS || '600000', 10);
+const DEFAULT_AGENT_STALE_MS = Number.parseInt(process.env.LOCAL_SERP_AGENT_STALE_MS || '45000', 10);
 
 const jobs = new Map();
 const queue = [];
+const agents = new Map();
 
 function now() {
   return Date.now();
@@ -44,6 +46,12 @@ function cleanupJobs() {
 
     if (isFinalStatus(job.status) && timestamp - (job.updatedAt || job.createdAt) > DEFAULT_RETENTION_MS) {
       jobs.delete(id);
+    }
+  }
+
+  for (const [agentId, details] of agents.entries()) {
+    if (timestamp - Number(details?.lastSeen || 0) > DEFAULT_RETENTION_MS) {
+      agents.delete(agentId);
     }
   }
 }
@@ -186,6 +194,39 @@ function getQueueStats() {
   };
 }
 
+function registerAgentHeartbeat(agentId = 'local-agent') {
+  cleanupJobs();
+  const normalizedAgentId = String(agentId || 'local-agent').trim() || 'local-agent';
+
+  agents.set(normalizedAgentId, {
+    id: normalizedAgentId,
+    lastSeen: now(),
+  });
+}
+
+function getAgentStats(maxAgeMs = DEFAULT_AGENT_STALE_MS) {
+  cleanupJobs();
+  const timestamp = now();
+  const ageLimit = Number.parseInt(maxAgeMs, 10) || DEFAULT_AGENT_STALE_MS;
+
+  const list = [...agents.values()].map((entry) => ({
+    id: entry.id,
+    lastSeen: entry.lastSeen,
+    online: timestamp - Number(entry.lastSeen || 0) <= ageLimit,
+  }));
+
+  return {
+    total: list.length,
+    online: list.filter((item) => item.online).length,
+    maxAgeMs: ageLimit,
+    agents: list,
+  };
+}
+
+function hasRecentAgent(maxAgeMs = DEFAULT_AGENT_STALE_MS) {
+  return getAgentStats(maxAgeMs).online > 0;
+}
+
 module.exports = {
   createJob,
   claimNextJob,
@@ -193,4 +234,7 @@ module.exports = {
   failJob,
   waitForJob,
   getQueueStats,
+  registerAgentHeartbeat,
+  getAgentStats,
+  hasRecentAgent,
 };

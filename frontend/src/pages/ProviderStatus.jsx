@@ -182,6 +182,7 @@ export default function ProviderStatus() {
                   const isBusy = busyProviderId === provider.id;
                   const isSavingCredentials = savingCredentialsId === provider.id;
                   const providerDraft = credentialDrafts[provider.id] || {};
+                  const requiresCredentials = Array.isArray(provider.fields) && provider.fields.length > 0;
 
                   return (
                     <tr key={provider.id} className={provider.active ? 'bg-emerald-50/50' : ''}>
@@ -200,39 +201,47 @@ export default function ProviderStatus() {
                       </td>
                       <td className="px-4 py-4 align-top">
                         <div className="space-y-3 min-w-[280px]">
-                          {provider.fields.map((field) => (
-                            <div key={field.name} className="space-y-1">
-                              <div className="flex items-center justify-between gap-3">
-                                <label className="text-xs font-medium text-gray-700">{field.label}</label>
-                                <span className="text-[11px] text-gray-500">
-                                  {field.hasValue
-                                    ? field.source === 'saved'
-                                      ? 'Saved in app'
-                                      : 'Using env'
-                                    : 'Missing'}
-                                </span>
-                              </div>
-                              <input
-                                type="password"
-                                value={providerDraft[field.name] || ''}
-                                onChange={(event) => handleCredentialChange(provider.id, field.name, event.target.value)}
-                                placeholder={field.hasValue ? 'Replace saved value' : `Enter ${field.label.toLowerCase()}`}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                autoComplete="off"
-                              />
-                              <code className="block rounded bg-gray-100 px-2 py-1 text-[11px] text-gray-700">
-                                {field.name}
-                              </code>
+                          {requiresCredentials ? (
+                            <>
+                              {provider.fields.map((field) => (
+                                <div key={field.name} className="space-y-1">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <label className="text-xs font-medium text-gray-700">{field.label}</label>
+                                    <span className="text-[11px] text-gray-500">
+                                      {field.hasValue
+                                        ? field.source === 'saved'
+                                          ? 'Saved in app'
+                                          : 'Using env'
+                                        : 'Missing'}
+                                    </span>
+                                  </div>
+                                  <input
+                                    type="password"
+                                    value={providerDraft[field.name] || ''}
+                                    onChange={(event) => handleCredentialChange(provider.id, field.name, event.target.value)}
+                                    placeholder={field.hasValue ? 'Replace saved value' : `Enter ${field.label.toLowerCase()}`}
+                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    autoComplete="off"
+                                  />
+                                  <code className="block rounded bg-gray-100 px-2 py-1 text-[11px] text-gray-700">
+                                    {field.name}
+                                  </code>
+                                </div>
+                              ))}
+                              <button
+                                type="button"
+                                onClick={() => handleSaveCredentials(provider)}
+                                disabled={isSavingCredentials}
+                                className="rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-medium text-indigo-700 hover:border-indigo-300 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {isSavingCredentials ? 'Saving...' : 'Save Credentials'}
+                              </button>
+                            </>
+                          ) : (
+                            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                              No API key required. Keep your local agent running to use this provider.
                             </div>
-                          ))}
-                          <button
-                            type="button"
-                            onClick={() => handleSaveCredentials(provider)}
-                            disabled={isSavingCredentials}
-                            className="rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-medium text-indigo-700 hover:border-indigo-300 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            {isSavingCredentials ? 'Saving...' : 'Save Credentials'}
-                          </button>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-4 align-top text-gray-600">

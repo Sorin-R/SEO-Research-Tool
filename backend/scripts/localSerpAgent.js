@@ -233,6 +233,35 @@ async function extractOrganicResultsFromDom(page, engine, maxResults = 10) {
         }
       };
 
+      const isBadSerpTitle = (rawTitle) => {
+        const title = String(rawTitle || '').replace(/\s+/g, ' ').trim();
+        if (!title) return true;
+        return /^(map|maps|directions|website|call)$/i.test(title);
+      };
+
+      const pickMainGoogleLinkFromCard = (card) => {
+        const anchors = Array.from(card.querySelectorAll('a[href]'));
+        for (const anchor of anchors) {
+          const h3 = anchor.querySelector('h3');
+          if (!h3) continue;
+          if (!isOrganicCandidateUrl(anchor.href)) continue;
+          const title = String(h3.textContent || '').replace(/\s+/g, ' ').trim();
+          if (isBadSerpTitle(title)) continue;
+          return { title, href: anchor.href };
+        }
+
+        const h3 = card.querySelector('h3');
+        const fallbackAnchor = h3?.closest('a[href]');
+        if (h3 && fallbackAnchor && isOrganicCandidateUrl(fallbackAnchor.href)) {
+          const title = String(h3.textContent || '').replace(/\s+/g, ' ').trim();
+          if (!isBadSerpTitle(title)) {
+            return { title, href: fallbackAnchor.href };
+          }
+        }
+
+        return null;
+      };
+
       if (runtimeEngine === 'bing') {
         const cards = Array.from(document.querySelectorAll('#b_results .b_algo'));
         for (const card of cards) {
@@ -241,47 +270,61 @@ async function extractOrganicResultsFromDom(page, engine, maxResults = 10) {
           pushRow(link?.textContent || '', link?.href || '');
         }
       } else {
-        const cards = Array.from(document.querySelectorAll('#search .g'));
-        for (const card of cards) {
-          if (rows.length >= runtimeMaxResults) break;
-          const titleNode = card.querySelector('h3');
-          const link = card.querySelector('a[href^="http"]');
-          pushRow(titleNode?.textContent || '', link?.href || '');
-        }
-
-        if (rows.length < runtimeMaxResults) {
-          const root = document.querySelector('#search') || document.body;
-
-          const titleNodes = Array.from(root.querySelectorAll('h3'));
-          for (const titleNode of titleNodes) {
-            if (rows.length >= runtimeMaxResults) break;
-
-            const anchor = titleNode.closest('a[href^="http"]')
-              || titleNode.parentElement?.querySelector('a[href^="http"]')
-              || titleNode.parentElement?.parentElement?.querySelector('a[href^="http"]');
-
-            const href = anchor?.href || '';
-            if (!isOrganicCandidateUrl(href)) continue;
-            pushRow(titleNode.textContent || '', href);
+        const cardSelectors = ['#search .MjjYud', '#search .g', '#search [data-sokoban-container]'];
+        const uniqueCards = [];
+        const seenCards = new Set();
+        for (const selector of cardSelectors) {
+          const candidates = Array.from(document.querySelectorAll(selector));
+          for (const node of candidates) {
+            if (seenCards.has(node)) continue;
+            seenCards.add(node);
+            uniqueCards.push(node);
           }
         }
 
+        for (const card of uniqueCards) {
+          if (rows.length >= runtimeMaxResults) break;
+
+          const cardText = String(card.textContent || '').toLowerCase();
+          if (cardText.includes('people also ask') || cardText.includes('sponsored')) {
+            continue;
+          }
+
+          const mainLink = pickMainGoogleLinkFromCard(card);
+          if (!mainLink) {
+            continue;
+          }
+
+          pushRow(mainLink.title, mainLink.href);
+        }
+
         if (rows.length < runtimeMaxResults) {
-          const root = document.querySelector('#search') || document.body;
-          const anchors = Array.from(root.querySelectorAll('a[href^="http"]'));
-
-          for (const anchor of anchors) {
+          const titleNodes = Array.from(document.querySelectorAll('#search h3'));
+          for (const titleNode of titleNodes) {
             if (rows.length >= runtimeMaxResults) break;
-            const href = anchor.href || '';
+            const titleText = String(titleNode.textContent || '').replace(/\s+/g, ' ').trim();
+            if (isBadSerpTitle(titleText)) continue;
+
+            const card = titleNode.closest('.MjjYud, .g, [data-sokoban-container], [data-hveid]');
+            if (card) {
+              const firstH3 = card.querySelector('h3');
+              if (firstH3 && firstH3 !== titleNode) {
+                continue;
+              }
+
+              const cardText = String(card.textContent || '').toLowerCase();
+              if (cardText.includes('people also ask') || cardText.includes('sponsored')) {
+                continue;
+              }
+            }
+
+            const anchor = titleNode.closest('a[href]')
+              || titleNode.parentElement?.querySelector('a[href]')
+              || titleNode.parentElement?.parentElement?.querySelector('a[href]');
+
+            const href = anchor?.href || '';
             if (!isOrganicCandidateUrl(href)) continue;
-
-            const titleNode = anchor.querySelector('h3')
-              || anchor.closest('div')?.querySelector('h3')
-              || anchor.parentElement?.querySelector('h3');
-            const fallbackTitle = titleNode?.textContent || anchor.textContent || '';
-
-            if (!String(fallbackTitle || '').trim()) continue;
-            pushRow(fallbackTitle, href);
+            pushRow(titleText, href);
           }
         }
       }

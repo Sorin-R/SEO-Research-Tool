@@ -342,8 +342,20 @@ export default function Dashboard() {
         ? `${gscImpressions.toLocaleString()} impressions • ${gscCtrPercent.toFixed(2)}% CTR`
         : (rankedRows.length ? `${rankedRows.length} ranking URLs contributed` : null),
       aiVisibilitySubtitle: data.aiVisibilityModule?.metadata?.sampleSize
-        ? `Modeled from ${data.aiVisibilityModule.metadata.sampleSize.serpRows || 0} SERP rows and ${data.aiVisibilityModule.metadata.sampleSize.contentAnalyses || 0} content analyses`
-        : 'Modeled score from proxy AI-visibility signals',
+        ? (() => {
+            const sampleSize = data.aiVisibilityModule.metadata.sampleSize || {};
+            const serpRows = Number(sampleSize.serpRows || 0);
+            const contentAnalyses = Number(sampleSize.contentAnalyses || 0);
+            const aiSerpCitations = Number(sampleSize.aiSerpCitations || 0);
+            const aiSerpPrompts = Number(sampleSize.aiSerpPrompts || 0);
+
+            if (aiSerpCitations > 0 && serpRows === 0 && contentAnalyses === 0) {
+              return `AI SERP only: ${aiSerpCitations} citations across ${aiSerpPrompts} prompts`;
+            }
+
+            return `SERP rows: ${serpRows} • Content analyses: ${contentAnalyses} • AI citations: ${aiSerpCitations}`;
+          })()
+        : 'AI visibility score from AI SERP citations',
     };
   }, [
     data.aiVisibilityModule?.metadata?.sampleSize,
@@ -398,10 +410,10 @@ export default function Dashboard() {
             title="AI Visibility"
             value={kpiValues.aiVisibilityScore != null ? `${kpiValues.aiVisibilityScore}/100` : null}
             subtitle={kpiValues.aiVisibilitySubtitle}
-            badge="Modeled"
+            badge={data.aiVisibilityModule?.metadata?.modeled ? 'Modeled' : 'AI SERP'}
             isLoading={loading}
             error={cardErrors.aiVisibility}
-            emptyMessage="No AI visibility model data yet. Run SERP analysis and content analysis first."
+            emptyMessage="No AI visibility data yet. Run AI SERP Workspace scans first."
           />
           <KpiCard
             title="Site Health"

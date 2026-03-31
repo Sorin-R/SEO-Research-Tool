@@ -262,9 +262,17 @@ export default function Dashboard() {
     const trackedKeywordCount = Array.isArray(data.trackedKeywords) ? data.trackedKeywords.length : 0;
     const fallbackKeywordCountFromSummary = Number(data.rankingSummary?.totalKeywords) || 0;
     const fallbackKeywordCountFromRows = Array.isArray(filteredRankings) ? filteredRankings.length : 0;
-    const totalKeywords = trackedKeywordCount || fallbackKeywordCountFromSummary || fallbackKeywordCountFromRows;
-    const rankedKeywords = data.rankingSummary?.ranked ?? filteredRankings.filter((item) => item.position != null).length;
-    const top10Keywords = data.rankingSummary?.top10 ?? filteredRankings.filter((item) => (item.position || 999) <= 10).length;
+    const summaryRanked = Number(data.rankingSummary?.ranked) || 0;
+    const summaryTop10 = Number(data.rankingSummary?.top10) || 0;
+    const rowRanked = filteredRankings.filter((item) => item.position != null).length;
+    const rowTop10 = filteredRankings.filter((item) => (item.position || 999) <= 10).length;
+    const rankedKeywords = Math.max(summaryRanked, rowRanked, summaryTop10, rowTop10);
+    const top10Keywords = Math.min(Math.max(summaryTop10, rowTop10), rankedKeywords);
+    const totalKeywords = Math.max(
+      trackedKeywordCount || fallbackKeywordCountFromSummary || fallbackKeywordCountFromRows,
+      rankedKeywords,
+      top10Keywords
+    );
     const latestSiteAudit = filteredSiteAudits[0] || null;
     const aiVisibilityScore = data.aiVisibilityModule?.score?.value ?? null;
 

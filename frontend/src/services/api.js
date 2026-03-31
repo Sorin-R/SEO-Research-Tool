@@ -7,6 +7,9 @@ const api = axios.create({
   timeout: 120000, // scraping can be slow
 });
 
+const RANK_CHECK_TIMEOUT_MS = 10 * 60 * 1000;
+const FULL_RANK_JOB_TIMEOUT_MS = 30 * 60 * 1000;
+
 function getSelectedWebsiteIdFromStorage() {
   try {
     const raw = window.localStorage.getItem(SELECTED_WEBSITE_STORAGE_KEY);
@@ -235,6 +238,8 @@ export async function manualTrackRank(
     websiteId,
     country,
     depth,
+  }, {
+    timeout: RANK_CHECK_TIMEOUT_MS,
   });
   return data;
 }
@@ -362,7 +367,9 @@ export async function getJobHistory() {
 }
 
 export async function runManualJob() {
-  const { data } = await api.post('/serp/jobs/run');
+  const { data } = await api.post('/serp/jobs/run', {}, {
+    timeout: FULL_RANK_JOB_TIMEOUT_MS,
+  });
   return data;
 }
 

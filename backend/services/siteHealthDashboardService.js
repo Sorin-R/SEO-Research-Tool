@@ -620,8 +620,12 @@ async function getSiteHealthDashboardModule({
 } = {}) {
   const normalizedWebsiteId = normalizeWebsiteId(websiteId);
   const historyRows = await siteAuditService.getSiteAuditHistory(100, normalizedWebsiteId);
-  const scopedHistory = filterHistoryByDate(historyRows, dateFrom, dateTo)
+  const filteredHistory = filterHistoryByDate(historyRows, dateFrom, dateTo)
     .sort((left, right) => new Date(right.updated_at || right.created_at) - new Date(left.updated_at || left.created_at));
+  const sortedFullHistory = [...historyRows]
+    .sort((left, right) => new Date(right.updated_at || right.created_at) - new Date(left.updated_at || left.created_at));
+  const usedRangeFallback = filteredHistory.length === 0 && sortedFullHistory.length > 0;
+  const scopedHistory = usedRangeFallback ? sortedFullHistory : filteredHistory;
 
   const latestHistory = scopedHistory[0] || null;
   if (!latestHistory) {
@@ -632,6 +636,7 @@ async function getSiteHealthDashboardModule({
       metadata: {
         websiteId: normalizedWebsiteId,
         checks: CHECK_KEYS,
+        dateRangeFallback: false,
       },
       score: {
         value: null,
@@ -664,6 +669,7 @@ async function getSiteHealthDashboardModule({
         websiteId: normalizedWebsiteId,
         auditId: latestHistory.id,
         checks: CHECK_KEYS,
+        dateRangeFallback: usedRangeFallback,
       },
       score: {
         value: null,
@@ -716,6 +722,7 @@ async function getSiteHealthDashboardModule({
       url: latestAudit.url || latestHistory.url,
       crawledPages: latestAudit.crawledPages || latestHistory.total_pages || 0,
       checks: CHECK_KEYS,
+      dateRangeFallback: usedRangeFallback,
     },
     score: {
       value: scoreValue,

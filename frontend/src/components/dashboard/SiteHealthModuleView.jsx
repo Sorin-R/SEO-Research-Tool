@@ -31,7 +31,7 @@ export default function SiteHealthModuleView({
   if (!moduleData?.available) {
     return (
       <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-6 text-sm text-gray-600">
-        No site health data yet. Run a Site Audit first.
+        No site health data for this website/date range. Run a Site Audit first, or widen the dashboard date range.
       </div>
     );
   }
@@ -51,6 +51,11 @@ export default function SiteHealthModuleView({
             <p className="mt-1 text-sm text-gray-500">
               {moduleData.metadata?.crawledPages || 0} pages crawled • {issueCounts.passedChecks || 0}/{issueCounts.totalChecks || 10} checks passed
             </p>
+            {moduleData.metadata?.dateRangeFallback ? (
+              <p className="mt-1 text-xs text-amber-700">
+                No audits in the selected date range. Showing latest available audit for this website.
+              </p>
+            ) : null}
           </div>
           <div className="text-sm text-gray-600 max-w-xl">
             {(moduleData.insights || []).slice(0, 2).map((line) => (

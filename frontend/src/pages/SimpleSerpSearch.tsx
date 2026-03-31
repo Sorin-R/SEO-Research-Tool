@@ -424,7 +424,7 @@ export default function SimpleSerpSearch() {
               <img
                 src={screenshotPreview}
                 alt={`Captured SERP screenshot for ${data.keyword}`}
-                className="mt-3 w-full rounded-md border border-gray-200"
+                className="mt-3 w-full max-h-[72vh] rounded-md border border-gray-200 object-contain bg-gray-50"
               />
             </div>
           ) : null}

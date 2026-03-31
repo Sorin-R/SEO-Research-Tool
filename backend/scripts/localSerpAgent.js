@@ -119,6 +119,9 @@ const ACCEPT_PATTERNS = [
 
 const REJECT_PATTERNS = [
   'reject all',
+  'reject',
+  'continue without accepting',
+  'only necessary',
   'continue',
   'confirm',
   'ok',
@@ -162,8 +165,8 @@ async function clickConsentButtonsInFrame(frame) {
         return false;
       };
 
-      const knownIds = ['L2AGLb', 'introAgreeButton'];
-      for (const id of knownIds) {
+      const knownRejectIds = ['W0wltc'];
+      for (const id of knownRejectIds) {
         const node = document.getElementById(id);
         if (!node) continue;
         try {
@@ -174,11 +177,23 @@ async function clickConsentButtonsInFrame(frame) {
         }
       }
 
-      if (clickByPatterns(acceptPatterns)) {
+      if (clickByPatterns(rejectPatterns)) {
         return true;
       }
 
-      return clickByPatterns(rejectPatterns);
+      const knownAcceptIds = ['L2AGLb', 'introAgreeButton'];
+      for (const id of knownAcceptIds) {
+        const node = document.getElementById(id);
+        if (!node) continue;
+        try {
+          node.click();
+          return true;
+        } catch {
+          // continue
+        }
+      }
+
+      return clickByPatterns(acceptPatterns);
     }, ACCEPT_PATTERNS, REJECT_PATTERNS);
   } catch {
     return false;

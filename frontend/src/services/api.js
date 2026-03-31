@@ -594,3 +594,20 @@ export async function getDashboardAiVisibilityModule({
   });
   return data;
 }
+
+export async function getDashboardTrafficModule({
+  websiteId = null,
+  country = 'US',
+  dateFrom = null,
+  dateTo = null,
+} = {}) {
+  const { data } = await api.get('/dashboard/traffic', {
+    params: {
+      websiteId,
+      country,
+      dateFrom,
+      dateTo,
+    },
+  });
+  return data;
+}

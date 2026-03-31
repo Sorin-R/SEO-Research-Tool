@@ -253,6 +253,24 @@ function getProviderDefinition(providerId) {
   return GSC_PROVIDERS.find((provider) => provider.id === providerId) || null;
 }
 
+function toIsoDate(value) {
+  const parsed = value ? new Date(value) : null;
+  if (!parsed || Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed.toISOString().slice(0, 10);
+}
+
+function getDefaultDateRange() {
+  const end = new Date();
+  const start = new Date(end);
+  start.setDate(start.getDate() - 30);
+  return {
+    startDate: toIsoDate(start),
+    endDate: toIsoDate(end),
+  };
+}
+
 function normalizeSiteValue(value) {
   const input = String(value || '').trim();
   if (!input) {
@@ -274,6 +292,28 @@ function getResolvedProviderCredentials(provider, credentialsMap) {
     accumulator[field.name] = resolved.value ? String(resolved.value).trim() : '';
     return accumulator;
   }, {});
+}
+
+async function fetchGoogleAccessToken(credentials) {
+  const tokenPayload = new URLSearchParams({
+    client_id: credentials.GOOGLE_SEARCH_CONSOLE_CLIENT_ID,
+    client_secret: credentials.GOOGLE_SEARCH_CONSOLE_CLIENT_SECRET,
+    refresh_token: credentials.GOOGLE_SEARCH_CONSOLE_REFRESH_TOKEN,
+    grant_type: 'refresh_token',
+  });
+
+  const tokenResponse = await axios.post(
+    'https://oauth2.googleapis.com/token',
+    tokenPayload.toString(),
+    {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      timeout: 20000,
+    }
+  );
+
+  return String(tokenResponse?.data?.access_token || '').trim();
 }
 
 async function toggleProvider(providerId, enabled) {
@@ -317,25 +357,7 @@ async function testProviderConnection(providerId, options = {}) {
 
   let accessToken;
   try {
-    const tokenPayload = new URLSearchParams({
-      client_id: credentials.GOOGLE_SEARCH_CONSOLE_CLIENT_ID,
-      client_secret: credentials.GOOGLE_SEARCH_CONSOLE_CLIENT_SECRET,
-      refresh_token: credentials.GOOGLE_SEARCH_CONSOLE_REFRESH_TOKEN,
-      grant_type: 'refresh_token',
-    });
-
-    const tokenResponse = await axios.post(
-      'https://oauth2.googleapis.com/token',
-      tokenPayload.toString(),
-      {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        timeout: 20000,
-      }
-    );
-
-    accessToken = String(tokenResponse?.data?.access_token || '').trim();
+    accessToken = await fetchGoogleAccessToken(credentials);
   } catch (err) {
     const apiMessage = err.response?.data?.error_description || err.response?.data?.error || err.message;
     throw createServiceError(`Google token request failed: ${apiMessage}`, 502);
@@ -385,10 +407,110 @@ async function testProviderConnection(providerId, options = {}) {
   };
 }
 
+async function getOrganicTrafficSummary(options = {}) {
+  const providerId = 'google-search-console';
+  const providerStatus = await getProviderById(providerId);
+  if (!providerStatus) {
+    throw createServiceError('Google Search Console provider is not available.', 404);
+  }
+
+  if (!providerStatus.active) {
+    throw createServiceError('Google Search Console provider is not active.', 412);
+  }
+
+  const provider = getProviderDefinition(providerId);
+  const credentialsMap = await getCredentialsMap();
+  const credentials = getResolvedProviderCredentials(provider, credentialsMap);
+  const missingFields = provider.fields
+    .filter((field) => field.required !== false && !credentials[field.name])
+    .map((field) => field.name);
+
+  if (missingFields.length > 0) {
+    throw createServiceError(`Missing required credentials: ${missingFields.join(', ')}`);
+  }
+
+  const configuredSiteUrl = String(options.siteUrl || credentials.GOOGLE_SEARCH_CONSOLE_SITE_URL || '').trim();
+  if (!configuredSiteUrl) {
+    throw createServiceError('No GSC site URL configured for this website.');
+  }
+
+  const normalizedSiteUrl = /^sc-domain:/i.test(configuredSiteUrl)
+    ? configuredSiteUrl.replace(/^sc-domain:/i, 'sc-domain:')
+    : configuredSiteUrl.replace(/\/+$/, '/');
+
+  const defaultRange = getDefaultDateRange();
+  const startDate = toIsoDate(options.dateFrom) || defaultRange.startDate;
+  const endDate = toIsoDate(options.dateTo) || defaultRange.endDate;
+
+  if (!startDate || !endDate) {
+    throw createServiceError('Invalid date range for GSC traffic query.');
+  }
+
+  if (new Date(startDate) > new Date(endDate)) {
+    throw createServiceError('Invalid date range: start date is after end date.');
+  }
+
+  let accessToken;
+  try {
+    accessToken = await fetchGoogleAccessToken(credentials);
+  } catch (err) {
+    const apiMessage = err.response?.data?.error_description || err.response?.data?.error || err.message;
+    throw createServiceError(`Google token request failed: ${apiMessage}`, 502);
+  }
+
+  if (!accessToken) {
+    throw createServiceError('Google token request failed: no access token received.', 502);
+  }
+
+  let response;
+  try {
+    response = await axios.post(
+      `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(normalizedSiteUrl)}/searchAnalytics/query`,
+      {
+        startDate,
+        endDate,
+        rowLimit: 1,
+        startRow: 0,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 20000,
+      }
+    );
+  } catch (err) {
+    const apiMessage = err.response?.data?.error?.message || err.response?.data?.error || err.message;
+    throw createServiceError(`Search Console traffic query failed: ${apiMessage}`, 502);
+  }
+
+  const row = Array.isArray(response?.data?.rows) ? response.data.rows[0] : null;
+  const clicks = Number(row?.clicks || 0);
+  const impressions = Number(row?.impressions || 0);
+  const ctr = Number(row?.ctr || 0);
+  const avgPosition = Number(row?.position || 0);
+
+  return {
+    source: 'gsc',
+    providerId,
+    siteUrl: normalizedSiteUrl,
+    dateFrom: startDate,
+    dateTo: endDate,
+    summary: {
+      clicks: Number.isFinite(clicks) ? clicks : 0,
+      impressions: Number.isFinite(impressions) ? impressions : 0,
+      ctr: Number.isFinite(ctr) ? ctr : 0,
+      averagePosition: Number.isFinite(avgPosition) ? avgPosition : 0,
+    },
+  };
+}
+
 module.exports = {
   getStatus,
   getProviderById,
   toggleProvider,
   saveProviderCredentials,
   testProviderConnection,
+  getOrganicTrafficSummary,
 };

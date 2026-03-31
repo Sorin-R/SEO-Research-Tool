@@ -12,6 +12,7 @@ import { useWebsiteContext } from '../context/WebsiteContext';
 import {
   getDashboardAiVisibilityModule,
   getDashboardSerpModule,
+  getDashboardTrafficModule,
   getLatestRankings,
   getRankingTrendsSummary,
   getSERPAnalysisHistory,
@@ -102,6 +103,11 @@ export default function Dashboard() {
     rankingSummary: null,
     siteAudits: [],
     serpHistory: [],
+    trafficModule: {
+      available: false,
+      source: 'estimate',
+      summary: null,
+    },
     aiVisibilityModule: {
       metadata: null,
       score: null,
@@ -149,6 +155,12 @@ export default function Dashboard() {
       rankingSummary: getRankingTrendsSummary(selectedWebsiteId),
       siteAudits: getSiteAuditHistory(50),
       serpHistory: getSERPAnalysisHistory(50),
+      trafficModule: getDashboardTrafficModule({
+        websiteId: selectedWebsiteId,
+        country,
+        dateFrom,
+        dateTo,
+      }),
       aiVisibilityModule: getDashboardAiVisibilityModule({
         websiteId: selectedWebsiteId,
         country,
@@ -170,6 +182,11 @@ export default function Dashboard() {
       rankingSummary: null,
       siteAudits: [],
       serpHistory: [],
+      trafficModule: {
+        available: false,
+        source: 'estimate',
+        summary: null,
+      },
       aiVisibilityModule: {
         metadata: null,
         score: null,
@@ -208,7 +225,6 @@ export default function Dashboard() {
         }
         if (key === 'rankingSummary' || key === 'rankings' || key === 'trackedKeywords') {
           nextCardErrors.organicKeywords = message;
-          nextCardErrors.organicTraffic = message;
           nextCardErrors.serpCoverage = message;
         }
         if (key === 'serpModule') {
@@ -294,6 +310,10 @@ export default function Dashboard() {
           return sum + 2;
         }, 0))
       : null;
+    const hasRealTraffic = Boolean(data.trafficModule?.available && data.trafficModule?.summary);
+    const gscClicks = Number(data.trafficModule?.summary?.clicks || 0);
+    const gscImpressions = Number(data.trafficModule?.summary?.impressions || 0);
+    const gscCtrPercent = Number(data.trafficModule?.summary?.ctr || 0) * 100;
 
     const serpModuleSnapshots = Array.isArray(data.serpModule?.snapshots) ? data.serpModule.snapshots : [];
     const coveragePercent = totalKeywords > 0
@@ -304,7 +324,8 @@ export default function Dashboard() {
     return {
       aiVisibilityScore,
       siteHealthScore: latestSiteAudit?.audit_score != null ? Math.round(Number(latestSiteAudit.audit_score)) : null,
-      estimatedTraffic,
+      organicTrafficValue: hasRealTraffic ? gscClicks : estimatedTraffic,
+      organicTrafficBadge: hasRealTraffic ? 'GSC' : 'Estimated',
       organicKeywordsValue: totalKeywords > 0 ? `${rankedKeywords} / ${totalKeywords}` : null,
       backlinksValue: null,
       serpCoverageValue: coveragePercent == null ? null : `${coveragePercent}%`,
@@ -317,19 +338,31 @@ export default function Dashboard() {
       siteHealthSubtitle: latestSiteAudit?.created_at
         ? `Latest crawl: ${new Date(latestSiteAudit.created_at).toLocaleDateString()}`
         : null,
-      trafficSubtitle: rankedRows.length
-        ? `${rankedRows.length} ranking URLs contributed`
-        : null,
+      trafficSubtitle: hasRealTraffic
+        ? `${gscImpressions.toLocaleString()} impressions • ${gscCtrPercent.toFixed(2)}% CTR`
+        : (rankedRows.length ? `${rankedRows.length} ranking URLs contributed` : null),
       aiVisibilitySubtitle: data.aiVisibilityModule?.metadata?.sampleSize
         ? `Modeled from ${data.aiVisibilityModule.metadata.sampleSize.serpRows || 0} SERP rows and ${data.aiVisibilityModule.metadata.sampleSize.contentAnalyses || 0} content analyses`
         : 'Modeled score from proxy AI-visibility signals',
     };
-  }, [data.aiVisibilityModule?.metadata?.sampleSize, data.aiVisibilityModule?.score?.value, data.rankingSummary, data.serpModule?.snapshots, data.serpModule?.table, data.trackedKeywords.length, filteredRankings, filteredSerpHistory.length, filteredSiteAudits]);
+  }, [
+    data.aiVisibilityModule?.metadata?.sampleSize,
+    data.aiVisibilityModule?.score?.value,
+    data.rankingSummary,
+    data.serpModule?.snapshots,
+    data.serpModule?.table,
+    data.trackedKeywords.length,
+    data.trafficModule?.available,
+    data.trafficModule?.summary,
+    filteredRankings,
+    filteredSerpHistory.length,
+    filteredSiteAudits,
+  ]);
 
   const allKpisEmpty = useMemo(() => (
     kpiValues.aiVisibilityScore == null
     && kpiValues.siteHealthScore == null
-    && kpiValues.estimatedTraffic == null
+    && kpiValues.organicTrafficValue == null
     && kpiValues.organicKeywordsValue == null
     && kpiValues.backlinksValue == null
     && kpiValues.serpCoverageValue == null
@@ -380,9 +413,9 @@ export default function Dashboard() {
           />
           <KpiCard
             title="Organic Traffic"
-            value={kpiValues.estimatedTraffic != null ? kpiValues.estimatedTraffic.toLocaleString() : null}
+            value={kpiValues.organicTrafficValue != null ? kpiValues.organicTrafficValue.toLocaleString() : null}
             subtitle={kpiValues.trafficSubtitle}
-            badge="Estimated"
+            badge={kpiValues.organicTrafficBadge}
             isLoading={loading}
             error={cardErrors.organicTraffic}
             emptyMessage="No ranking data to estimate traffic."

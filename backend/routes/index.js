@@ -11,6 +11,7 @@ const aiProvidersRouter = require('./aiProviders');
 const gscProvidersRouter = require('./gscProviders');
 const websitesRouter = require('./websites');
 const dashboardRouter = require('./dashboard');
+const aiSerpRouter = require('./aiSerp');
 const searchRouter = require('./search');
 const localSerpAgentRouter = require('./localSerpAgent');
 
@@ -24,6 +25,7 @@ router.use('/ai-providers', aiProvidersRouter);
 router.use('/gsc-providers', gscProvidersRouter);
 router.use('/websites', websitesRouter);
 router.use('/dashboard', dashboardRouter);
+router.use('/ai-serp', aiSerpRouter);
 router.use('/search', searchRouter);
 router.use('/local-serp-agent', localSerpAgentRouter);
 

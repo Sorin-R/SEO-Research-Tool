@@ -172,6 +172,49 @@ CREATE TABLE IF NOT EXISTS serp_analysis_history (
 ) ENGINE=InnoDB;
 
 -- --------------------------------------------------------
+-- AI SERP run history (workspace + website scoped)
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ai_serp_runs (
+  id                INT AUTO_INCREMENT PRIMARY KEY,
+  website_id        INT           DEFAULT NULL,
+  engine            ENUM('google','bing') NOT NULL DEFAULT 'google',
+  search_domain     VARCHAR(64)   NOT NULL,
+  country           CHAR(2)       NOT NULL DEFAULT 'US',
+  location          VARCHAR(128)  DEFAULT NULL,
+  keyword_count     INT           NOT NULL DEFAULT 0,
+  total_citations   INT           NOT NULL DEFAULT 0,
+  my_citations      INT           NOT NULL DEFAULT 0,
+  average_best_rank DECIMAL(6,2)  DEFAULT NULL,
+  result            JSON          DEFAULT NULL,
+  created_at        TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+  updated_at        TIMESTAMP     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_ai_serp_runs_scope (website_id, country, created_at),
+  CONSTRAINT fk_ai_serp_runs_website FOREIGN KEY (website_id) REFERENCES websites(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- --------------------------------------------------------
+-- AI SERP citations extracted per run
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ai_serp_mentions (
+  id               INT AUTO_INCREMENT PRIMARY KEY,
+  run_id           INT           NOT NULL,
+  website_id       INT           DEFAULT NULL,
+  keyword          VARCHAR(500)  NOT NULL,
+  result_position  INT           DEFAULT NULL,
+  cited_title      VARCHAR(1000) DEFAULT NULL,
+  cited_url        VARCHAR(2048) DEFAULT NULL,
+  cited_domain     VARCHAR(255)  DEFAULT NULL,
+  appears_on_site  TINYINT(1)    NOT NULL DEFAULT 0,
+  fetched_at       TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+  created_at       TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+  updated_at       TIMESTAMP     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_ai_serp_mentions_scope (website_id, keyword(255), fetched_at),
+  INDEX idx_ai_serp_mentions_run (run_id),
+  CONSTRAINT fk_ai_serp_mentions_run FOREIGN KEY (run_id) REFERENCES ai_serp_runs(id) ON DELETE CASCADE,
+  CONSTRAINT fk_ai_serp_mentions_website FOREIGN KEY (website_id) REFERENCES websites(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- --------------------------------------------------------
 -- Saved Google Ads keyword research history
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS google_ads_keyword_history (

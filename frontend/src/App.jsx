@@ -5,6 +5,7 @@ import KeywordResearch from './pages/KeywordResearch';
 import GoogleAdsKeywordResearch from './pages/GoogleAdsKeywordResearch';
 import SERPAnalyzer from './pages/SERPAnalyzer';
 import SimpleSerpSearch from './pages/SimpleSerpSearch';
+import AiSerpWorkspace from './pages/AiSerpWorkspace';
 import ContentAnalyzer from './pages/ContentAnalyzer';
 import GoogleTrends from './pages/GoogleTrends';
 import RankTracker from './pages/RankTracker';
@@ -28,6 +29,7 @@ export default function App() {
           <Route path="/google-ads" element={<GoogleAdsKeywordResearch />} />
           <Route path="/serp" element={<SERPAnalyzer />} />
           <Route path="/search" element={<SimpleSerpSearch />} />
+          <Route path="/ai-serp" element={<AiSerpWorkspace />} />
           <Route path="/analyze" element={<ContentAnalyzer />} />
           <Route path="/trends" element={<GoogleTrends />} />
           <Route path="/rank-tracker" element={<RankTracker />} />

@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { to: '/google-ads', label: 'Google Ads Keywords', icon: '💰' },
   { to: '/serp', label: 'SERP Analyzer', icon: '🔍' },
   { to: '/search', label: 'SERP Search MVP', icon: '🧭' },
+  { to: '/ai-serp', label: 'AI SERP Workspace', icon: '🧠' },
   { to: '/analyze', label: 'Content Analyzer', icon: '📝' },
   { to: '/site-audit', label: 'Site Audit', icon: '🩺' },
   { to: '/trends', label: 'Google Trends', icon: '📈' },

@@ -110,6 +110,8 @@ function createEmptyState() {
     keywordResearchHistory: [],
     keywordLists: [],
     serpAnalysisHistory: [],
+    aiSerpRuns: [],
+    aiSerpMentions: [],
     googleAdsKeywordHistory: [],
     contentAnalysisHistory: [],
     siteAuditHistory: [],
@@ -238,6 +240,12 @@ function normalizeState(parsed) {
       : [],
     serpAnalysisHistory: Array.isArray(parsed?.serpAnalysisHistory)
       ? parsed.serpAnalysisHistory
+      : [],
+    aiSerpRuns: Array.isArray(parsed?.aiSerpRuns)
+      ? parsed.aiSerpRuns
+      : [],
+    aiSerpMentions: Array.isArray(parsed?.aiSerpMentions)
+      ? parsed.aiSerpMentions
       : [],
     googleAdsKeywordHistory: Array.isArray(parsed?.googleAdsKeywordHistory)
       ? parsed.googleAdsKeywordHistory
@@ -806,6 +814,8 @@ async function deleteWebsite(id) {
   state.websites = state.websites.filter((item) => String(item.id) !== String(id));
   state.keywords = state.keywords.filter((item) => String(item.website_id ?? '') !== String(id));
   state.rankings = state.rankings.filter((item) => String(item.website_id) !== String(id));
+  state.aiSerpRuns = state.aiSerpRuns.filter((item) => String(item.website_id ?? '') !== String(id));
+  state.aiSerpMentions = state.aiSerpMentions.filter((item) => String(item.website_id ?? '') !== String(id));
   state.keywordResearchHistory = state.keywordResearchHistory.filter((item) => String(item.website_id ?? '') !== String(id));
   state.keywordLists = state.keywordLists.filter((item) => String(item.website_id ?? '') !== String(id));
   state.serpAnalysisHistory = state.serpAnalysisHistory.filter((item) => String(item.website_id ?? '') !== String(id));
@@ -1264,6 +1274,131 @@ async function deleteSerpAnalysisHistoryItem(id) {
   }
 }
 
+async function saveAiSerpRun(payload = {}) {
+  const state = await readState();
+  const timestamp = nowIso();
+  const runId = nextId(state.aiSerpRuns);
+  const mentionsInput = Array.isArray(payload.mentions) ? payload.mentions : [];
+
+  state.aiSerpRuns.push({
+    id: runId,
+    website_id: payload.websiteId != null ? Number(payload.websiteId) : null,
+    engine: String(payload.engine || 'google').toLowerCase(),
+    search_domain: String(payload.searchDomain || '').trim().toLowerCase() || null,
+    country: String(payload.country || 'US').trim().toUpperCase(),
+    location: String(payload.location || '').trim() || null,
+    keyword_count: Number(payload.keywordCount || 0),
+    total_citations: Number(payload.totalCitations || mentionsInput.length),
+    my_citations: Number(payload.myCitations || 0),
+    average_best_rank: payload.averageBestRank != null ? Number(payload.averageBestRank) : null,
+    result: payload.result || null,
+    created_at: timestamp,
+    updated_at: timestamp,
+  });
+
+  for (const mention of mentionsInput) {
+    state.aiSerpMentions.push({
+      id: nextId(state.aiSerpMentions),
+      run_id: runId,
+      website_id: payload.websiteId != null ? Number(payload.websiteId) : null,
+      keyword: String(mention.keyword || '').trim(),
+      result_position: mention.resultPosition != null ? Number(mention.resultPosition) : null,
+      cited_title: String(mention.citedTitle || '').trim() || null,
+      cited_url: String(mention.citedUrl || '').trim() || null,
+      cited_domain: String(mention.citedDomain || '').trim() || null,
+      appears_on_site: mention.appearsOnSite ? 1 : 0,
+      fetched_at: mention.fetchedAt || timestamp,
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+  }
+
+  await writeState(state);
+  return runId;
+}
+
+async function getAiSerpRuns(websiteId = null, limit = 20) {
+  const state = await readState();
+  const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 100);
+
+  return state.aiSerpRuns
+    .filter((item) => (
+      websiteId == null
+        ? true
+        : String(item.website_id ?? '') === String(websiteId)
+    ))
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .slice(0, safeLimit)
+    .map((item) => ({
+      id: item.id,
+      website_id: item.website_id,
+      engine: item.engine,
+      search_domain: item.search_domain,
+      country: item.country,
+      location: item.location,
+      keyword_count: item.keyword_count,
+      total_citations: item.total_citations,
+      my_citations: item.my_citations,
+      average_best_rank: item.average_best_rank,
+      created_at: item.created_at,
+      updated_at: item.updated_at,
+      citation_share: item.total_citations > 0
+        ? Number(item.my_citations || 0) / Number(item.total_citations || 1)
+        : 0,
+    }));
+}
+
+async function getAiSerpRunById(id, websiteId = null) {
+  const state = await readState();
+  const run = state.aiSerpRuns.find((item) => (
+    String(item.id) === String(id)
+    && (websiteId == null || String(item.website_id ?? '') === String(websiteId))
+  ));
+
+  if (!run) {
+    return null;
+  }
+
+  const mentions = state.aiSerpMentions
+    .filter((item) => String(item.run_id) === String(run.id))
+    .sort((a, b) => {
+      const keyA = `${String(a.keyword || '').toLowerCase()}::${Number(a.result_position) || 999}`;
+      const keyB = `${String(b.keyword || '').toLowerCase()}::${Number(b.result_position) || 999}`;
+      return keyA.localeCompare(keyB);
+    });
+
+  return {
+    ...run,
+    mentions,
+    result: run.result || null,
+  };
+}
+
+async function getAiSerpMentions({ websiteId = null, dateFrom = null, dateTo = null } = {}) {
+  const state = await readState();
+
+  return state.aiSerpMentions.filter((item) => {
+    if (websiteId != null && String(item.website_id ?? '') !== String(websiteId)) {
+      return false;
+    }
+
+    const parsed = new Date(item.fetched_at || item.created_at || 0);
+    if (Number.isNaN(parsed.getTime())) {
+      return false;
+    }
+
+    if (dateFrom && parsed < dateFrom) {
+      return false;
+    }
+
+    if (dateTo && parsed > dateTo) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
 async function saveGoogleAdsKeywordHistory(result, maxEntries = 12, websiteId = null) {
   const state = await readState();
   const timestamp = nowIso();
@@ -1563,6 +1698,10 @@ module.exports = {
   getSerpAnalysisHistory,
   getSerpAnalysisHistoryItem,
   deleteSerpAnalysisHistoryItem,
+  saveAiSerpRun,
+  getAiSerpRuns,
+  getAiSerpRunById,
+  getAiSerpMentions,
   saveGoogleAdsKeywordHistory,
   getGoogleAdsKeywordHistory,
   getGoogleAdsKeywordHistoryItem,

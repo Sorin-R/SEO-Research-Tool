@@ -24,7 +24,7 @@ function getSelectedWebsiteIdFromStorage() {
 }
 
 function shouldScopeRequest(url = '') {
-  const scopedPrefixes = ['/keywords', '/serp', '/analyze', '/site-audit', '/google-ads', '/trends', '/dashboard'];
+  const scopedPrefixes = ['/keywords', '/serp', '/analyze', '/site-audit', '/google-ads', '/trends', '/dashboard', '/ai-serp'];
   const excludedPrefixes = ['/websites', '/serp/websites', '/serp/providers', '/serp/schedule', '/serp/jobs'];
   return scopedPrefixes.some((prefix) => url.startsWith(prefix))
     && !excludedPrefixes.some((prefix) => url.startsWith(prefix));
@@ -607,6 +607,50 @@ export async function getDashboardTrafficModule({
       country,
       dateFrom,
       dateTo,
+    },
+  });
+  return data;
+}
+
+// ---- AI SERP workspace ----
+
+export async function runAiSerpWorkspace({
+  websiteId,
+  keywords,
+  engine = 'google',
+  domain = 'com',
+  location = '',
+  verifyUrls = false,
+  maxKeywords = 15,
+}) {
+  const { data } = await api.post('/ai-serp/run', {
+    websiteId,
+    keywords,
+    engine,
+    domain,
+    location,
+    verifyUrls,
+    maxKeywords,
+  }, {
+    timeout: 10 * 60 * 1000,
+  });
+  return data;
+}
+
+export async function getAiSerpHistory(websiteId = null, limit = 20) {
+  const { data } = await api.get('/ai-serp/history', {
+    params: {
+      websiteId: websiteId || undefined,
+      limit,
+    },
+  });
+  return data;
+}
+
+export async function getAiSerpHistoryItem(id, websiteId = null) {
+  const { data } = await api.get(`/ai-serp/history/${id}`, {
+    params: {
+      websiteId: websiteId || undefined,
     },
   });
   return data;

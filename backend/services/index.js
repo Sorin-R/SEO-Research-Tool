@@ -9,6 +9,7 @@ const providerCredentialsService = require('./providerCredentialsService');
 const providerSettingsService = require('./providerSettingsService');
 const aiProviderManager = require('./aiProviderManager');
 const gscProviderManager = require('./gscProviderManager');
+const aiSerpWorkspaceService = require('./aiSerpWorkspaceService');
 
 module.exports = {
   keywordService,
@@ -22,4 +23,5 @@ module.exports = {
   providerSettingsService,
   aiProviderManager,
   gscProviderManager,
+  aiSerpWorkspaceService,
 };

@@ -1283,7 +1283,7 @@ async function saveAiSerpRun(payload = {}) {
   state.aiSerpRuns.push({
     id: runId,
     website_id: payload.websiteId != null ? Number(payload.websiteId) : null,
-    engine: String(payload.engine || 'google').toLowerCase(),
+    engine: String(payload.engine || 'llm').toLowerCase(),
     search_domain: String(payload.searchDomain || '').trim().toLowerCase() || null,
     country: String(payload.country || 'US').trim().toUpperCase(),
     location: String(payload.location || '').trim() || null,
@@ -1301,6 +1301,9 @@ async function saveAiSerpRun(payload = {}) {
       id: nextId(state.aiSerpMentions),
       run_id: runId,
       website_id: payload.websiteId != null ? Number(payload.websiteId) : null,
+      provider_id: String(mention.providerId || '').trim() || null,
+      provider_name: String(mention.providerName || '').trim() || null,
+      provider_model: String(mention.model || '').trim() || null,
       keyword: String(mention.keyword || '').trim(),
       result_position: mention.resultPosition != null ? Number(mention.resultPosition) : null,
       cited_title: String(mention.citedTitle || '').trim() || null,
@@ -1369,7 +1372,12 @@ async function getAiSerpRunById(id, websiteId = null) {
 
   return {
     ...run,
-    mentions,
+    mentions: mentions.map((item) => ({
+      ...item,
+      provider_id: item.provider_id || null,
+      provider_name: item.provider_name || null,
+      provider_model: item.provider_model || null,
+    })),
     result: run.result || null,
   };
 }

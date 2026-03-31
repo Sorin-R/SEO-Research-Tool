@@ -131,7 +131,7 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS ai_serp_runs (
     id INT AUTO_INCREMENT PRIMARY KEY,
     website_id INT NULL,
-    engine ENUM('google', 'bing') NOT NULL DEFAULT 'google',
+    engine ENUM('google', 'bing', 'llm') NOT NULL DEFAULT 'llm',
     search_domain VARCHAR(64) NOT NULL,
     country CHAR(2) NOT NULL DEFAULT 'US',
     location VARCHAR(128) DEFAULT NULL,
@@ -149,6 +149,9 @@ const schemaStatements = [
     id INT AUTO_INCREMENT PRIMARY KEY,
     run_id INT NOT NULL,
     website_id INT NULL,
+    provider_id VARCHAR(64) DEFAULT NULL,
+    provider_name VARCHAR(128) DEFAULT NULL,
+    provider_model VARCHAR(128) DEFAULT NULL,
     keyword VARCHAR(500) NOT NULL,
     result_position INT DEFAULT NULL,
     cited_title VARCHAR(1000) DEFAULT NULL,
@@ -351,6 +354,7 @@ async function ensureSchema() {
   await ensureKeywordWebsiteSchema();
   await ensureRankingsWebsiteSchema();
   await ensureWebsiteScopedHistorySchema();
+  await ensureAiSerpSchema();
   await ensureRankTrackerSettingsSchema();
   await ensureSerpProviderSettingsSchema();
   await ensureSerpProviderCredentialsSchema();
@@ -596,6 +600,35 @@ async function ensureRankTrackerSettingsSchema() {
      SET search_depth = 10
      WHERE search_depth IS NULL OR search_depth NOT IN (10, 20, 50, 100)`
   );
+}
+
+async function ensureAiSerpSchema() {
+  if (await hasColumn('ai_serp_runs', 'engine')) {
+    await pool.query(
+      `ALTER TABLE ai_serp_runs
+       MODIFY COLUMN engine ENUM('google', 'bing', 'llm') NOT NULL DEFAULT 'llm'`
+    );
+  }
+
+  if (await hasColumn('ai_serp_mentions', 'run_id')) {
+    if (!(await hasColumn('ai_serp_mentions', 'provider_id'))) {
+      await pool.query(
+        'ALTER TABLE ai_serp_mentions ADD COLUMN provider_id VARCHAR(64) DEFAULT NULL AFTER website_id'
+      );
+    }
+
+    if (!(await hasColumn('ai_serp_mentions', 'provider_name'))) {
+      await pool.query(
+        'ALTER TABLE ai_serp_mentions ADD COLUMN provider_name VARCHAR(128) DEFAULT NULL AFTER provider_id'
+      );
+    }
+
+    if (!(await hasColumn('ai_serp_mentions', 'provider_model'))) {
+      await pool.query(
+        'ALTER TABLE ai_serp_mentions ADD COLUMN provider_model VARCHAR(128) DEFAULT NULL AFTER provider_name'
+      );
+    }
+  }
 }
 
 async function ensureSerpProviderSettingsSchema() {

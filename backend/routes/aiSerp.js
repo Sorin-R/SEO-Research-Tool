@@ -13,10 +13,8 @@ router.post('/run', async (req, res) => {
     const result = await aiSerpWorkspaceService.runAiSerpWorkspaceScan({
       websiteId: normalizeWebsiteId(req.body?.websiteId),
       keywords: req.body?.keywords || [],
-      engine: req.body?.engine,
-      domain: req.body?.domain,
+      providers: req.body?.providers || [],
       location: req.body?.location,
-      verifyUrls: req.body?.verifyUrls,
       maxKeywords: req.body?.maxKeywords,
     });
 

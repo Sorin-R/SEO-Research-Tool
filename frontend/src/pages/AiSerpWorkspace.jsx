@@ -4,6 +4,12 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import { useWebsiteContext } from '../context/WebsiteContext';
 import { getAiSerpHistory, getAiSerpHistoryItem, runAiSerpWorkspace } from '../services/api';
 
+const LLM_PROVIDER_OPTIONS = [
+  { id: 'openai', label: 'ChatGPT (OpenAI)' },
+  { id: 'gemini', label: 'Gemini (Google)' },
+  { id: 'grok', label: 'Grok (xAI)' },
+];
+
 function splitKeywords(value) {
   return String(value || '')
     .split(/\n|,/g)
@@ -20,11 +26,9 @@ export default function AiSerpWorkspace() {
   const { selectedWebsiteId, selectedWebsite } = useWebsiteContext();
 
   const [keywordsInput, setKeywordsInput] = useState('');
-  const [engine, setEngine] = useState('google');
-  const [domain, setDomain] = useState('co.uk');
+  const [providers, setProviders] = useState(['openai', 'gemini', 'grok']);
   const [location, setLocation] = useState('');
   const [maxKeywords, setMaxKeywords] = useState(15);
-  const [verifyUrls, setVerifyUrls] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -97,10 +101,8 @@ export default function AiSerpWorkspace() {
       const payload = await runAiSerpWorkspace({
         websiteId: selectedWebsiteId,
         keywords: splitKeywords(keywordsInput),
-        engine,
-        domain,
+        providers,
         location,
-        verifyUrls,
         maxKeywords,
       });
 
@@ -133,7 +135,7 @@ export default function AiSerpWorkspace() {
       <div>
         <h2 className="text-2xl font-bold text-gray-900 mb-1">AI SERP Workspace</h2>
         <p className="text-sm text-gray-500">
-          Run AI SERP citations across multiple keywords and track citation share for the selected website.
+          Run LLM ranking/citation scans across ChatGPT, Gemini, and Grok for the selected website.
         </p>
       </div>
 
@@ -144,27 +146,7 @@ export default function AiSerpWorkspace() {
       ) : null}
 
       <form onSubmit={handleRun} className="rounded-lg border border-gray-200 bg-white p-5 space-y-4">
-        <div className="grid gap-3 md:grid-cols-4">
-          <select
-            value={engine}
-            onChange={(event) => setEngine(event.target.value)}
-            className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none"
-            disabled={loading}
-          >
-            <option value="google">Google</option>
-            <option value="bing">Bing</option>
-          </select>
-
-          <select
-            value={domain}
-            onChange={(event) => setDomain(event.target.value)}
-            className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none"
-            disabled={loading}
-          >
-            <option value="co.uk">co.uk</option>
-            <option value="com">com</option>
-          </select>
-
+        <div className="grid gap-3 md:grid-cols-2">
           <input
             type="text"
             value={location}
@@ -173,7 +155,6 @@ export default function AiSerpWorkspace() {
             className="rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none"
             disabled={loading}
           />
-
           <input
             type="number"
             min={1}
@@ -183,6 +164,29 @@ export default function AiSerpWorkspace() {
             className="rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none"
             disabled={loading}
           />
+        </div>
+
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-gray-500 mb-2">LLM providers</p>
+          <div className="grid gap-2 md:grid-cols-3">
+            {LLM_PROVIDER_OPTIONS.map((option) => (
+              <label key={option.id} className="flex items-center gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={providers.includes(option.id)}
+                  onChange={(event) => {
+                    if (event.target.checked) {
+                      setProviders((current) => [...new Set([...current, option.id])]);
+                    } else {
+                      setProviders((current) => current.filter((item) => item !== option.id));
+                    }
+                  }}
+                  disabled={loading}
+                />
+                {option.label}
+              </label>
+            ))}
+          </div>
         </div>
 
         <textarea
@@ -195,22 +199,16 @@ export default function AiSerpWorkspace() {
         />
 
         <div className="flex items-center justify-between">
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              checked={verifyUrls}
-              onChange={(event) => setVerifyUrls(event.target.checked)}
-              disabled={loading}
-            />
-            Verify redirect destinations
-          </label>
+          <p className="text-xs text-gray-500">
+            Leave keywords empty to run against tracked keywords for {selectedWebsite?.domain || 'selected site'}.
+          </p>
 
           <button
             type="submit"
-            disabled={loading || !canRun}
+            disabled={loading || !canRun || providers.length === 0}
             className="rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
           >
-            {loading ? 'Running AI SERP...' : 'Run AI SERP Scan'}
+            {loading ? 'Running LLM Scan...' : 'Run LLM Ranking Scan'}
           </button>
         </div>
       </form>
@@ -220,7 +218,7 @@ export default function AiSerpWorkspace() {
       {runSummary ? (
         <div className="grid gap-4 md:grid-cols-4">
           <MetricCard title="Citation Share" value={runSummary.citationShare} subtitle={`${runSummary.myCitations} / ${runSummary.totalCitations} citations`} />
-          <MetricCard title="Prompts With Mentions" value={String(runSummary.promptsWithMentions)} subtitle={`${runSummary.processed} prompts processed`} />
+          <MetricCard title="Prompts With Mentions" value={String(runSummary.promptsWithMentions)} subtitle={`${runSummary.processed} provider-prompts processed`} />
           <MetricCard title="Average Best Rank" value={String(runSummary.averageBestRank)} subtitle="Across prompts with mentions" />
           <MetricCard title="Failed Prompts" value={String(runSummary.failed)} subtitle={`Run keywords: ${runSummary.keywords}`} />
         </div>
@@ -232,12 +230,45 @@ export default function AiSerpWorkspace() {
         </div>
       ) : null}
 
+      {result?.providersUsed?.length ? (
+        <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
+          <div className="border-b border-gray-200 px-4 py-3">
+            <h3 className="text-sm font-semibold text-gray-900">Provider Summary</h3>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 text-sm">
+              <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+                <tr>
+                  <th className="px-4 py-3 text-left">Provider</th>
+                  <th className="px-4 py-3 text-left">Model</th>
+                  <th className="px-4 py-3 text-left">Prompts</th>
+                  <th className="px-4 py-3 text-left">My/Total Citations</th>
+                  <th className="px-4 py-3 text-left">Citation Share</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {result.providersUsed.map((item) => (
+                  <tr key={`${item.providerId}-${item.model || ''}`}>
+                    <td className="px-4 py-3 text-gray-900">{item.providerName || item.providerId}</td>
+                    <td className="px-4 py-3 text-gray-700">{item.model || 'N/A'}</td>
+                    <td className="px-4 py-3 text-gray-700">{item.prompts}</td>
+                    <td className="px-4 py-3 text-gray-700">{item.myCitations} / {item.citations}</td>
+                    <td className="px-4 py-3 text-gray-700">{formatPercent(item.citationShare)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
+
       {result?.keywordReports?.length ? (
         <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
           <div className="border-b border-gray-200 px-4 py-3">
             <h3 className="text-sm font-semibold text-gray-900">Keyword Citation Results</h3>
             <p className="mt-1 text-xs text-gray-500">
-              Website: {selectedWebsite?.domain || 'N/A'} · Provider mode: AI SERP
+              Website: {selectedWebsite?.domain || 'N/A'} · Mode: LLM ranking by provider
             </p>
           </div>
 
@@ -245,6 +276,7 @@ export default function AiSerpWorkspace() {
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
                 <tr>
+                  <th className="px-4 py-3 text-left">Provider</th>
                   <th className="px-4 py-3 text-left">Keyword</th>
                   <th className="px-4 py-3 text-left">Best Rank</th>
                   <th className="px-4 py-3 text-left">My Citations</th>
@@ -254,7 +286,10 @@ export default function AiSerpWorkspace() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {result.keywordReports.map((item) => (
-                  <tr key={item.keyword}>
+                  <tr key={`${item.providerId || 'provider'}-${item.keyword}`}>
+                    <td className="px-4 py-3 text-gray-700">
+                      {item.providerName || item.providerId || 'N/A'}
+                    </td>
                     <td className="px-4 py-3 text-gray-900">{item.keyword}</td>
                     <td className="px-4 py-3 text-gray-700">{item.bestCitationRank ?? 'N/A'}</td>
                     <td className="px-4 py-3 text-gray-700">{item.myCitations} / {item.citations}</td>
@@ -286,7 +321,7 @@ export default function AiSerpWorkspace() {
               <li key={item.id} className="flex items-center justify-between gap-3 py-3">
                 <div>
                   <p className="text-sm font-medium text-gray-900">
-                    {item.engine}.{String(item.search_domain || '').split('.').slice(1).join('.')} · {item.country}
+                    {item.search_domain || 'llm-ranking'} · {item.country}
                   </p>
                   <p className="text-xs text-gray-500">
                     {item.keyword_count} keywords · {item.my_citations}/{item.total_citations} citations · {new Date(item.created_at).toLocaleString()}

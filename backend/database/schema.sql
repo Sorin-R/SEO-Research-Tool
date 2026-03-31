@@ -177,7 +177,7 @@ CREATE TABLE IF NOT EXISTS serp_analysis_history (
 CREATE TABLE IF NOT EXISTS ai_serp_runs (
   id                INT AUTO_INCREMENT PRIMARY KEY,
   website_id        INT           DEFAULT NULL,
-  engine            ENUM('google','bing') NOT NULL DEFAULT 'google',
+  engine            ENUM('google','bing','llm') NOT NULL DEFAULT 'llm',
   search_domain     VARCHAR(64)   NOT NULL,
   country           CHAR(2)       NOT NULL DEFAULT 'US',
   location          VARCHAR(128)  DEFAULT NULL,
@@ -199,6 +199,9 @@ CREATE TABLE IF NOT EXISTS ai_serp_mentions (
   id               INT AUTO_INCREMENT PRIMARY KEY,
   run_id           INT           NOT NULL,
   website_id       INT           DEFAULT NULL,
+  provider_id      VARCHAR(64)   DEFAULT NULL,
+  provider_name    VARCHAR(128)  DEFAULT NULL,
+  provider_model   VARCHAR(128)  DEFAULT NULL,
   keyword          VARCHAR(500)  NOT NULL,
   result_position  INT           DEFAULT NULL,
   cited_title      VARCHAR(1000) DEFAULT NULL,

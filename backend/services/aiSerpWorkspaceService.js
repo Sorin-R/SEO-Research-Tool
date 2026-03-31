@@ -2,8 +2,7 @@ const db = require('../database');
 const localStore = require('../utils/localStore');
 const websiteService = require('./websiteService');
 const keywordService = require('./keywordService');
-const { runSearch } = require('../search/searchService');
-const { normalizeEngine, normalizeDomain } = require('../search/config');
+const { runLlmSerpForProviders, SUPPORTED_LLM_PROVIDER_IDS } = require('./llmSerpProviderService');
 
 const MAX_KEYWORDS_PER_RUN = 25;
 
@@ -103,7 +102,7 @@ function createSiteMatcher(website) {
   };
 }
 
-function summarizeKeywordResult(keyword, results, matchSite) {
+function summarizeKeywordResult(keyword, results, matchSite, provider = {}) {
   const normalizedResults = Array.isArray(results) ? results : [];
   const mentions = normalizedResults.map((item) => {
     const position = Number.parseInt(item?.position, 10);
@@ -118,6 +117,9 @@ function summarizeKeywordResult(keyword, results, matchSite) {
       citedUrl,
       citedDomain,
       appearsOnSite,
+      providerId: provider.providerId || null,
+      providerName: provider.providerName || null,
+      model: provider.model || null,
       fetchedAt: new Date().toISOString(),
     };
   });
@@ -133,6 +135,9 @@ function summarizeKeywordResult(keyword, results, matchSite) {
 
   return {
     keyword,
+    providerId: provider.providerId || null,
+    providerName: provider.providerName || null,
+    model: provider.model || null,
     citations: mentions.length,
     myCitations: myMentions.length,
     citationShare: mentions.length > 0 ? Number((myMentions.length / mentions.length).toFixed(4)) : 0,
@@ -144,6 +149,9 @@ function summarizeKeywordResult(keyword, results, matchSite) {
       url: item.citedUrl,
       domain: item.citedDomain,
       appearsOnSite: item.appearsOnSite,
+      providerId: item.providerId,
+      providerName: item.providerName,
+      model: item.model,
     })),
     mentions,
   };
@@ -188,11 +196,15 @@ async function saveRunRecord(payload, mentions) {
     for (const mention of mentions) {
       await db.query(
         `INSERT INTO ai_serp_mentions (
-           run_id, website_id, keyword, result_position, cited_title, cited_url, cited_domain, appears_on_site, fetched_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           run_id, website_id, provider_id, provider_name, provider_model,
+           keyword, result_position, cited_title, cited_url, cited_domain, appears_on_site, fetched_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           runId,
           payload.websiteId,
+          mention.providerId || null,
+          mention.providerName || null,
+          mention.model || null,
           mention.keyword,
           mention.resultPosition,
           mention.citedTitle || null,
@@ -260,7 +272,8 @@ async function getHistoryItem(id, websiteId = null) {
     }
 
     const mentions = await db.query(
-      `SELECT id, run_id, website_id, keyword, result_position, cited_title, cited_url, cited_domain, appears_on_site, fetched_at
+      `SELECT id, run_id, website_id, provider_id, provider_name, provider_model,
+        keyword, result_position, cited_title, cited_url, cited_domain, appears_on_site, fetched_at
        FROM ai_serp_mentions
        WHERE run_id = ?
        ORDER BY keyword ASC, result_position ASC`,
@@ -290,25 +303,13 @@ async function getHistoryItem(id, websiteId = null) {
 async function runAiSerpWorkspaceScan({
   websiteId,
   keywords = [],
-  engine = 'google',
-  domain = 'com',
+  providers = [],
   location = '',
-  verifyUrls = false,
   maxKeywords = 15,
 }) {
   const normalizedWebsiteId = normalizeWebsiteId(websiteId);
   if (!normalizedWebsiteId) {
     throw createServiceError('websiteId is required.');
-  }
-
-  const normalizedEngine = normalizeEngine(engine);
-  if (!normalizedEngine) {
-    throw createServiceError('engine must be "google" or "bing".');
-  }
-
-  const normalizedDomain = normalizeDomain(domain);
-  if (!normalizedDomain) {
-    throw createServiceError('domain must be "com" or "co.uk".');
   }
 
   const website = await websiteService.getWebsiteById(normalizedWebsiteId);
@@ -338,25 +339,48 @@ async function runAiSerpWorkspaceScan({
   const keywordReports = [];
   const allMentions = [];
   const failedKeywords = [];
+  const selectedProviders = Array.isArray(providers)
+    ? providers.map((item) => String(item || '').trim().toLowerCase()).filter(Boolean)
+    : [];
+  const providerIds = selectedProviders.length > 0
+    ? [...new Set(selectedProviders)]
+    : [...SUPPORTED_LLM_PROVIDER_IDS];
 
   for (const keyword of workingKeywords) {
     try {
-      const searchResult = await runSearch({
+      const providerPayload = await runLlmSerpForProviders({
         keyword,
-        engine: normalizedEngine,
-        domain: normalizedDomain,
+        country: website.country || 'US',
         location: String(location || '').trim(),
-        aiMode: true,
-        verifyUrls: Boolean(verifyUrls),
-        debug: false,
+        maxResults: 10,
+        providerIds,
       });
+      const providerRuns = Array.isArray(providerPayload?.runs) ? providerPayload.runs : [];
+      const providerFailures = Array.isArray(providerPayload?.failures) ? providerPayload.failures : [];
 
-      const report = summarizeKeywordResult(keyword, searchResult.results || [], matchSite);
-      keywordReports.push(report);
-      allMentions.push(...report.mentions);
+      for (const providerRun of providerRuns) {
+        const report = summarizeKeywordResult(
+          keyword,
+          providerRun.results || [],
+          matchSite,
+          {
+            providerId: providerRun.providerId,
+            providerName: providerRun.providerName,
+            model: providerRun.model,
+          }
+        );
+        keywordReports.push(report);
+        allMentions.push(...report.mentions);
+      }
+      failedKeywords.push(...providerFailures.map((entry) => ({
+        keyword: entry.keyword,
+        provider: entry.providerId,
+        error: entry.error,
+      })));
     } catch (err) {
       failedKeywords.push({
         keyword,
+        provider: 'multi',
         error: err?.message || 'AI SERP request failed.',
       });
     }
@@ -371,14 +395,40 @@ async function runAiSerpWorkspaceScan({
   const averageBestRank = bestRanks.length
     ? Number((bestRanks.reduce((sum, value) => sum + value, 0) / bestRanks.length).toFixed(2))
     : null;
+  const providersUsedMap = new Map();
+  for (const report of keywordReports) {
+    const providerId = String(report.providerId || '').trim();
+    if (!providerId) continue;
+    if (!providersUsedMap.has(providerId)) {
+      providersUsedMap.set(providerId, {
+        providerId,
+        providerName: report.providerName || providerId,
+        model: report.model || null,
+        prompts: 0,
+        citations: 0,
+        myCitations: 0,
+      });
+    }
+    const entry = providersUsedMap.get(providerId);
+    entry.prompts += 1;
+    entry.citations += Number(report.citations || 0);
+    entry.myCitations += Number(report.myCitations || 0);
+  }
+  const providerSummary = [...providersUsedMap.values()].map((item) => ({
+    ...item,
+    citationShare: item.citations > 0 ? Number((item.myCitations / item.citations).toFixed(4)) : 0,
+  }));
 
   const responsePayload = {
     websiteId: normalizedWebsiteId,
     websiteDomain: website.domain,
-    engine: normalizedEngine,
-    searchDomain: `${normalizedEngine}.${normalizedDomain}`,
-    country: website.country || (normalizedDomain === 'co.uk' ? 'GB' : 'US'),
+    mode: 'llm-ranking',
+    engine: 'llm',
+    searchDomain: 'llm-ranking',
+    country: website.country || 'US',
     location: String(location || '').trim() || null,
+    providers: providerIds,
+    providersUsed: providerSummary,
     generatedAt: new Date().toISOString(),
     keywordCount: workingKeywords.length,
     processedKeywords: keywordReports.length,

@@ -617,19 +617,15 @@ export async function getDashboardTrafficModule({
 export async function runAiSerpWorkspace({
   websiteId,
   keywords,
-  engine = 'google',
-  domain = 'com',
+  providers = [],
   location = '',
-  verifyUrls = false,
   maxKeywords = 15,
 }) {
   const { data } = await api.post('/ai-serp/run', {
     websiteId,
     keywords,
-    engine,
-    domain,
+    providers,
     location,
-    verifyUrls,
     maxKeywords,
   }, {
     timeout: 10 * 60 * 1000,

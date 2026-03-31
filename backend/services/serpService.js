@@ -4,6 +4,7 @@ const { calculateDifficulty } = require('../analyzers/keywordDifficulty');
 const { fetchSERPResults } = require('../scrapers/googleSERP');
 const { serpApiManager } = require('../scrapers');
 const { analyzeSERPWithAI } = require('./aiSerpService');
+const keywordService = require('./keywordService');
 const localStore = require('../utils/localStore');
 const { getCountryConfig, normalizeCountryCode } = require('../utils/searchCountry');
 
@@ -783,7 +784,7 @@ async function syncTrackedRankingsFromResults(keyword, results, country = 'US') 
 }
 
 async function exportRankings(websiteId, format = 'json') {
-  const rankings = await getLatestRankings(websiteId);
+  const rankings = await getExportRows(websiteId);
   if (format === 'csv') {
     const header = 'Keyword,Position,Previous Position,Change,URL,Date,Website';
     const rows = rankings.map((r) => {
@@ -803,6 +804,56 @@ async function exportRankings(websiteId, format = 'json') {
     return [header, ...rows].join('\n');
   }
   return rankings;
+}
+
+async function getExportRows(websiteId) {
+  const normalizedWebsiteId = normalizeWebsiteId(websiteId);
+  const [trackedKeywords, latestRankings] = await Promise.all([
+    keywordService.getTrackedKeywords(normalizedWebsiteId),
+    getLatestRankings(normalizedWebsiteId),
+  ]);
+
+  const latestByKeywordId = new Map(
+    (Array.isArray(latestRankings) ? latestRankings : [])
+      .filter((row) => row?.keyword_id != null)
+      .map((row) => [String(row.keyword_id), row])
+  );
+
+  let selectedWebsite = null;
+  if (normalizedWebsiteId != null) {
+    selectedWebsite = await getWebsiteByIdForMatching(normalizedWebsiteId);
+  }
+
+  const rows = (Array.isArray(trackedKeywords) ? trackedKeywords : []).map((keywordRow) => {
+    const latest = latestByKeywordId.get(String(keywordRow.id));
+    const resolvedWebsiteId = latest?.website_id ?? keywordRow.website_id ?? null;
+    const resolvedWebsiteDomain = latest?.website_domain
+      || (normalizedWebsiteId != null ? selectedWebsite?.domain || '' : '');
+
+    return {
+      id: latest?.id ?? null,
+      keyword_id: keywordRow.id,
+      website_id: resolvedWebsiteId,
+      keyword: keywordRow.keyword,
+      position: latest?.position ?? null,
+      previous_position: latest?.previous_position ?? null,
+      url: latest?.url ?? null,
+      title: latest?.title ?? null,
+      date: latest?.date ?? null,
+      created_at: latest?.created_at ?? keywordRow.created_at ?? null,
+      website_name: latest?.website_name ?? selectedWebsite?.name ?? null,
+      website_domain: resolvedWebsiteDomain,
+    };
+  });
+
+  return rows.sort((left, right) => {
+    const leftDomain = String(left.website_domain || '');
+    const rightDomain = String(right.website_domain || '');
+    if (leftDomain !== rightDomain) {
+      return leftDomain.localeCompare(rightDomain);
+    }
+    return String(left.keyword || '').localeCompare(String(right.keyword || ''));
+  });
 }
 
 async function getRankingTrendsSummary(websiteId) {

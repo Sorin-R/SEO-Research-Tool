@@ -235,7 +235,7 @@ export default function RankTracker() {
     setError(null);
     try {
       const [trackedKeywords, trackedWebsites, trackedSchedule] = await Promise.all([
-        getTrackedKeywords(),
+        getTrackedKeywords('all'),
         getTrackedWebsites(),
         getRankTrackerSchedule(),
       ]);
@@ -563,6 +563,18 @@ export default function RankTracker() {
     const f = keywordFilter.trim().toLowerCase();
     return keywordsWithRank.filter((kw) => kw.keyword.toLowerCase().includes(f));
   }, [keywordsWithRank, keywordFilter]);
+
+  useEffect(() => {
+    if (!selectedId || !selectedWebsiteId) {
+      return;
+    }
+
+    const existsInSelectedWebsite = keywordsWithRank.some((item) => String(item.id) === String(selectedId));
+    if (!existsInSelectedWebsite) {
+      setSelectedId(null);
+      setHistory([]);
+    }
+  }, [keywordsWithRank, selectedId, selectedWebsiteId]);
 
   function handleSelectAllKeywords() {
     if (selectedKeywordIds.size === filteredKeywords.length) setSelectedKeywordIds(new Set());

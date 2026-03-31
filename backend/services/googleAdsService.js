@@ -16,6 +16,14 @@ const MAX_HISTORY_ENTRIES = 12;
 let client = null;
 let customer = null;
 
+function normalizeWebsiteId(value) {
+  if (value == null || value === '') {
+    return null;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 /**
  * Initialize the Google Ads client.
  * Requires environment variables:
@@ -91,7 +99,9 @@ async function generateKeywordIdeas(keyword, options = {}) {
     country = 'US',
     countryName = 'United States',
     bypassCache = false,
+    websiteId = null,
   } = options;
+  const normalizedWebsiteId = normalizeWebsiteId(websiteId);
   const cacheKey = `keyword_ideas_${String(country || 'US').toUpperCase()}_${languageId}_${locationId}_${keyword.toLowerCase()}`;
 
   // Check cache first
@@ -130,23 +140,30 @@ async function generateKeywordIdeas(keyword, options = {}) {
 
     // Parse and format the results
     const ideas = rawIdeas
-      .map((idea) => ({
-        keyword: idea.text,
-        avgMonthlySearches: parseIntegerMetric(idea.keyword_idea_metrics?.avg_monthly_searches),
-        competition: normalizeCompetition(
-          idea.keyword_idea_metrics?.competition,
-          idea.keyword_idea_metrics?.competition_index
-        ),
-        cpc: normalizeCpc(idea.keyword_idea_metrics),
-        competitionLevel: normalizeCompetition(
-          idea.keyword_idea_metrics?.competition,
-          idea.keyword_idea_metrics?.competition_index
-        ),
-      }))
+      .map((idea) => {
+        const metrics = idea?.keyword_idea_metrics && typeof idea.keyword_idea_metrics === 'object'
+          ? idea.keyword_idea_metrics
+          : {};
+
+        return {
+          keyword: idea.text,
+          avgMonthlySearches: parseIntegerMetric(metrics.avg_monthly_searches),
+          competition: normalizeCompetition(
+            metrics.competition,
+            metrics.competition_index
+          ),
+          cpc: normalizeCpc(metrics),
+          competitionLevel: normalizeCompetition(
+            metrics.competition,
+            metrics.competition_index
+          ),
+        };
+      })
       .sort((a, b) => b.avgMonthlySearches - a.avgMonthlySearches);
 
     const result = {
       keyword,
+      websiteId: normalizedWebsiteId,
       country: String(country || 'US').toUpperCase(),
       countryName,
       totalIdeas: ideas.length,
@@ -155,7 +172,7 @@ async function generateKeywordIdeas(keyword, options = {}) {
     };
 
     try {
-      const historyId = await persistGoogleAdsKeywordHistory(result);
+      const historyId = await persistGoogleAdsKeywordHistory(result, normalizedWebsiteId);
       if (historyId) {
         result.historyId = historyId;
       }
@@ -234,13 +251,14 @@ function normalizeCompetition(level, index) {
 }
 
 function normalizeCpc(metrics = {}) {
-  const averageCpcMicros = Number.parseInt(metrics.average_cpc_micros, 10);
+  const safeMetrics = metrics && typeof metrics === 'object' ? metrics : {};
+  const averageCpcMicros = Number.parseInt(safeMetrics.average_cpc_micros, 10);
   if (Number.isFinite(averageCpcMicros) && averageCpcMicros > 0) {
     return averageCpcMicros / 1000000;
   }
 
-  const lowTopOfPage = Number.parseInt(metrics.low_top_of_page_bid_micros, 10);
-  const highTopOfPage = Number.parseInt(metrics.high_top_of_page_bid_micros, 10);
+  const lowTopOfPage = Number.parseInt(safeMetrics.low_top_of_page_bid_micros, 10);
+  const highTopOfPage = Number.parseInt(safeMetrics.high_top_of_page_bid_micros, 10);
 
   if (Number.isFinite(lowTopOfPage) && Number.isFinite(highTopOfPage) && lowTopOfPage > 0 && highTopOfPage > 0) {
     return ((lowTopOfPage + highTopOfPage) / 2) / 1000000;
@@ -257,7 +275,7 @@ function normalizeCpc(metrics = {}) {
   return 0;
 }
 
-async function persistGoogleAdsKeywordHistory(result) {
+async function persistGoogleAdsKeywordHistory(result, websiteId = null) {
   const keyword = String(result.keyword || '').trim();
   const country = String(result.country || 'US').trim().toUpperCase();
 
@@ -269,16 +287,17 @@ async function persistGoogleAdsKeywordHistory(result) {
     ...result,
     keyword,
     country,
+    websiteId,
   };
 
   try {
     const existing = await db.query(
       `SELECT id
        FROM google_ads_keyword_history
-       WHERE LOWER(keyword) = LOWER(?) AND country = ?
+       WHERE LOWER(keyword) = LOWER(?) AND country = ? AND website_id <=> ?
        ORDER BY updated_at DESC
        LIMIT 1`,
-      [keyword, country]
+      [keyword, country, websiteId]
     );
 
     let historyId;
@@ -288,9 +307,10 @@ async function persistGoogleAdsKeywordHistory(result) {
 
       await db.query(
         `UPDATE google_ads_keyword_history
-         SET keyword = ?, country = ?, country_name = ?, result = ?, total_ideas = ?, updated_at = CURRENT_TIMESTAMP
+         SET website_id = ?, keyword = ?, country = ?, country_name = ?, result = ?, total_ideas = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
         [
+          websiteId,
           keyword,
           country,
           payload.countryName || country,
@@ -302,14 +322,18 @@ async function persistGoogleAdsKeywordHistory(result) {
 
       await db.query(
         `DELETE FROM google_ads_keyword_history
-         WHERE LOWER(keyword) = LOWER(?) AND country = ? AND id <> ?`,
-        [keyword, country, historyId]
+         WHERE LOWER(keyword) = LOWER(?)
+           AND country = ?
+           AND website_id <=> ?
+           AND id <> ?`,
+        [keyword, country, websiteId, historyId]
       );
     } else {
       const insertResult = await db.query(
-        `INSERT INTO google_ads_keyword_history (keyword, country, country_name, result, total_ideas)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO google_ads_keyword_history (website_id, keyword, country, country_name, result, total_ideas)
+         VALUES (?, ?, ?, ?, ?, ?)`,
         [
+          websiteId,
           keyword,
           country,
           payload.countryName || country,
@@ -335,34 +359,51 @@ async function persistGoogleAdsKeywordHistory(result) {
     return historyId;
   } catch (err) {
     console.warn('[GoogleAdsService] DB unavailable, using local store for saveGoogleAdsKeywordHistory:', err.message);
-    return localStore.saveGoogleAdsKeywordHistory(payload, MAX_HISTORY_ENTRIES);
+    return localStore.saveGoogleAdsKeywordHistory(payload, MAX_HISTORY_ENTRIES, websiteId);
   }
 }
 
-async function getGoogleAdsKeywordHistory(limit = 10) {
+async function getGoogleAdsKeywordHistory(limit = 10, websiteId = null) {
   const safeLimit = clampLimit(limit);
+  const normalizedWebsiteId = normalizeWebsiteId(websiteId);
 
   try {
+    const params = [];
+    let sql = `SELECT id, website_id, keyword, country, country_name, total_ideas, created_at, updated_at
+       FROM google_ads_keyword_history`;
+    if (normalizedWebsiteId != null) {
+      sql += ' WHERE website_id = ?';
+      params.push(normalizedWebsiteId);
+    }
+    sql += ` ORDER BY updated_at DESC
+       LIMIT ${safeLimit}`;
+
     return await db.query(
-      `SELECT id, keyword, country, country_name, total_ideas, created_at, updated_at
-       FROM google_ads_keyword_history
-       ORDER BY updated_at DESC
-       LIMIT ${safeLimit}`
+      sql,
+      params
     );
   } catch (err) {
     console.warn('[GoogleAdsService] DB unavailable, using local store for getGoogleAdsKeywordHistory:', err.message);
-    return localStore.getGoogleAdsKeywordHistory(safeLimit);
+    return localStore.getGoogleAdsKeywordHistory(safeLimit, normalizedWebsiteId);
   }
 }
 
-async function getGoogleAdsKeywordHistoryItem(id) {
+async function getGoogleAdsKeywordHistoryItem(id, websiteId = null) {
+  const normalizedWebsiteId = normalizeWebsiteId(websiteId);
   try {
-    const rows = await db.query(
-      `SELECT id, result, updated_at
+    const params = [id];
+    let sql = `SELECT id, website_id, result, updated_at
        FROM google_ads_keyword_history
-       WHERE id = ?
-       LIMIT 1`,
-      [id]
+       WHERE id = ?`;
+    if (normalizedWebsiteId != null) {
+      sql += ' AND website_id = ?';
+      params.push(normalizedWebsiteId);
+    }
+    sql += ' LIMIT 1';
+
+    const rows = await db.query(
+      sql,
+      params
     );
     const row = rows[0];
 
@@ -377,17 +418,23 @@ async function getGoogleAdsKeywordHistoryItem(id) {
           ...parsedResult,
           historyId: row.id,
           savedAt: row.updated_at,
+          websiteId: row.website_id ?? null,
         }
       : null;
   } catch (err) {
     console.warn('[GoogleAdsService] DB unavailable, using local store for getGoogleAdsKeywordHistoryItem:', err.message);
-    return localStore.getGoogleAdsKeywordHistoryItem(id);
+    return localStore.getGoogleAdsKeywordHistoryItem(id, normalizedWebsiteId);
   }
 }
 
-async function deleteGoogleAdsKeywordHistoryItem(id) {
+async function deleteGoogleAdsKeywordHistoryItem(id, websiteId = null) {
+  const normalizedWebsiteId = normalizeWebsiteId(websiteId);
   try {
-    await db.query('DELETE FROM google_ads_keyword_history WHERE id = ?', [id]);
+    if (normalizedWebsiteId == null) {
+      await db.query('DELETE FROM google_ads_keyword_history WHERE id = ?', [id]);
+    } else {
+      await db.query('DELETE FROM google_ads_keyword_history WHERE id = ? AND website_id = ?', [id, normalizedWebsiteId]);
+    }
   } catch (err) {
     console.warn('[GoogleAdsService] DB unavailable, using local store for deleteGoogleAdsKeywordHistoryItem:', err.message);
     await localStore.deleteGoogleAdsKeywordHistoryItem(id);

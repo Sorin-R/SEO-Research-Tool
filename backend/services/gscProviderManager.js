@@ -316,6 +316,23 @@ async function fetchGoogleAccessToken(credentials) {
   return String(tokenResponse?.data?.access_token || '').trim();
 }
 
+function getGoogleTokenErrorMessage(err) {
+  const apiError = String(err?.response?.data?.error || '').trim();
+  const apiDescription = String(err?.response?.data?.error_description || '').trim();
+  const fallbackMessage = apiDescription || apiError || err?.message || 'Unknown Google token error';
+  const normalized = `${apiError} ${apiDescription}`.toLowerCase();
+
+  if (normalized.includes('invalid_rapt') || normalized.includes('reauth')) {
+    return 'reauth required (invalid_rapt). Refresh token expired or requires re-consent. Generate a new refresh token with access_type=offline and prompt=consent, then save it in GSC Providers.';
+  }
+
+  if (normalized.includes('invalid_grant')) {
+    return 'invalid_grant. Refresh token is invalid/revoked. Generate and save a new refresh token.';
+  }
+
+  return fallbackMessage;
+}
+
 async function toggleProvider(providerId, enabled) {
   const definition = GSC_PROVIDERS.find((provider) => provider.id === providerId);
 
@@ -359,7 +376,7 @@ async function testProviderConnection(providerId, options = {}) {
   try {
     accessToken = await fetchGoogleAccessToken(credentials);
   } catch (err) {
-    const apiMessage = err.response?.data?.error_description || err.response?.data?.error || err.message;
+    const apiMessage = getGoogleTokenErrorMessage(err);
     throw createServiceError(`Google token request failed: ${apiMessage}`, 502);
   }
 
@@ -454,7 +471,7 @@ async function getOrganicTrafficSummary(options = {}) {
   try {
     accessToken = await fetchGoogleAccessToken(credentials);
   } catch (err) {
-    const apiMessage = err.response?.data?.error_description || err.response?.data?.error || err.message;
+    const apiMessage = getGoogleTokenErrorMessage(err);
     throw createServiceError(`Google token request failed: ${apiMessage}`, 502);
   }
 

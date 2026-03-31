@@ -1,7 +1,7 @@
 const axios = require('axios');
 const aiProviderManager = require('./aiProviderManager');
 
-const SUPPORTED_LLM_PROVIDER_IDS = ['openai', 'gemini', 'gemini-vertex', 'grok'];
+const SUPPORTED_LLM_PROVIDER_IDS = ['openai', 'openrouter', 'gemini', 'gemini-vertex', 'grok'];
 const DEFAULT_TIMEOUT_MS = Number.parseInt(process.env.AI_REQUEST_TIMEOUT_MS || '120000', 10);
 
 function createServiceError(message, statusCode = 400) {

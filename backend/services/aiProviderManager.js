@@ -1,17 +1,35 @@
 /**
  * AI Provider Manager
  *
- * Manages multiple AI providers (DeepSeek, ChatGPT, Gemini, Grok, Claude)
+ * Manages multiple AI providers (DeepSeek, ChatGPT, OpenRouter, Gemini, Grok, Claude)
  * with credential management, enable/disable toggles, and status reporting.
  * Follows the same pattern as the SERP provider system.
  */
 
+const axios = require('axios');
 const db = require('../database');
 const localStore = require('../utils/localStore');
 
 // ---------------------------------------------------------------------------
 // Provider Definitions
 // ---------------------------------------------------------------------------
+
+const OPENROUTER_DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
+const OPENROUTER_FALLBACK_FREE_MODELS = [
+  'google/gemma-3-27b-it:free',
+  'google/gemma-3-12b-it:free',
+  'meta-llama/llama-3.3-70b-instruct:free',
+  'deepseek/deepseek-chat-v3-0324:free',
+  'deepseek/deepseek-r1:free',
+  'qwen/qwen2.5-vl-72b-instruct:free',
+];
+const OPENROUTER_MODEL_CACHE_TTL_MS = Number.parseInt(process.env.OPENROUTER_MODEL_CACHE_TTL_MS || '900000', 10);
+const OPENROUTER_MODEL_FETCH_TIMEOUT_MS = Number.parseInt(process.env.OPENROUTER_MODEL_FETCH_TIMEOUT_MS || '5000', 10);
+
+let openRouterFreeModelCache = {
+  models: [...OPENROUTER_FALLBACK_FREE_MODELS],
+  fetchedAt: 0,
+};
 
 const AI_PROVIDERS = [
   {
@@ -75,6 +93,23 @@ const AI_PROVIDERS = [
     ],
     quota: 'Pay-as-you-go',
     quotaType: 'Token-based billing',
+    setupTime: '~2 min',
+  },
+  {
+    id: 'openrouter',
+    name: 'OpenRouter',
+    description: 'Unified OpenAI-compatible gateway with broad model support. Free-tier models are auto-discovered.',
+    docsUrl: 'https://openrouter.ai/docs',
+    baseUrl: OPENROUTER_DEFAULT_BASE_URL,
+    modelEnvKey: 'OPENROUTER_MODEL',
+    models: OPENROUTER_FALLBACK_FREE_MODELS,
+    defaultModel: OPENROUTER_FALLBACK_FREE_MODELS[0],
+    requestMode: 'chat_completions',
+    fields: [
+      { name: 'OPENROUTER_API_KEY', label: 'API Key', envKey: 'OPENROUTER_API_KEY' },
+    ],
+    quota: 'Free models + paid routing',
+    quotaType: 'Per-model usage billing',
     setupTime: '~2 min',
   },
   {
@@ -184,6 +219,110 @@ function createServiceError(message, statusCode = 400) {
   const error = new Error(message);
   error.statusCode = statusCode;
   return error;
+}
+
+function uniqueModelList(models, fallback = []) {
+  const list = Array.isArray(models) ? models : fallback;
+  const seen = new Set();
+  const output = [];
+
+  for (const value of list) {
+    const model = String(value || '').trim();
+    if (!model || seen.has(model)) continue;
+    seen.add(model);
+    output.push(model);
+  }
+
+  return output;
+}
+
+function toPositiveInteger(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function toNumber(value) {
+  if (value == null || value === '') return null;
+  const parsed = Number.parseFloat(String(value));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isOpenRouterModelFree(model) {
+  if (!model || typeof model !== 'object') return false;
+
+  const id = String(model.id || '').trim().toLowerCase();
+  const name = String(model.name || '').trim().toLowerCase();
+  if (id.includes(':free') || name.includes(' free')) {
+    return true;
+  }
+
+  const pricing = model.pricing && typeof model.pricing === 'object'
+    ? model.pricing
+    : {};
+  const numericValues = Object.values(pricing)
+    .map((value) => toNumber(value))
+    .filter((value) => value != null);
+
+  if (numericValues.length === 0) {
+    return false;
+  }
+
+  return numericValues.every((value) => value <= 0);
+}
+
+async function fetchOpenRouterFreeModels(provider, credentialsMap = {}) {
+  const ttlMs = toPositiveInteger(OPENROUTER_MODEL_CACHE_TTL_MS, 900000);
+  if (Date.now() - openRouterFreeModelCache.fetchedAt < ttlMs && openRouterFreeModelCache.models.length > 0) {
+    return [...openRouterFreeModelCache.models];
+  }
+
+  const apiKey = resolveCredentialValue(provider, 'OPENROUTER_API_KEY', credentialsMap).value;
+  const endpoint = `${resolveProviderBaseUrl(provider) || OPENROUTER_DEFAULT_BASE_URL}/models`;
+  const headers = {
+    'Content-Type': 'application/json',
+  };
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+
+  try {
+    const { data } = await axios.get(endpoint, {
+      headers,
+      timeout: toPositiveInteger(OPENROUTER_MODEL_FETCH_TIMEOUT_MS, 5000),
+    });
+
+    const rows = Array.isArray(data?.data) ? data.data : [];
+    const discovered = rows
+      .filter((item) => item && item.archived !== true)
+      .filter((item) => isOpenRouterModelFree(item))
+      .map((item) => String(item.id || '').trim())
+      .filter(Boolean)
+      .sort((left, right) => left.localeCompare(right));
+
+    const models = uniqueModelList(discovered, OPENROUTER_FALLBACK_FREE_MODELS);
+    openRouterFreeModelCache = {
+      models: models.length > 0 ? models : [...OPENROUTER_FALLBACK_FREE_MODELS],
+      fetchedAt: Date.now(),
+    };
+  } catch (err) {
+    console.warn('[AIProviderManager] OpenRouter model discovery failed, using cached/fallback list:', err.message);
+    if (openRouterFreeModelCache.models.length === 0) {
+      openRouterFreeModelCache = {
+        models: [...OPENROUTER_FALLBACK_FREE_MODELS],
+        fetchedAt: Date.now(),
+      };
+    }
+  }
+
+  return [...openRouterFreeModelCache.models];
+}
+
+async function resolveProviderModels(provider, credentialsMap = {}) {
+  if (provider.id === 'openrouter') {
+    return fetchOpenRouterFreeModels(provider, credentialsMap);
+  }
+
+  return uniqueModelList(provider.models);
 }
 
 // ---------------------------------------------------------------------------
@@ -314,6 +453,10 @@ function resolveProviderBaseUrl(provider) {
     return String(process.env.OPENAI_BASE_URL || provider.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '');
   }
 
+  if (provider.id === 'openrouter') {
+    return String(process.env.OPENROUTER_BASE_URL || provider.baseUrl || OPENROUTER_DEFAULT_BASE_URL).replace(/\/+$/, '');
+  }
+
   if (provider.id === 'nvidia') {
     return String(process.env.NVAPI_BASE_URL || provider.baseUrl || 'https://integrate.api.nvidia.com/v1').replace(/\/+$/, '');
   }
@@ -321,9 +464,10 @@ function resolveProviderBaseUrl(provider) {
   return String(provider.baseUrl || '').replace(/\/+$/, '');
 }
 
-function resolveProviderModel(provider, credentialsMap = {}) {
+function resolveProviderModel(provider, credentialsMap = {}, availableModels = []) {
+  const models = uniqueModelList(availableModels, provider.models);
   const savedModel = String(credentialsMap[provider.id]?.MODEL?.value || '').trim();
-  if (savedModel && provider.models.includes(savedModel)) {
+  if (savedModel && (models.length === 0 || models.includes(savedModel))) {
     return {
       model: savedModel,
       source: 'saved',
@@ -331,15 +475,19 @@ function resolveProviderModel(provider, credentialsMap = {}) {
   }
 
   const envModel = provider.modelEnvKey ? String(process.env[provider.modelEnvKey] || '').trim() : '';
-  if (envModel && provider.models.includes(envModel)) {
+  if (envModel && (models.length === 0 || models.includes(envModel))) {
     return {
       model: envModel,
       source: 'env',
     };
   }
 
+  const fallbackModel = models.includes(provider.defaultModel)
+    ? provider.defaultModel
+    : (models[0] || provider.defaultModel);
+
   return {
-    model: String(provider.defaultModel || '').trim(),
+    model: String(fallbackModel || '').trim(),
     source: 'default',
   };
 }
@@ -347,8 +495,10 @@ function resolveProviderModel(provider, credentialsMap = {}) {
 async function getProviderDetails() {
   const credentialsMap = await getAICredentialsMap();
   const settingsMap = await getAISettingsMap();
+  const details = [];
 
-  return AI_PROVIDERS.map((provider) => {
+  for (const provider of AI_PROVIDERS) {
+    const models = await resolveProviderModels(provider, credentialsMap);
     const fields = provider.fields.map((field) => {
       const resolved = resolveCredentialValue(provider, field.name, credentialsMap);
       return {
@@ -363,16 +513,19 @@ async function getProviderDetails() {
     const setting = settingsMap[provider.id];
     const enabled = setting ? setting.is_enabled : true; // default enabled
     const active = configured && enabled;
-    const resolvedModel = resolveProviderModel(provider, credentialsMap);
+    const resolvedModel = resolveProviderModel(provider, credentialsMap, models);
+    const defaultModel = models.includes(provider.defaultModel)
+      ? provider.defaultModel
+      : (models[0] || provider.defaultModel);
 
-    return {
+    details.push({
       id: provider.id,
       name: provider.name,
       description: provider.description,
       docsUrl: provider.docsUrl,
       baseUrl: resolveProviderBaseUrl(provider),
-      models: provider.models,
-      defaultModel: provider.defaultModel,
+      models,
+      defaultModel,
       selectedModel: resolvedModel.model,
       selectedModelSource: resolvedModel.source,
       requestMode: provider.requestMode || 'responses',
@@ -383,8 +536,10 @@ async function getProviderDetails() {
       quota: provider.quota,
       quotaType: provider.quotaType,
       setupTime: provider.setupTime,
-    };
-  });
+    });
+  }
+
+  return details;
 }
 
 async function getStatus() {
@@ -434,7 +589,9 @@ async function updateProviderModel(providerId, model) {
     throw createServiceError('Model is required.');
   }
 
-  if (!definition.models.includes(normalizedModel)) {
+  const credentialsMap = await getAICredentialsMap();
+  const availableModels = await resolveProviderModels(definition, credentialsMap);
+  if (availableModels.length > 0 && !availableModels.includes(normalizedModel)) {
     throw createServiceError(`Model "${normalizedModel}" is not available for ${definition.name}.`);
   }
 
@@ -445,7 +602,7 @@ async function updateProviderModel(providerId, model) {
 async function getKeywordAIRuntimeConfig() {
   const credentialsMap = await getAICredentialsMap();
   const settingsMap = await getAISettingsMap();
-  const supportedProviderIds = ['nvidia', 'openai'];
+  const supportedProviderIds = ['openrouter', 'nvidia', 'openai'];
 
   for (const providerId of supportedProviderIds) {
     const provider = AI_PROVIDERS.find((entry) => entry.id === providerId);
@@ -511,7 +668,8 @@ async function getProviderCredentials(providerId) {
     result[field.name] = resolved.value || null;
   }
 
-  const resolvedModel = resolveProviderModel(definition, credentialsMap);
+  const models = await resolveProviderModels(definition, credentialsMap);
+  const resolvedModel = resolveProviderModel(definition, credentialsMap, models);
   result.MODEL = resolvedModel.model || definition.defaultModel || null;
 
   return result;

@@ -354,6 +354,11 @@ export default function AIProviderStatus() {
                 </a>
               </li>
               <li>
+                <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noreferrer" className="text-blue-700 hover:underline">
+                  OpenRouter API Keys
+                </a>
+              </li>
+              <li>
                 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="text-blue-700 hover:underline">
                   Google AI Studio (Gemini)
                 </a>

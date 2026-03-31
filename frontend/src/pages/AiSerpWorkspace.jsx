@@ -6,6 +6,7 @@ import { getAiSerpHistory, getAiSerpHistoryItem, runAiSerpWorkspace } from '../s
 
 const LLM_PROVIDER_OPTIONS = [
   { id: 'openai', label: 'ChatGPT (OpenAI)' },
+  { id: 'openrouter', label: 'OpenRouter' },
   { id: 'gemini', label: 'Gemini (Google)' },
   { id: 'gemini-vertex', label: 'Gemini Vertex (OAuth2)' },
   { id: 'grok', label: 'Grok (xAI)' },
@@ -136,7 +137,7 @@ export default function AiSerpWorkspace() {
       <div>
         <h2 className="text-2xl font-bold text-gray-900 mb-1">AI SERP Workspace</h2>
         <p className="text-sm text-gray-500">
-          Run LLM ranking/citation scans across ChatGPT, Gemini, and Grok for the selected website.
+          Run LLM ranking/citation scans across ChatGPT, OpenRouter, Gemini, and Grok for the selected website.
         </p>
       </div>
 

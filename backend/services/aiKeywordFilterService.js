@@ -5,6 +5,8 @@ const DEFAULT_PROMPT =
   'Keep only the keywords that are the closest match to the seed keyword. Remove broad, weak, or loosely related phrases.';
 const DEFAULT_RESEARCH_PROMPT =
   'Generate the closest, highest-intent keywords a real buyer would search for around the seed keyword. Favor commercially useful, tightly relevant terms and avoid weak tangents.';
+const DEFAULT_OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'google/gemma-3-27b-it:free';
+const DEFAULT_OPENROUTER_BASE_URL = (process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\/+$/, '');
 const DEFAULT_OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-5.4-mini';
 const DEFAULT_OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
 const DEFAULT_NVIDIA_MODEL = process.env.NVAPI_MODEL || 'meta/llama-3.3-70b-instruct';
@@ -632,6 +634,18 @@ async function resolveKeywordAIRuntime() {
     return providerRuntime;
   }
 
+  const openRouterApiKey = String(process.env.OPENROUTER_API_KEY || '').trim();
+  if (openRouterApiKey) {
+    return {
+      id: 'openrouter',
+      name: 'OpenRouter',
+      apiKey: openRouterApiKey,
+      baseUrl: DEFAULT_OPENROUTER_BASE_URL,
+      model: String(process.env.OPENROUTER_MODEL || DEFAULT_OPENROUTER_MODEL).trim(),
+      requestMode: 'chat_completions',
+    };
+  }
+
   const openAiApiKey = String(process.env.OPENAI_API_KEY || '').trim();
   if (openAiApiKey) {
     return {
@@ -657,7 +671,7 @@ async function resolveKeywordAIRuntime() {
   }
 
   throw createServiceError(
-    'AI keyword features are not configured. Add an API key in AI Providers (OpenAI or NVIDIA), or set OPENAI_API_KEY/NVAPI_API_KEY on the backend.'
+    'AI keyword features are not configured. Add an API key in AI Providers (OpenRouter, OpenAI, or NVIDIA), or set OPENROUTER_API_KEY/OPENAI_API_KEY/NVAPI_API_KEY on the backend.'
   );
 }
 

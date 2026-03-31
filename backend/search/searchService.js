@@ -45,6 +45,21 @@ function toBooleanFlag(value, fallback = false) {
   return fallback;
 }
 
+function isLocalBlockedAttempt(attempt = {}) {
+  return (
+    String(attempt.providerId || '') === 'local-pc-agent'
+    && String(attempt.error || '').toLowerCase().includes('blocked')
+  );
+}
+
+function isOnlyLocalBlockedFailure(err) {
+  const attempts = Array.isArray(err?.attempts) ? err.attempts : [];
+  if (attempts.length !== 1) {
+    return false;
+  }
+  return isLocalBlockedAttempt(attempts[0]);
+}
+
 async function runSearch({ keyword, engine, domain, location, aiMode, screenshotMode, localAgentMode, highAccuracyMode, providerId, strictMode, verifyUrls, debug }) {
   const normalizedKeyword = sanitizeKeyword(keyword);
   if (!normalizedKeyword) {
@@ -235,19 +250,42 @@ async function runSearch({ keyword, engine, domain, location, aiMode, screenshot
     location: normalizedLocation,
   });
 
-  const providerResponse = await provider.search({
-    keyword: normalizedKeyword,
-    target,
-    numResults: 10,
-    location: normalizedLocation,
-    providerId: normalizedProviderId || undefined,
-    strictMode: strictModeEnabled,
-    prompt,
-  });
+  let providerResponse;
+  let providerAttempts = [];
+
+  try {
+    providerResponse = await provider.search({
+      keyword: normalizedKeyword,
+      target,
+      numResults: 10,
+      location: normalizedLocation,
+      providerId: normalizedProviderId || undefined,
+      strictMode: strictModeEnabled,
+      prompt,
+    });
+  } catch (err) {
+    if (!isOnlyLocalBlockedFailure(err)) {
+      throw err;
+    }
+
+    providerAttempts = Array.isArray(err.attempts) ? err.attempts : [];
+    providerResponse = {
+      results: [],
+      meta: {
+        selectedProviderId: 'local-pc-agent',
+        selectedProviderName: 'Local PC Agent',
+        attempts: providerAttempts,
+        blockedByEngine: true,
+      },
+    };
+  }
   const providerResults = Array.isArray(providerResponse)
     ? providerResponse
     : (providerResponse?.results || []);
   const providerMeta = providerResponse?.meta || null;
+  if (providerAttempts.length === 0 && Array.isArray(providerMeta?.attempts)) {
+    providerAttempts = providerMeta.attempts;
+  }
 
   const normalizedResults = normalizeSearchResults(providerResults, 10);
   const verification = await verifySearchResults(normalizedResults, {
@@ -264,6 +302,7 @@ async function runSearch({ keyword, engine, domain, location, aiMode, screenshot
     selectedProviderName: providerMeta?.selectedProviderName || null,
     redirectsVerified: verifyUrlsEnabled,
     verification: verification.stats,
+    blockedByEngine: Boolean(providerMeta?.blockedByEngine),
   };
 
   const response = {
@@ -278,7 +317,7 @@ async function runSearch({ keyword, engine, domain, location, aiMode, screenshot
   if (debugEnabled) {
     response.debug = {
       prompt,
-      providerAttempts: Array.isArray(providerMeta?.attempts) ? providerMeta.attempts : [],
+      providerAttempts,
       normalizedResultCount: normalizedResults.length,
     };
   }

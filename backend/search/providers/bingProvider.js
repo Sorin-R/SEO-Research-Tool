@@ -9,6 +9,7 @@ async function search({ keyword, target, numResults = 10, location, prompt, prov
     promptTemplate: prompt,
     strictMode: strictMode === true,
     withMeta: true,
+    excludeProviderIds: ['local-pc-agent'],
   };
 
   if (providerId) {

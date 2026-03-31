@@ -101,6 +101,7 @@ export default function SimpleSerpSearch() {
       providers.filter(
         (provider) =>
           provider.active
+          && provider.id !== 'local-pc-agent'
           && (provider.supportedEngines || ['google']).includes(targetParts.engine)
       ),
     [providers, targetParts.engine]
@@ -133,6 +134,12 @@ export default function SimpleSerpSearch() {
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (providerId === 'local-pc-agent') {
+      setProviderId('');
+    }
+  }, [providerId]);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -375,9 +382,9 @@ export default function SimpleSerpSearch() {
                 Redirect verification: {data.meta.verification.verifiedCount || 0} verified / {data.meta.verification.failedCount || 0} failed
               </p>
             ) : null}
-            {(data.meta?.screenshotMode || data.meta?.localAgentMode) && data.meta?.blockedByEngine ? (
+            {data.meta?.blockedByEngine ? (
               <p className="mt-1 text-xs text-amber-700">
-                Search engine blocked this capture (captcha/consent page). Screenshot is shown below for debugging.
+                Search engine blocked this request (captcha/consent page). Use Local PC Agent mode and complete consent/captcha.
               </p>
             ) : null}
           </div>

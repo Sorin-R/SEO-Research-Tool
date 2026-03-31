@@ -166,12 +166,26 @@ async function search(keyword, numResults = 10, options = {}) {
   }
 
   const engine = normalizeEngine(options.engine);
+  const excludedProviderIds = new Set(
+    Array.isArray(options.excludeProviderIds)
+      ? options.excludeProviderIds.map((entry) => String(entry || '').trim()).filter(Boolean)
+      : []
+  );
   const providerContexts = await getProviderContexts();
-  const enabledProviders = providerContexts.filter(
+  let enabledProviders = providerContexts.filter(
     (providerContext) =>
       providerContext.detail.active
       && providerSupportsEngine(providerContext.config, engine)
+      && !excludedProviderIds.has(providerContext.config.id)
   );
+
+  if (enabledProviders.length === 0 && excludedProviderIds.size > 0) {
+    enabledProviders = providerContexts.filter(
+      (providerContext) =>
+        providerContext.detail.active
+        && providerSupportsEngine(providerContext.config, engine)
+    );
+  }
 
   if (enabledProviders.length === 0) {
     throw new Error(

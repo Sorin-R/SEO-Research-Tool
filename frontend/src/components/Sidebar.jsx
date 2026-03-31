@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useWebsiteContext } from '../context/WebsiteContext';
 
@@ -49,22 +49,10 @@ export default function Sidebar() {
   const location = useLocation();
   const { websites, selectedWebsiteId, setSelectedWebsiteId } = useWebsiteContext();
   const [openGroups, setOpenGroups] = useState({
-    keywords: true,
-    serp: true,
-    providers: true,
+    keywords: false,
+    serp: false,
+    providers: false,
   });
-
-  useEffect(() => {
-    setOpenGroups((current) => {
-      const next = { ...current };
-      for (const group of DROPDOWN_GROUPS) {
-        if (group.items.some((item) => item.to === location.pathname)) {
-          next[group.key] = true;
-        }
-      }
-      return next;
-    });
-  }, [location.pathname]);
 
   function toggleGroup(key) {
     setOpenGroups((current) => ({

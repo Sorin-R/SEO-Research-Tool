@@ -67,6 +67,36 @@ type ProviderEntry = {
 };
 
 const DEFAULT_TARGET = 'google.com';
+const LOCAL_AGENT_HISTORY_STORAGE_KEY = 'seo-tool:local-agent-serp-history';
+const MAX_LOCAL_AGENT_HISTORY = 20;
+
+type LocalAgentSavedSearch = {
+  id: string;
+  keyword: string;
+  target: string;
+  location: string;
+  savedAt: string;
+  response: SearchResponse;
+};
+
+function loadLocalAgentHistory(): LocalAgentSavedSearch[] {
+  try {
+    const raw = window.localStorage.getItem(LOCAL_AGENT_HISTORY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalAgentHistory(items: LocalAgentSavedSearch[]) {
+  try {
+    window.localStorage.setItem(LOCAL_AGENT_HISTORY_STORAGE_KEY, JSON.stringify(items));
+  } catch {
+    // ignore storage write failures
+  }
+}
 
 export default function SimpleSerpSearch() {
   const [keyword, setKeyword] = useState('');
@@ -84,6 +114,7 @@ export default function SimpleSerpSearch() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [data, setData] = useState<SearchResponse | null>(null);
+  const [localAgentHistory, setLocalAgentHistory] = useState<LocalAgentSavedSearch[]>([]);
 
   const targetParts = useMemo(() => parseSerpTarget(target), [target]);
   const promptPreview = useMemo(
@@ -136,10 +167,53 @@ export default function SimpleSerpSearch() {
   }, []);
 
   useEffect(() => {
+    setLocalAgentHistory(loadLocalAgentHistory());
+  }, []);
+
+  useEffect(() => {
     if (providerId === 'local-pc-agent') {
       setProviderId('');
     }
   }, [providerId]);
+
+  function saveLocalAgentSearchRun(response: SearchResponse, targetValue: string, locationValue: string) {
+    const entry: LocalAgentSavedSearch = {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      keyword: response.keyword,
+      target: targetValue,
+      location: locationValue,
+      savedAt: new Date().toISOString(),
+      response,
+    };
+
+    setLocalAgentHistory((current) => {
+      const deduped = current.filter((item) => !(
+        item.keyword.toLowerCase() === entry.keyword.toLowerCase()
+        && item.target === entry.target
+        && item.location.toLowerCase() === entry.location.toLowerCase()
+      ));
+      const next = [entry, ...deduped].slice(0, MAX_LOCAL_AGENT_HISTORY);
+      saveLocalAgentHistory(next);
+      return next;
+    });
+  }
+
+  function restoreLocalAgentSearch(entry: LocalAgentSavedSearch) {
+    setKeyword(entry.keyword);
+    setTarget(entry.target);
+    setLocation(entry.location);
+    setSearchMode('local-agent');
+    setData(entry.response);
+    setError('');
+  }
+
+  function deleteLocalAgentSearch(entryId: string) {
+    setLocalAgentHistory((current) => {
+      const next = current.filter((item) => item.id !== entryId);
+      saveLocalAgentHistory(next);
+      return next;
+    });
+  }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -171,6 +245,9 @@ export default function SimpleSerpSearch() {
       });
 
       setData(response);
+      if (response?.meta?.localAgentMode) {
+        saveLocalAgentSearchRun(response, target, sanitizedLocation);
+      }
     } catch (requestError: any) {
       setError(requestError?.response?.data?.error || requestError?.message || 'Search failed.');
     } finally {
@@ -421,11 +498,13 @@ export default function SimpleSerpSearch() {
               <p className="mt-1 text-xs text-gray-500">
                 Original screenshot used by this SERP mode.
               </p>
-              <img
-                src={screenshotPreview}
-                alt={`Captured SERP screenshot for ${data.keyword}`}
-                className="mt-3 w-full max-h-[72vh] rounded-md border border-gray-200 object-contain bg-gray-50"
-              />
+              <div className="mt-3 h-[80vh] w-full overflow-auto rounded-md border border-gray-200 bg-gray-50">
+                <img
+                  src={screenshotPreview}
+                  alt={`Captured SERP screenshot for ${data.keyword}`}
+                  className="block h-auto w-full min-w-full"
+                />
+              </div>
             </div>
           ) : null}
         </div>
@@ -434,6 +513,36 @@ export default function SimpleSerpSearch() {
           No search yet.
         </div>
       )}
+
+      <div className="rounded-lg border border-gray-200 bg-white p-4">
+        <h3 className="text-sm font-semibold text-gray-900">Saved Local PC Agent Searches</h3>
+        {localAgentHistory.length === 0 ? (
+          <p className="mt-2 text-sm text-gray-500">No saved Local PC Agent research yet.</p>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {localAgentHistory.map((item) => (
+              <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-gray-200 px-3 py-2">
+                <button
+                  type="button"
+                  onClick={() => restoreLocalAgentSearch(item)}
+                  className="min-w-0 flex-1 text-left text-sm text-gray-700 hover:text-indigo-600"
+                >
+                  <span className="font-medium text-gray-900">{item.keyword}</span>
+                  <span className="text-gray-500"> · {item.target}{item.location ? ` · ${item.location}` : ''}</span>
+                  <span className="ml-2 text-xs text-gray-400">{new Date(item.savedAt).toLocaleString()}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => deleteLocalAgentSearch(item.id)}
+                  className="rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                >
+                  Delete
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       {showDebug && data?.debug ? (
         <div className="rounded-lg border border-gray-200 bg-white p-4">

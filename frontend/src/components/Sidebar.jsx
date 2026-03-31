@@ -1,27 +1,81 @@
-import { NavLink } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useWebsiteContext } from '../context/WebsiteContext';
 
-const NAV_ITEMS = [
+const TOP_LEVEL_ITEMS = [
   { to: '/', label: 'Dashboard', icon: '📊' },
   { to: '/websites', label: 'Websites', icon: '🌐' },
-  { to: '/keywords', label: 'Keyword Research', icon: '🔑' },
-  { to: '/competitor-keywords', label: 'Competitor Keywords', icon: '🕵️' },
-  { to: '/google-ads', label: 'Google Ads Keywords', icon: '💰' },
-  { to: '/serp', label: 'SERP Analyzer', icon: '🔍' },
-  { to: '/search', label: 'SERP Search MVP', icon: '🧭' },
-  { to: '/ai-serp', label: 'AI SERP Workspace', icon: '🧠' },
   { to: '/analyze', label: 'Content Analyzer', icon: '📝' },
   { to: '/site-audit', label: 'Site Audit', icon: '🩺' },
-  { to: '/trends', label: 'Google Trends', icon: '📈' },
-  { to: '/rank-tracker', label: 'Rank Tracker', icon: '🏆' },
-  { to: '/providers', label: 'SERP Providers', icon: '⚙️' },
-  { to: '/backlink-providers', label: 'Backlink Provider', icon: '🔗' },
-  { to: '/ai-providers', label: 'AI Providers', icon: '🤖' },
-  { to: '/gsc-providers', label: 'GSC Provider', icon: '📡' },
+];
+
+const DROPDOWN_GROUPS = [
+  {
+    key: 'keywords',
+    label: 'Keywords Tools',
+    icon: '🔑',
+    items: [
+      { to: '/keywords', label: 'Keyword Research' },
+      { to: '/competitor-keywords', label: 'Competitor Keywords' },
+      { to: '/google-ads', label: 'Google Ads Keywords' },
+      { to: '/trends', label: 'Google Trends' },
+    ],
+  },
+  {
+    key: 'serp',
+    label: 'SERP Analyzer',
+    icon: '🔍',
+    items: [
+      { to: '/serp', label: 'SERP Analyzer' },
+      { to: '/search', label: 'SERP Search MVP' },
+      { to: '/ai-serp', label: 'AI SERP Workspace' },
+      { to: '/rank-tracker', label: 'Rank Tracker' },
+    ],
+  },
+  {
+    key: 'providers',
+    label: 'Providers',
+    icon: '⚙️',
+    items: [
+      { to: '/providers', label: 'SERP Providers' },
+      { to: '/backlink-providers', label: 'Backlink Providers' },
+      { to: '/ai-providers', label: 'AI Providers' },
+      { to: '/gsc-providers', label: 'GSC Providers' },
+    ],
+  },
 ];
 
 export default function Sidebar() {
+  const location = useLocation();
   const { websites, selectedWebsiteId, setSelectedWebsiteId } = useWebsiteContext();
+  const [openGroups, setOpenGroups] = useState({
+    keywords: true,
+    serp: true,
+    providers: true,
+  });
+
+  useEffect(() => {
+    setOpenGroups((current) => {
+      const next = { ...current };
+      for (const group of DROPDOWN_GROUPS) {
+        if (group.items.some((item) => item.to === location.pathname)) {
+          next[group.key] = true;
+        }
+      }
+      return next;
+    });
+  }, [location.pathname]);
+
+  function toggleGroup(key) {
+    setOpenGroups((current) => ({
+      ...current,
+      [key]: !current[key],
+    }));
+  }
+
+  function isGroupActive(group) {
+    return group.items.some((item) => item.to === location.pathname);
+  }
 
   return (
     <aside className="sticky top-0 h-screen w-64 bg-gray-900 text-gray-100 flex flex-col shrink-0">
@@ -49,7 +103,7 @@ export default function Sidebar() {
           </select>
         </div>
 
-        {NAV_ITEMS.map((item) => (
+        {TOP_LEVEL_ITEMS.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
@@ -66,6 +120,50 @@ export default function Sidebar() {
             {item.label}
           </NavLink>
         ))}
+
+        {DROPDOWN_GROUPS.map((group) => {
+          const isOpen = openGroups[group.key];
+          const active = isGroupActive(group);
+          return (
+            <div key={group.key} className="pt-1">
+              <button
+                type="button"
+                onClick={() => toggleGroup(group.key)}
+                className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                  active
+                    ? 'bg-gray-800 text-white'
+                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                }`}
+              >
+                <span className="flex items-center gap-3">
+                  <span className="text-lg">{group.icon}</span>
+                  {group.label}
+                </span>
+                <span className="text-xs text-gray-400">{isOpen ? '▾' : '▸'}</span>
+              </button>
+
+              {isOpen && (
+                <div className="mt-1 space-y-1 pl-5">
+                  {group.items.map((item) => (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      className={({ isActive }) =>
+                        `block rounded-md px-3 py-2 text-sm transition-colors ${
+                          isActive
+                            ? 'bg-indigo-600 text-white'
+                            : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                        }`
+                      }
+                    >
+                      {item.label}
+                    </NavLink>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </nav>
 
       <div className="px-6 py-4 border-t border-gray-700 text-xs text-gray-500">

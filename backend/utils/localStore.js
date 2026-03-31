@@ -1659,88 +1659,6 @@ async function deleteSiteAuditHistoryItem(id) {
   }
 }
 
-async function saveBacklinkSnapshot(payload = {}) {
-  const state = await readState();
-  const timestamp = nowIso();
-  const snapshotDate = String(payload.snapshotDate || timestamp).slice(0, 10);
-  const websiteId = payload.websiteId != null ? Number(payload.websiteId) : null;
-  const summary = payload.summary || {};
-
-  const row = {
-    id: nextId(state.backlinkSnapshots || []),
-    website_id: websiteId,
-    snapshot_date: snapshotDate,
-    backlinks_count: Number(summary.backlinksCount || 0),
-    referring_domains_count: Number(summary.referringDomainsCount || 0),
-    result: payload,
-    created_at: timestamp,
-    updated_at: timestamp,
-  };
-
-  state.backlinkSnapshots = Array.isArray(state.backlinkSnapshots) ? state.backlinkSnapshots : [];
-  state.backlinkSnapshots.push(row);
-  await writeState(state);
-  return row.id;
-}
-
-async function getLatestBacklinkSnapshot(websiteId = null) {
-  const state = await readState();
-  const snapshots = (state.backlinkSnapshots || [])
-    .filter((item) => (
-      websiteId == null
-        ? true
-        : String(item.website_id ?? '') === String(websiteId)
-    ))
-    .sort((left, right) => {
-      const leftDate = `${left.snapshot_date || ''}::${left.id || 0}`;
-      const rightDate = `${right.snapshot_date || ''}::${right.id || 0}`;
-      return rightDate.localeCompare(leftDate);
-    });
-
-  const item = snapshots[0];
-  if (!item) {
-    return null;
-  }
-
-  const payload = item.result || {};
-  return {
-    ...payload,
-    snapshotId: item.id,
-    snapshotDate: item.snapshot_date,
-    summary: {
-      ...(payload.summary || {}),
-      backlinksCount: Number(item.backlinks_count || payload?.summary?.backlinksCount || 0),
-      referringDomainsCount: Number(item.referring_domains_count || payload?.summary?.referringDomainsCount || 0),
-    },
-  };
-}
-
-async function getBacklinkHistory(websiteId = null, limit = 20) {
-  const state = await readState();
-  const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 120);
-
-  return (state.backlinkSnapshots || [])
-    .filter((item) => (
-      websiteId == null
-        ? true
-        : String(item.website_id ?? '') === String(websiteId)
-    ))
-    .sort((left, right) => {
-      const leftDate = `${left.snapshot_date || ''}::${left.id || 0}`;
-      const rightDate = `${right.snapshot_date || ''}::${right.id || 0}`;
-      return rightDate.localeCompare(leftDate);
-    })
-    .slice(0, safeLimit)
-    .map((item) => ({
-      id: item.id,
-      website_id: item.website_id,
-      snapshot_date: item.snapshot_date,
-      backlinks_count: Number(item.backlinks_count || 0),
-      referring_domains_count: Number(item.referring_domains_count || 0),
-      created_at: item.created_at,
-    }));
-}
-
 module.exports = {
   getCachedSERP,
   saveSerpCache,
@@ -1804,7 +1722,4 @@ module.exports = {
   getSiteAuditHistory,
   getSiteAuditHistoryItem,
   deleteSiteAuditHistoryItem,
-  saveBacklinkSnapshot,
-  getLatestBacklinkSnapshot,
-  getBacklinkHistory,
 };

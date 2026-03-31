@@ -612,21 +612,6 @@ export async function getDashboardTrafficModule({
   return data;
 }
 
-export async function getDashboardBacklinksModule({
-  websiteId = null,
-  country = 'US',
-  refresh = false,
-} = {}) {
-  const { data } = await api.get('/dashboard/backlinks', {
-    params: {
-      websiteId,
-      country,
-      refresh,
-    },
-  });
-  return data;
-}
-
 // ---- AI SERP workspace ----
 
 export async function runAiSerpWorkspace({

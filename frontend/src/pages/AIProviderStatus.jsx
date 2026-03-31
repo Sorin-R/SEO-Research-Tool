@@ -328,7 +328,7 @@ export default function AIProviderStatus() {
           <div className="bg-violet-50 border border-violet-200 rounded-lg p-5">
             <h3 className="font-semibold text-violet-900">How it works</h3>
             <ul className="mt-3 space-y-2 text-sm text-violet-800">
-              <li>Save the API key in the field beside each provider.</li>
+              <li>Save the required credentials in the fields beside each provider (API key or OAuth details).</li>
               <li>Configured + ON: the provider is available for AI-powered features like keyword filtering and content analysis.</li>
               <li>Configured + OFF: the API key stays saved, but the provider is skipped.</li>
               <li>Env values still work too, but this page can store and update credentials directly.</li>
@@ -356,6 +356,11 @@ export default function AIProviderStatus() {
               <li>
                 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="text-blue-700 hover:underline">
                   Google AI Studio (Gemini)
+                </a>
+              </li>
+              <li>
+                <a href="https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/inference" target="_blank" rel="noreferrer" className="text-blue-700 hover:underline">
+                  Google Vertex AI (Gemini OAuth2)
                 </a>
               </li>
               <li>

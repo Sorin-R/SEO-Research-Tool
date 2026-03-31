@@ -93,6 +93,26 @@ const AI_PROVIDERS = [
     setupTime: '~2 min',
   },
   {
+    id: 'gemini-vertex',
+    name: 'Gemini Vertex (OAuth2)',
+    description: 'Gemini via Google Cloud Vertex AI using OAuth2 refresh token credentials.',
+    docsUrl: 'https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/inference',
+    baseUrl: 'https://aiplatform.googleapis.com/v1',
+    requestMode: 'vertex_oauth2',
+    models: ['gemini-2.0-flash-001', 'gemini-2.5-flash', 'gemini-2.5-pro'],
+    defaultModel: 'gemini-2.0-flash-001',
+    fields: [
+      { name: 'GOOGLE_VERTEX_PROJECT_ID', label: 'GCP Project ID', envKey: 'GOOGLE_VERTEX_PROJECT_ID' },
+      { name: 'GOOGLE_VERTEX_LOCATION', label: 'GCP Location', envKey: 'GOOGLE_VERTEX_LOCATION' },
+      { name: 'GOOGLE_VERTEX_CLIENT_ID', label: 'OAuth Client ID', envKey: 'GOOGLE_VERTEX_CLIENT_ID' },
+      { name: 'GOOGLE_VERTEX_CLIENT_SECRET', label: 'OAuth Client Secret', envKey: 'GOOGLE_VERTEX_CLIENT_SECRET' },
+      { name: 'GOOGLE_VERTEX_REFRESH_TOKEN', label: 'OAuth Refresh Token', envKey: 'GOOGLE_VERTEX_REFRESH_TOKEN' },
+    ],
+    quota: 'Google Cloud billing + Vertex quotas',
+    quotaType: 'Project quotas + model rate limits',
+    setupTime: '~8 min',
+  },
+  {
     id: 'grok',
     name: 'Grok (xAI)',
     description: 'xAI\'s conversational AI with real-time knowledge and strong analytical capabilities.',
@@ -478,6 +498,25 @@ async function getProviderApiKey(providerId) {
   return resolved.value;
 }
 
+async function getProviderCredentials(providerId) {
+  const definition = AI_PROVIDERS.find((entry) => entry.id === providerId);
+  if (!definition) {
+    return null;
+  }
+
+  const credentialsMap = await getAICredentialsMap();
+  const result = {};
+  for (const field of definition.fields) {
+    const resolved = resolveCredentialValue(definition, field.name, credentialsMap);
+    result[field.name] = resolved.value || null;
+  }
+
+  const resolvedModel = resolveProviderModel(definition, credentialsMap);
+  result.MODEL = resolvedModel.model || definition.defaultModel || null;
+
+  return result;
+}
+
 module.exports = {
   AI_PROVIDERS,
   getStatus,
@@ -487,6 +526,7 @@ module.exports = {
   saveProviderCredentials,
   updateProviderModel,
   getProviderApiKey,
+  getProviderCredentials,
   getKeywordAIRuntimeConfig,
   getAICredentialsMap,
   getAISettingsMap,

@@ -7,6 +7,7 @@ import { getAiSerpHistory, getAiSerpHistoryItem, runAiSerpWorkspace } from '../s
 const LLM_PROVIDER_OPTIONS = [
   { id: 'openai', label: 'ChatGPT (OpenAI)' },
   { id: 'gemini', label: 'Gemini (Google)' },
+  { id: 'gemini-vertex', label: 'Gemini Vertex (OAuth2)' },
   { id: 'grok', label: 'Grok (xAI)' },
 ];
 

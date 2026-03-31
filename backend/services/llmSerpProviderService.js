@@ -1,7 +1,7 @@
 const axios = require('axios');
 const aiProviderManager = require('./aiProviderManager');
 
-const SUPPORTED_LLM_PROVIDER_IDS = ['openai', 'gemini', 'grok'];
+const SUPPORTED_LLM_PROVIDER_IDS = ['openai', 'gemini', 'gemini-vertex', 'grok'];
 const DEFAULT_TIMEOUT_MS = Number.parseInt(process.env.AI_REQUEST_TIMEOUT_MS || '120000', 10);
 
 function createServiceError(message, statusCode = 400) {
@@ -232,6 +232,32 @@ async function resolveRuntime(providerId) {
     throw createServiceError(`${provider.name} is not active in AI Providers.`, 412);
   }
 
+  if (provider.id === 'gemini-vertex') {
+    const credentials = await aiProviderManager.getProviderCredentials(providerId);
+    const projectId = String(credentials?.GOOGLE_VERTEX_PROJECT_ID || '').trim();
+    const location = String(credentials?.GOOGLE_VERTEX_LOCATION || '').trim().toLowerCase();
+    const clientId = String(credentials?.GOOGLE_VERTEX_CLIENT_ID || '').trim();
+    const clientSecret = String(credentials?.GOOGLE_VERTEX_CLIENT_SECRET || '').trim();
+    const refreshToken = String(credentials?.GOOGLE_VERTEX_REFRESH_TOKEN || '').trim();
+
+    if (!projectId || !location || !clientId || !clientSecret || !refreshToken) {
+      throw createServiceError(`${provider.name} credentials are incomplete.`, 412);
+    }
+
+    return {
+      id: provider.id,
+      name: provider.name,
+      baseUrl: String(provider.baseUrl || 'https://aiplatform.googleapis.com/v1').replace(/\/+$/, ''),
+      model: provider.selectedModel || provider.defaultModel,
+      requestMode: provider.requestMode || 'vertex_oauth2',
+      projectId,
+      location,
+      clientId,
+      clientSecret,
+      refreshToken,
+    };
+  }
+
   const apiKey = await aiProviderManager.getProviderApiKey(providerId);
   if (!apiKey) {
     throw createServiceError(`${provider.name} API key is missing.`, 412);
@@ -365,6 +391,66 @@ async function requestGemini(runtime, prompt) {
   return parseStructuredJson(text);
 }
 
+async function fetchGoogleOAuthAccessToken(runtime) {
+  const response = await axios.post(
+    'https://oauth2.googleapis.com/token',
+    new URLSearchParams({
+      client_id: runtime.clientId,
+      client_secret: runtime.clientSecret,
+      refresh_token: runtime.refreshToken,
+      grant_type: 'refresh_token',
+    }).toString(),
+    {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      timeout: DEFAULT_TIMEOUT_MS,
+    }
+  );
+
+  const accessToken = String(response?.data?.access_token || '').trim();
+  if (!accessToken) {
+    throw createServiceError(`${runtime.name} OAuth2 token exchange failed.`, 502);
+  }
+
+  return accessToken;
+}
+
+async function requestVertexGemini(runtime, prompt) {
+  const accessToken = await fetchGoogleOAuthAccessToken(runtime);
+  const endpoint = `https://${runtime.location}-aiplatform.googleapis.com/v1/projects/${encodeURIComponent(runtime.projectId)}/locations/${encodeURIComponent(runtime.location)}/publishers/google/models/${encodeURIComponent(runtime.model)}:generateContent`;
+  const response = await axios.post(
+    endpoint,
+    {
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: prompt }],
+        },
+      ],
+      generationConfig: {
+        temperature: 0.2,
+        responseMimeType: 'application/json',
+      },
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: DEFAULT_TIMEOUT_MS,
+    }
+  );
+
+  const text = String(
+    response?.data?.candidates?.[0]?.content?.parts?.[0]?.text
+    || response?.data?.candidates?.[0]?.content?.parts?.map((part) => part?.text || '').join('\n')
+    || ''
+  ).trim();
+
+  return parseStructuredJson(text);
+}
+
 async function requestProviderResults({ runtime, keyword, country, location, maxResults }) {
   const prompt = buildLlmSerpPrompt({
     keyword,
@@ -379,6 +465,8 @@ async function requestProviderResults({ runtime, keyword, country, location, max
       payload = await requestOpenAiLike(runtime, prompt, maxResults);
     } else if (runtime.id === 'gemini') {
       payload = await requestGemini(runtime, prompt, maxResults);
+    } else if (runtime.id === 'gemini-vertex') {
+      payload = await requestVertexGemini(runtime, prompt, maxResults);
     } else {
       payload = await requestChatCompletions(runtime, prompt);
     }

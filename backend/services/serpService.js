@@ -456,21 +456,51 @@ async function trackRankingFromResults(keywordId, keyword, targetDomain, website
   };
 }
 
-async function getTrackedKeywordByText(keyword) {
+async function getTrackedKeywordByTextForWebsite(keyword, websiteId = null) {
+  const normalizedWebsiteId = normalizeWebsiteId(websiteId);
   try {
-    const rows = await db.query(
-      `SELECT *
-       FROM keywords
-       WHERE LOWER(keyword) = LOWER(?)
-       LIMIT 1`,
-      [keyword]
-    );
+    let rows;
+
+    if (normalizedWebsiteId == null) {
+      rows = await db.query(
+        `SELECT *
+         FROM keywords
+         WHERE LOWER(keyword) = LOWER(?)
+         ORDER BY id ASC
+         LIMIT 1`,
+        [keyword]
+      );
+    } else {
+      rows = await db.query(
+        `SELECT *
+         FROM keywords
+         WHERE LOWER(keyword) = LOWER(?)
+           AND (website_id = ? OR website_id IS NULL)
+         ORDER BY
+           CASE WHEN website_id = ? THEN 0 ELSE 1 END,
+           id ASC
+         LIMIT 1`,
+        [keyword, normalizedWebsiteId, normalizedWebsiteId]
+      );
+    }
 
     return rows[0] || null;
   } catch (err) {
-    console.warn('[SERPService] DB unavailable, using local store for getTrackedKeywordByText:', err.message);
-    const keywords = await localStore.getTrackedKeywords();
-    return keywords.find((item) => String(item.keyword).toLowerCase() === String(keyword).toLowerCase()) || null;
+    console.warn('[SERPService] DB unavailable, using local store for getTrackedKeywordByTextForWebsite:', err.message);
+    const keywords = await localStore.getTrackedKeywords(normalizedWebsiteId);
+    const normalizedKeyword = String(keyword || '').trim().toLowerCase();
+    const exactWebsiteMatch = normalizedWebsiteId == null
+      ? null
+      : keywords.find((item) => (
+          Number.parseInt(item.website_id, 10) === normalizedWebsiteId
+          && String(item.keyword || '').toLowerCase() === normalizedKeyword
+        ));
+
+    if (exactWebsiteMatch) {
+      return exactWebsiteMatch;
+    }
+
+    return keywords.find((item) => String(item.keyword || '').toLowerCase() === normalizedKeyword) || null;
   }
 }
 
@@ -569,6 +599,7 @@ async function getLatestRankings(websiteId = null) {
          SELECT MAX(r2.date) FROM rankings r2 WHERE r2.keyword_id = r.keyword_id
            AND COALESCE(r2.website_id, 0) = COALESCE(r.website_id, 0)
        )
+       AND (k.website_id IS NULL OR k.website_id = r.website_id)
     `;
 
     if (websiteId != null) {
@@ -690,17 +721,6 @@ async function deleteSERPAnalysisHistoryItem(id, websiteId = null) {
 
 async function syncTrackedRankingsFromResults(keyword, results, country = 'US') {
   const normalizedCountry = normalizeCountryCode(country);
-  const trackedKeyword = await getTrackedKeywordByText(keyword);
-
-  if (!trackedKeyword) {
-    return {
-      tracked: false,
-      updated: 0,
-      matched: 0,
-      country: normalizedCountry,
-    };
-  }
-
   const activeWebsites = await getActiveTrackedWebsites();
   const websites = activeWebsites.filter(
     (website) => normalizeCountryCode(website.country) === normalizedCountry
@@ -709,7 +729,6 @@ async function syncTrackedRankingsFromResults(keyword, results, country = 'US') 
   if (websites.length === 0) {
     return {
       tracked: true,
-      keywordId: trackedKeyword.id,
       updated: 0,
       matched: 0,
       country: normalizedCountry,
@@ -720,8 +739,22 @@ async function syncTrackedRankingsFromResults(keyword, results, country = 'US') 
   }
 
   const updates = [];
+  let tracked = false;
 
   for (const website of websites) {
+    const trackedKeyword = await getTrackedKeywordByTextForWebsite(keyword, website.id);
+    if (!trackedKeyword) {
+      updates.push({
+        websiteId: website.id,
+        websiteDomain: website.domain,
+        position: null,
+        skipped: true,
+        reason: 'keyword-not-tracked-for-website',
+      });
+      continue;
+    }
+
+    tracked = true;
     const ranking = await trackRankingFromResults(
       trackedKeyword.id,
       trackedKeyword.keyword,
@@ -734,13 +767,13 @@ async function syncTrackedRankingsFromResults(keyword, results, country = 'US') 
       websiteId: website.id,
       websiteDomain: website.domain,
       position: ranking.position,
+      keywordId: trackedKeyword.id,
     });
   }
 
   return {
-    tracked: true,
-    keywordId: trackedKeyword.id,
-    updated: updates.length,
+    tracked,
+    updated: updates.filter((item) => item.skipped !== true).length,
     matched: updates.filter((item) => item.position != null).length,
     country: normalizedCountry,
     activeWebsites: activeWebsites.length,

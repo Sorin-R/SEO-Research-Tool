@@ -887,9 +887,19 @@ async function getRankingHistory(keywordId, days = 30, websiteId = null) {
 async function getLatestRankings(websiteId = null) {
   const state = await readState();
   const latestByKeyword = new Map();
+  const keywordsById = new Map(state.keywords.map((item) => [String(item.id), item]));
 
   for (const ranking of state.rankings) {
     if (websiteId != null && String(ranking.website_id ?? '') !== String(websiteId)) {
+      continue;
+    }
+
+    const keywordRow = keywordsById.get(String(ranking.keyword_id));
+    if (!keywordRow) {
+      continue;
+    }
+
+    if (keywordRow.website_id != null && String(keywordRow.website_id) !== String(ranking.website_id ?? '')) {
       continue;
     }
 
@@ -904,7 +914,7 @@ async function getLatestRankings(websiteId = null) {
   return [...latestByKeyword.values()]
     .map((ranking) => ({
       ...ranking,
-      keyword: state.keywords.find((item) => String(item.id) === String(ranking.keyword_id))?.keyword || '',
+      keyword: keywordsById.get(String(ranking.keyword_id))?.keyword || '',
       website_name: state.websites.find((item) => String(item.id) === String(ranking.website_id))?.name || null,
       website_domain: state.websites.find((item) => String(item.id) === String(ranking.website_id))?.domain || null,
     }))

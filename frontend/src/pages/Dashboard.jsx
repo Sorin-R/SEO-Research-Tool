@@ -264,8 +264,16 @@ export default function Dashboard() {
     const fallbackKeywordCountFromRows = Array.isArray(filteredRankings) ? filteredRankings.length : 0;
     const summaryRanked = Number(data.rankingSummary?.ranked) || 0;
     const summaryTop10 = Number(data.rankingSummary?.top10) || 0;
-    const rowRanked = filteredRankings.filter((item) => item.position != null).length;
-    const rowTop10 = filteredRankings.filter((item) => (item.position || 999) <= 10).length;
+    const trackedKeywordSet = new Set(
+      (Array.isArray(data.trackedKeywords) ? data.trackedKeywords : [])
+        .map((item) => String(item?.keyword || '').trim().toLowerCase())
+        .filter(Boolean)
+    );
+    const rankingRowsForTracked = trackedKeywordSet.size > 0
+      ? filteredRankings.filter((item) => trackedKeywordSet.has(String(item?.keyword || '').trim().toLowerCase()))
+      : filteredRankings;
+    const rowRanked = rankingRowsForTracked.filter((item) => item.position != null).length;
+    const rowTop10 = rankingRowsForTracked.filter((item) => (item.position || 999) <= 10).length;
     const rankedKeywords = Math.max(summaryRanked, rowRanked, summaryTop10, rowTop10);
     const top10Keywords = Math.min(Math.max(summaryTop10, rowTop10), rankedKeywords);
     const totalKeywords = Math.max(

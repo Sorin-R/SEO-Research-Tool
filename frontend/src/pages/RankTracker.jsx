@@ -139,7 +139,10 @@ export default function RankTracker() {
       setRestoredSelectionDone(true);
       return;
     }
-    const matchedKeyword = keywords.find((item) => String(item.id) === String(selectedId));
+    const scopedKeywords = keywords.filter((item) => (
+      item.website_id == null || String(item.website_id) === String(selectedWebsiteId)
+    ));
+    const matchedKeyword = scopedKeywords.find((item) => String(item.id) === String(selectedId));
     const matchedWebsite = websites.find((item) => String(item.id) === String(selectedWebsiteId));
     if (!matchedKeyword || !matchedWebsite) {
       setSelectedId(null);
@@ -154,7 +157,10 @@ export default function RankTracker() {
 
   useEffect(() => {
     if (!restoredSelectionDone || loading || !selectedId || !selectedWebsiteId) return;
-    const matchedKeyword = keywords.find((item) => String(item.id) === String(selectedId));
+    const scopedKeywords = keywords.filter((item) => (
+      item.website_id == null || String(item.website_id) === String(selectedWebsiteId)
+    ));
+    const matchedKeyword = scopedKeywords.find((item) => String(item.id) === String(selectedId));
     if (!matchedKeyword) { setHistory([]); return; }
     let cancelled = false;
     (async () => {
@@ -190,8 +196,11 @@ export default function RankTracker() {
       autoSelectionWebsiteIdRef.current = selectedWebsiteId;
       autoSelectionSettledRef.current = false;
     }
-    if (loading || rankingsLoading || !selectedWebsiteId || keywords.length === 0) return;
-    const firstRankedKeyword = keywords.find((kw) =>
+    const scopedKeywords = keywords.filter((item) => (
+      item.website_id == null || String(item.website_id) === String(selectedWebsiteId)
+    ));
+    if (loading || rankingsLoading || !selectedWebsiteId || scopedKeywords.length === 0) return;
+    const firstRankedKeyword = scopedKeywords.find((kw) =>
       rankings.some((r) => String(r.keyword_id) === String(kw.id) || r.keyword === kw.keyword)
     );
     const selectedHasRanking = selectedId != null && rankings.some((r) => String(r.keyword_id) === String(selectedId));
@@ -535,13 +544,19 @@ export default function RankTracker() {
     [history]
   );
 
-  const keywordsWithRank = useMemo(() => keywords.map((kw) => {
-    const r = rankings.find((i) => i.keyword_id === kw.id || i.keyword === kw.keyword);
-    const position = r?.position ?? null;
-    const previousPosition = r?.previous_position ?? null;
-    const delta = (previousPosition != null && position != null) ? previousPosition - position : null;
-    return { ...kw, latestPosition: position, latestDate: r?.date ?? null, previousPosition, delta };
-  }), [keywords, rankings]);
+  const keywordsWithRank = useMemo(() => keywords
+    .filter((kw) => (
+      selectedWebsiteId != null
+        ? kw.website_id == null || String(kw.website_id) === String(selectedWebsiteId)
+        : true
+    ))
+    .map((kw) => {
+      const r = rankings.find((i) => i.keyword_id === kw.id || i.keyword === kw.keyword);
+      const position = r?.position ?? null;
+      const previousPosition = r?.previous_position ?? null;
+      const delta = (previousPosition != null && position != null) ? previousPosition - position : null;
+      return { ...kw, latestPosition: position, latestDate: r?.date ?? null, previousPosition, delta };
+    }), [keywords, rankings, selectedWebsiteId]);
 
   const filteredKeywords = useMemo(() => {
     if (!keywordFilter.trim()) return keywordsWithRank;
@@ -752,7 +767,7 @@ export default function RankTracker() {
 
               {filteredKeywords.length === 0 ? (
                 <p className="text-sm text-gray-400 px-5 py-8 text-center">
-                  {keywords.length === 0 ? 'No keywords tracked yet.' : 'No keywords match your filter.'}
+                  {keywordsWithRank.length === 0 ? 'No keywords tracked for this website yet.' : 'No keywords match your filter.'}
                 </p>
               ) : (
                 <div className="divide-y divide-gray-100 max-h-[520px] overflow-y-auto">
@@ -796,7 +811,7 @@ export default function RankTracker() {
                 chartData.length > 0 ? (
                   <>
                     <h3 className="font-semibold text-gray-900 mb-1">
-                      Ranking History &mdash; {keywords.find((i) => i.id === selectedId)?.keyword}
+                      Ranking History &mdash; {keywordsWithRank.find((i) => i.id === selectedId)?.keyword}
                     </h3>
                     <p className="text-sm text-gray-500 mb-4">
                       {selectedWebsite.domain}

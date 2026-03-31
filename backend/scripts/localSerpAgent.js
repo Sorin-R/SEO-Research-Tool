@@ -109,28 +109,104 @@ function shouldHandleGoogleConsent(pageUrl) {
   return value.includes('consent.google') || value.includes('/sorry/');
 }
 
-async function handleGoogleConsent(page) {
+const ACCEPT_PATTERNS = [
+  'accept all',
+  'i agree',
+  'accept',
+  'agree',
+  'allow all',
+];
+
+const REJECT_PATTERNS = [
+  'reject all',
+  'continue',
+  'confirm',
+  'ok',
+];
+
+async function clickConsentButtonsInFrame(frame) {
   try {
-    await page.evaluate(() => {
-      const candidates = Array.from(document.querySelectorAll('button, input[type="submit"], div[role="button"]'));
-      const clickByPattern = (pattern) => {
-        for (const node of candidates) {
-          const text = String(node.textContent || node.value || '').trim().toLowerCase();
-          if (pattern.test(text)) {
-            node.click();
-            return true;
+    return await frame.evaluate((acceptPatterns, rejectPatterns) => {
+      const candidates = Array.from(document.querySelectorAll(
+        'button, input[type="submit"], input[type="button"], div[role="button"], span[role="button"], [aria-label], [jsname]'
+      ));
+      if (candidates.length === 0) {
+        return false;
+      }
+
+      const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      const getNodeLabel = (node) => normalize([
+        node.textContent,
+        node.getAttribute('aria-label'),
+        node.getAttribute('value'),
+        node.getAttribute('id'),
+        node.getAttribute('name'),
+      ].filter(Boolean).join(' '));
+
+      const clickByPatterns = (patterns) => {
+        for (const pattern of patterns) {
+          for (const node of candidates) {
+            const label = getNodeLabel(node);
+            if (!label || !label.includes(pattern)) {
+              continue;
+            }
+            try {
+              node.click();
+              return true;
+            } catch {
+              // continue
+            }
           }
         }
+
         return false;
       };
 
-      if (!clickByPattern(/accept all|i agree|accept/)) {
-        clickByPattern(/reject all|continue|confirm|ok/);
+      const knownIds = ['L2AGLb', 'introAgreeButton'];
+      for (const id of knownIds) {
+        const node = document.getElementById(id);
+        if (!node) continue;
+        try {
+          node.click();
+          return true;
+        } catch {
+          // continue
+        }
       }
-    });
+
+      if (clickByPatterns(acceptPatterns)) {
+        return true;
+      }
+
+      return clickByPatterns(rejectPatterns);
+    }, ACCEPT_PATTERNS, REJECT_PATTERNS);
   } catch {
-    // best-effort only
+    return false;
   }
+}
+
+async function handleGoogleConsent(page) {
+  let clicked = false;
+  for (const frame of page.frames()) {
+    const frameClicked = await clickConsentButtonsInFrame(frame);
+    clicked = clicked || frameClicked;
+  }
+
+  if (clicked) {
+    try {
+      await Promise.race([
+        page.waitForNavigation({
+          waitUntil: 'domcontentloaded',
+          timeout: 5000,
+        }),
+        sleep(1200),
+      ]);
+    } catch {
+      // ignore
+    }
+  }
+
+  return clicked;
 }
 
 async function waitForResults(page, engine) {
@@ -393,6 +469,11 @@ async function captureSerpLocally(payload) {
           console.log('[LocalAgent] Google block/captcha detected. Solve it in the opened browser window...');
 
           while (Date.now() < waitUntil) {
+            try {
+              await page.bringToFront();
+            } catch {
+              // ignore
+            }
             const currentUrl = safePageUrl(page, searchUrl);
             if (!shouldHandleGoogleConsent(currentUrl)) {
               break;

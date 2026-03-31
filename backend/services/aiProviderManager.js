@@ -83,8 +83,8 @@ const AI_PROVIDERS = [
     description: 'Google\'s multimodal AI with generous free tier and fast inference speeds.',
     docsUrl: 'https://ai.google.dev/docs',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-    models: ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro'],
-    defaultModel: 'gemini-2.0-flash',
+    models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'],
+    defaultModel: 'gemini-2.5-flash',
     fields: [
       { name: 'GOOGLE_AI_API_KEY', label: 'API Key', envKey: 'GOOGLE_AI_API_KEY' },
     ],
@@ -99,8 +99,8 @@ const AI_PROVIDERS = [
     docsUrl: 'https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/inference',
     baseUrl: 'https://aiplatform.googleapis.com/v1',
     requestMode: 'vertex_oauth2',
-    models: ['gemini-2.0-flash-001', 'gemini-2.5-flash', 'gemini-2.5-pro'],
-    defaultModel: 'gemini-2.0-flash-001',
+    models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash-001'],
+    defaultModel: 'gemini-2.5-flash',
     fields: [
       { name: 'GOOGLE_VERTEX_PROJECT_ID', label: 'GCP Project ID', envKey: 'GOOGLE_VERTEX_PROJECT_ID' },
       { name: 'GOOGLE_VERTEX_LOCATION', label: 'GCP Location', envKey: 'GOOGLE_VERTEX_LOCATION' },

@@ -6,6 +6,7 @@ const storePath = path.join(__dirname, '../data/runtime-store.json');
 const storeBackupPath = path.join(__dirname, '../data/runtime-store.backup.json');
 const storeTempPath = path.join(__dirname, '../data/runtime-store.tmp.json');
 const ALLOWED_SEARCH_DEPTHS = [10, 20, 50, 100];
+let writeQueue = Promise.resolve();
 
 function normalizePathname(pathname) {
   const value = String(pathname || '/').trim();
@@ -146,18 +147,46 @@ async function readState() {
 }
 
 async function writeState(state) {
-  await ensureStore();
-  const normalizedState = normalizeState(state);
-  const payload = JSON.stringify(normalizedState, null, 2);
+  const runWrite = async () => {
+    await ensureStore();
+    const normalizedState = normalizeState(state);
+    const payload = JSON.stringify(normalizedState, null, 2);
+    const uniqueTempPath = `${storeTempPath}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}`;
 
-  try {
-    await fs.copyFile(storePath, storeBackupPath);
-  } catch {
-    // best-effort backup only
-  }
+    try {
+      await fs.copyFile(storePath, storeBackupPath);
+    } catch {
+      // best-effort backup only
+    }
 
-  await fs.writeFile(storeTempPath, payload);
-  await fs.rename(storeTempPath, storePath);
+    await fs.writeFile(uniqueTempPath, payload);
+
+    try {
+      await fs.rename(uniqueTempPath, storePath);
+    } catch (err) {
+      if (err?.code === 'ENOENT') {
+        await ensureStore();
+        await fs.writeFile(storePath, payload);
+        try {
+          await fs.unlink(uniqueTempPath);
+        } catch {
+          // ignore cleanup failures
+        }
+        return;
+      }
+
+      try {
+        await fs.unlink(uniqueTempPath);
+      } catch {
+        // ignore cleanup failures
+      }
+      throw err;
+    }
+  };
+
+  const nextWrite = writeQueue.then(runWrite, runWrite);
+  writeQueue = nextWrite.catch(() => {});
+  return nextWrite;
 }
 
 function normalizeState(parsed) {

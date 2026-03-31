@@ -5,7 +5,7 @@ const {
   getAgentStats,
 } = require('../../search/localSerpAgentQueue');
 
-const DEFAULT_PROVIDER_TIMEOUT_MS = Number.parseInt(process.env.LOCAL_SERP_PROVIDER_TIMEOUT_MS || '45000', 10);
+const DEFAULT_PROVIDER_TIMEOUT_MS = Number.parseInt(process.env.LOCAL_SERP_PROVIDER_TIMEOUT_MS || '180000', 10);
 const DEFAULT_AGENT_MAX_AGE_MS = Number.parseInt(process.env.LOCAL_SERP_PROVIDER_AGENT_MAX_AGE_MS || '45000', 10);
 
 function normalizeEngine(value) {

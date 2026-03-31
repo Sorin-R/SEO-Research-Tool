@@ -184,3 +184,7 @@ The app will queue the job, your local agent will execute it, and results/screen
 
 Open **SERP Providers** in the app and turn **Local PC Agent** ON.
 Once enabled, the shared SERP provider manager can use it across SERP-related features.
+
+Rank Tracker behavior:
+- If **Local PC Agent** is ON, Rank Tracker checks use Local PC Agent as the source of truth (no fallback to other providers for those checks).
+- Full rank jobs run sequentially in this mode to keep local-agent queue processing stable.

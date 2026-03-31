@@ -90,10 +90,21 @@ async function runRankTrackerJob(source = 'Cron') {
   let updated = 0;
   let matched = 0;
   let failed = 0;
+  const localTrackingActive = await serpService.isLocalTrackingProviderActive();
+  const concurrencyLimit = localTrackingActive ? 1 : CONCURRENCY_LIMIT;
+
+  if (localTrackingActive) {
+    console.log(`${prefix} Local PC Agent is active. Running rank checks sequentially for stable local queue processing.`);
+  }
 
   const tasks = [];
-  for (const website of websites) {
-    for (const keyword of keywords) {
+  for (const keyword of keywords) {
+    const scopedWebsiteId = Number.parseInt(keyword.website_id, 10);
+    const targetWebsites = Number.isFinite(scopedWebsiteId) && scopedWebsiteId > 0
+      ? websites.filter((website) => Number(website.id) === scopedWebsiteId)
+      : websites;
+
+    for (const website of targetWebsites) {
       tasks.push(async () => {
         const result = await serpService.trackRanking(
           keyword.id,
@@ -111,7 +122,7 @@ async function runRankTrackerJob(source = 'Cron') {
     }
   }
 
-  const results = await runWithConcurrencyLimit(tasks, CONCURRENCY_LIMIT);
+  const results = await runWithConcurrencyLimit(tasks, concurrencyLimit);
 
   for (const result of results) {
     if (result.status === 'fulfilled') {

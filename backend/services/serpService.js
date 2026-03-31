@@ -2,6 +2,7 @@ const db = require('../database');
 const { analyzeSERP } = require('../analyzers/serpAnalyzer');
 const { calculateDifficulty } = require('../analyzers/keywordDifficulty');
 const { fetchSERPResults } = require('../scrapers/googleSERP');
+const { serpApiManager } = require('../scrapers');
 const { analyzeSERPWithAI } = require('./aiSerpService');
 const localStore = require('../utils/localStore');
 const { getCountryConfig, normalizeCountryCode } = require('../utils/searchCountry');
@@ -14,6 +15,11 @@ const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const MAX_SERP_HISTORY_ENTRIES = 12;
 let rankingsSchemaRepairPromise = null;
 const ALLOWED_TRACKING_DEPTHS = [10, 20, 50, 100];
+const LOCAL_PROVIDER_STATUS_TTL_MS = Number.parseInt(process.env.LOCAL_SERP_PROVIDER_STATUS_TTL_MS || '15000', 10);
+let localProviderStatusCache = {
+  value: false,
+  expiresAt: 0,
+};
 
 function clampLimit(limit, min, max) {
   return Math.min(Math.max(Number.parseInt(limit, 10) || min, min), max);
@@ -192,9 +198,39 @@ async function getSERPAnalysis(keyword, options = {}) {
 }
 
 async function getRankTrackingResults(keyword, options = {}) {
+  const useLocalProvider = await isLocalTrackingProviderActive();
+
   return fetchSERPResults(keyword, normalizeTrackingDepth(options.numResults), {
     country: normalizeCountryCode(options.country),
+    preferLocalPcAgent: useLocalProvider,
+    requireLocalPcAgent: useLocalProvider,
   });
+}
+
+async function isLocalTrackingProviderActive() {
+  const timestamp = Date.now();
+  if (timestamp < localProviderStatusCache.expiresAt) {
+    return localProviderStatusCache.value;
+  }
+
+  try {
+    const status = await serpApiManager.getStatus();
+    const localProvider = (status.availableProviders || []).find((provider) => provider.id === 'local-pc-agent');
+    const active = Boolean(localProvider?.active);
+
+    localProviderStatusCache = {
+      value: active,
+      expiresAt: timestamp + LOCAL_PROVIDER_STATUS_TTL_MS,
+    };
+
+    return active;
+  } catch {
+    localProviderStatusCache = {
+      value: false,
+      expiresAt: timestamp + Math.max(5000, LOCAL_PROVIDER_STATUS_TTL_MS),
+    };
+    return false;
+  }
 }
 
 /**
@@ -820,6 +856,7 @@ async function getUnreadAlertCount() {
 module.exports = {
   getSERPAnalysis,
   getRankTrackingResults,
+  isLocalTrackingProviderActive,
   trackRanking,
   syncTrackedRankingsFromResults,
   getRankingHistory,

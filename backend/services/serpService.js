@@ -201,11 +201,13 @@ async function getSERPAnalysis(keyword, options = {}) {
 
 async function getRankTrackingResults(keyword, options = {}) {
   const useLocalProvider = await isLocalTrackingProviderActive();
+  const preferLocalPcAgent = options.preferLocalPcAgent === true || useLocalProvider;
+  const requireLocalPcAgent = options.requireLocalPcAgent === true;
 
   return fetchSERPResults(keyword, normalizeTrackingDepth(options.numResults), {
     country: normalizeCountryCode(options.country),
-    preferLocalPcAgent: useLocalProvider,
-    requireLocalPcAgent: useLocalProvider,
+    preferLocalPcAgent,
+    requireLocalPcAgent,
   });
 }
 
@@ -535,10 +537,20 @@ async function getActiveTrackedWebsites() {
  * @param {string} targetDomain - The user's domain to track position for
  * @returns {Promise<Object>} Ranking record
  */
-async function trackRanking(keywordId, keyword, targetDomain, websiteId = null, country = 'US', depth = 10) {
+async function trackRanking(
+  keywordId,
+  keyword,
+  targetDomain,
+  websiteId = null,
+  country = 'US',
+  depth = 10,
+  options = {}
+) {
   const results = await getRankTrackingResults(keyword, {
     country: normalizeCountryCode(country),
     numResults: depth,
+    preferLocalPcAgent: options.preferLocalPcAgent === true,
+    requireLocalPcAgent: options.requireLocalPcAgent === true,
   });
   return trackRankingFromResults(keywordId, keyword, targetDomain, websiteId, results);
 }

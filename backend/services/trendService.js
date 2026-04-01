@@ -94,6 +94,23 @@ function labelGeo(geo) {
   return geo || 'Worldwide';
 }
 
+function safeParseJson(raw) {
+  if (typeof raw === 'object' && raw != null) {
+    return raw;
+  }
+  try {
+    return JSON.parse(String(raw || '{}'));
+  } catch {
+    return null;
+  }
+}
+
+function normalizeResolution(value) {
+  const normalized = String(value || 'COUNTRY').trim().toUpperCase();
+  const allowed = new Set(['COUNTRY', 'REGION', 'CITY', 'DMA']);
+  return allowed.has(normalized) ? normalized : 'COUNTRY';
+}
+
 /**
  * Get interest-over-time data for a keyword from Google Trends.
  *
@@ -260,27 +277,65 @@ async function compareKeywords(keywords, options = {}) {
 
 async function getInterestByRegion(keyword, options = {}) {
   const requestOptions = buildTrendRequestOptions(options);
-  const resolution = String(options.resolution || 'COUNTRY').trim().toUpperCase();
+  const requestedResolution = normalizeResolution(options.resolution);
+  const resolutionAttemptOrder = [];
+  const warnings = [];
 
-  const raw = await googleTrends.interestByRegion({
-    keyword,
-    ...requestOptions,
-    resolution,
-  });
+  if (!requestOptions.geo && requestedResolution !== 'COUNTRY') {
+    warnings.push('Requested resolution is not supported for Worldwide geo. Fallback to COUNTRY.');
+    resolutionAttemptOrder.push('COUNTRY');
+  } else {
+    resolutionAttemptOrder.push(requestedResolution);
+    if (requestedResolution !== 'COUNTRY') {
+      resolutionAttemptOrder.push('COUNTRY');
+    }
+  }
 
-  const data = JSON.parse(raw);
-  const rows = data.default?.geoMapData || [];
+  let selectedResolution = resolutionAttemptOrder[0];
+  let rows = [];
+  let lastErrorMessage = '';
+
+  for (const resolution of resolutionAttemptOrder) {
+    try {
+      const raw = await googleTrends.interestByRegion({
+        keyword,
+        ...requestOptions,
+        resolution,
+      });
+
+      const data = safeParseJson(raw);
+      if (!data?.default?.geoMapData || !Array.isArray(data.default.geoMapData)) {
+        throw new Error('Unexpected response shape from Google Trends.');
+      }
+
+      rows = data.default.geoMapData;
+      selectedResolution = resolution;
+      if (resolution !== requestedResolution) {
+        warnings.push(`Fallback applied: ${requestedResolution} -> ${resolution}.`);
+      }
+      lastErrorMessage = '';
+      break;
+    } catch (error) {
+      lastErrorMessage = String(error?.message || 'Interest by region fetch failed.');
+      if (resolution === resolutionAttemptOrder[resolutionAttemptOrder.length - 1]) {
+        throw new Error(lastErrorMessage);
+      }
+    }
+  }
 
   return {
     keyword,
     geo: labelGeo(requestOptions.geo),
-    resolution,
+    resolution: selectedResolution,
+    requestedResolution,
     request: {
       startTime: requestOptions.startTime?.toISOString() || null,
       endTime: requestOptions.endTime?.toISOString() || null,
       category: requestOptions.category,
       property: requestOptions.property || 'web',
     },
+    warnings,
+    errors: lastErrorMessage ? [lastErrorMessage] : [],
     regions: rows.map((row) => ({
       location: row.geoName || row.geoCode || '',
       code: row.geoCode || '',

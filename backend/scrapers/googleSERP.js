@@ -16,6 +16,7 @@ async function fetchSERPResults(keyword, numResults = 10, options = {}) {
   const requireLocalPcAgent = options.requireLocalPcAgent === true;
   const preferLocalPcAgent = options.preferLocalPcAgent === true || requireLocalPcAgent;
   const lockedProviderId = String(options.providerId || '').trim();
+  let fallbackOptions = { ...options };
 
   try {
     if (lockedProviderId) {
@@ -31,15 +32,23 @@ async function fetchSERPResults(keyword, numResults = 10, options = {}) {
         if (requireLocalPcAgent) {
           throw new Error('Local PC Agent returned no results.');
         }
+        fallbackOptions = {
+          ...fallbackOptions,
+          excludeProviderIds: mergeExcludedProviders(options.excludeProviderIds, 'local-pc-agent'),
+        };
       } catch (localErr) {
         if (requireLocalPcAgent) {
           throw new Error(`Local PC Agent required for this check but failed: ${localErr.message}`);
         }
+        fallbackOptions = {
+          ...fallbackOptions,
+          excludeProviderIds: mergeExcludedProviders(options.excludeProviderIds, 'local-pc-agent'),
+        };
       }
     }
 
     // Use multi-provider SERP API manager
-    return await serpApiManager.search(keyword, numResults, options);
+    return await serpApiManager.search(keyword, numResults, fallbackOptions);
   } catch (err) {
     if (requireLocalPcAgent) {
       throw err;
@@ -69,6 +78,11 @@ async function fetchSERPResults(keyword, numResults = 10, options = {}) {
       'Configure at least one SERP provider API key in SERP Providers, or retry.'
     );
   }
+}
+
+function mergeExcludedProviders(current, providerId) {
+  const values = Array.isArray(current) ? current : [];
+  return [...new Set([...values.map((value) => String(value || '').trim()).filter(Boolean), providerId])];
 }
 
 async function fetchDuckDuckGoResults(keyword, numResults = 10, options = {}) {

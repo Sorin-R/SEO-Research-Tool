@@ -220,7 +220,8 @@ router.post('/track', async (req, res) => {
       resolvedTargetDomain,
       websiteId || null,
       resolvedCountry,
-      depth || rankTrackerSettings.searchDepth
+      depth || rankTrackerSettings.searchDepth,
+      { preferLocalPcAgent: true }
     );
     res.json(result);
   } catch (err) {

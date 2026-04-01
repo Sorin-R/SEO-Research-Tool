@@ -40,7 +40,7 @@ const DROPDOWN_GROUPS = [
       { to: '/providers', label: 'SERP Providers' },
       { to: '/backlink-providers', label: 'Backlink Providers' },
       { to: '/ai-providers', label: 'AI Providers' },
-      { to: '/gsc-providers', label: 'GSC Providers' },
+      { to: '/google-tools', label: 'Google Tools' },
     ],
   },
 ];

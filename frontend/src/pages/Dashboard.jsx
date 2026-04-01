@@ -81,8 +81,19 @@ function toDateParam(value) {
   return parsed.toISOString().slice(0, 10);
 }
 
+function hasTrafficSource(trafficModule, sourceId) {
+  const sourceList = Array.isArray(trafficModule?.sources)
+    ? trafficModule.sources
+    : [trafficModule?.source].filter(Boolean);
+  return Boolean(trafficModule?.available && sourceList.includes(sourceId));
+}
+
 function hasGscData(trafficModule) {
-  return Boolean(trafficModule?.available && trafficModule?.source === 'gsc' && trafficModule?.summary);
+  return Boolean(hasTrafficSource(trafficModule, 'gsc') && trafficModule?.summary);
+}
+
+function hasGaData(trafficModule) {
+  return Boolean(hasTrafficSource(trafficModule, 'ga4') && trafficModule?.summary);
 }
 
 export default function Dashboard() {
@@ -264,6 +275,11 @@ export default function Dashboard() {
           nextCardErrors.gscPosition = message;
           nextCardErrors.gscTopQuery = message;
           nextCardErrors.gscTopPage = message;
+          nextCardErrors.gaUsers = message;
+          nextCardErrors.gaSessions = message;
+          nextCardErrors.gaEngagement = message;
+          nextCardErrors.gaAvgSession = message;
+          nextCardErrors.gaConversions = message;
         }
         if (key === 'backlinksModule') nextCardErrors.backlinks = message;
         if (key === 'aiVisibilityModule') {
@@ -351,7 +367,9 @@ export default function Dashboard() {
           return sum + 2;
         }, 0))
       : null;
-    const hasRealTraffic = Boolean(data.trafficModule?.available && data.trafficModule?.summary);
+    const hasRealGsc = hasGscData(data.trafficModule);
+    const hasRealGa4 = hasGaData(data.trafficModule);
+    const hasRealTraffic = Boolean((hasRealGsc || hasRealGa4) && data.trafficModule?.summary);
     const gscClicks = Number(data.trafficModule?.summary?.clicks || 0);
     const gscImpressions = Number(data.trafficModule?.summary?.impressions || 0);
     const gscCtrPercent = Number(data.trafficModule?.summary?.ctr || 0) * 100;
@@ -360,6 +378,24 @@ export default function Dashboard() {
     const gscTopPage = data.trafficModule?.highlights?.topPage || null;
     const gscTopDevice = data.trafficModule?.highlights?.topDevice || null;
     const gscTopCountry = data.trafficModule?.highlights?.topCountry || null;
+    const gaUsers = Number(data.trafficModule?.summary?.users || 0);
+    const gaSessions = Number(data.trafficModule?.summary?.sessions || 0);
+    const gaEngagedSessions = Number(data.trafficModule?.summary?.engagedSessions || 0);
+    const gaEngagementRatePercent = Number(data.trafficModule?.summary?.engagementRate || 0) * 100;
+    const gaAvgSessionDuration = Number(data.trafficModule?.summary?.averageSessionDuration || 0);
+    const gaConversions = Number(data.trafficModule?.summary?.conversions || 0);
+    const gaTopPage = data.trafficModule?.highlights?.gaTopPage || null;
+    const gaTopDevice = data.trafficModule?.highlights?.gaTopDevice || null;
+    const gaTopCountry = data.trafficModule?.highlights?.gaTopCountry || null;
+
+    const gaAvgSessionFormatted = Number.isFinite(gaAvgSessionDuration) && gaAvgSessionDuration > 0
+      ? (() => {
+          const totalSeconds = Math.round(gaAvgSessionDuration);
+          const minutes = Math.floor(totalSeconds / 60);
+          const seconds = String(totalSeconds % 60).padStart(2, '0');
+          return `${minutes}:${seconds}`;
+        })()
+      : null;
 
     const backlinksSummary = data.backlinksModule?.summary || null;
     const backlinksCount = Number(backlinksSummary?.backlinksCount || 0);
@@ -376,24 +412,48 @@ export default function Dashboard() {
       aiVisibilityScore,
       aiVisibilityMetric,
       siteHealthScore: Number.isFinite(siteHealthScore) ? siteHealthScore : null,
-      organicTrafficValue: hasRealTraffic ? gscClicks : estimatedTraffic,
-      organicTrafficBadge: hasRealTraffic ? 'GSC' : 'Estimated',
-      gscImpressionsValue: hasRealTraffic ? gscImpressions.toLocaleString() : null,
-      gscCtrValue: hasRealTraffic ? `${gscCtrPercent.toFixed(2)}%` : null,
-      gscAveragePositionValue: hasRealTraffic && Number.isFinite(gscAveragePosition)
+      organicTrafficValue: hasRealGsc && gscClicks > 0
+        ? gscClicks
+        : (hasRealGa4 ? gaSessions : (hasRealGsc ? gscClicks : estimatedTraffic)),
+      organicTrafficBadge: hasRealGsc
+        ? (hasRealGa4 ? 'GSC+GA4' : 'GSC')
+        : (hasRealGa4 ? 'GA4' : 'Estimated'),
+      gscImpressionsValue: hasRealGsc ? gscImpressions.toLocaleString() : null,
+      gscCtrValue: hasRealGsc ? `${gscCtrPercent.toFixed(2)}%` : null,
+      gscAveragePositionValue: hasRealGsc && Number.isFinite(gscAveragePosition)
         ? `#${gscAveragePosition.toFixed(2)}`
         : null,
-      gscTopQueryValue: hasRealTraffic && gscTopQuery
+      gscTopQueryValue: hasRealGsc && gscTopQuery
         ? Number(gscTopQuery.clicks || 0).toLocaleString()
         : null,
-      gscTopQuerySubtitle: hasRealTraffic && gscTopQuery
+      gscTopQuerySubtitle: hasRealGsc && gscTopQuery
         ? `${gscTopQuery.query || '—'} • ${(Number(gscTopQuery.ctr || 0) * 100).toFixed(2)}% CTR`
         : null,
-      gscTopPageValue: hasRealTraffic && gscTopPage
+      gscTopPageValue: hasRealGsc && gscTopPage
         ? Number(gscTopPage.clicks || 0).toLocaleString()
         : null,
-      gscTopPageSubtitle: hasRealTraffic && gscTopPage
+      gscTopPageSubtitle: hasRealGsc && gscTopPage
         ? `${String(gscTopPage.page || '—').replace(/^https?:\/\//, '')}`
+        : null,
+      gaUsersValue: hasRealGa4 ? gaUsers.toLocaleString() : null,
+      gaSessionsValue: hasRealGa4 ? gaSessions.toLocaleString() : null,
+      gaEngagementValue: hasRealGa4 ? `${gaEngagementRatePercent.toFixed(2)}%` : null,
+      gaAvgSessionValue: hasRealGa4 ? gaAvgSessionFormatted : null,
+      gaConversionsValue: hasRealGa4 ? gaConversions.toLocaleString() : null,
+      gaUsersSubtitle: hasRealGa4
+        ? `${gaEngagedSessions.toLocaleString()} engaged sessions`
+        : null,
+      gaSessionsSubtitle: hasRealGa4 && gaTopDevice?.device
+        ? `Top device: ${String(gaTopDevice.device).toUpperCase()}`
+        : null,
+      gaEngagementSubtitle: hasRealGa4 && gaTopCountry?.country
+        ? `Top country: ${String(gaTopCountry.country).toUpperCase()}`
+        : null,
+      gaAvgSessionSubtitle: hasRealGa4 && gaTopPage?.page
+        ? `Top landing page: ${String(gaTopPage.page || '').replace(/^https?:\/\//, '') || 'N/A'}`
+        : null,
+      gaConversionsSubtitle: hasRealGa4 && gaTopPage
+        ? `${Number(gaTopPage.conversions || 0).toLocaleString()} conversions on top page`
         : null,
       organicKeywordsValue: totalKeywords > 0 ? `${rankedKeywords} / ${totalKeywords}` : null,
       backlinksValue: hasBacklinksData ? backlinksCount.toLocaleString() : null,
@@ -413,12 +473,14 @@ export default function Dashboard() {
       siteHealthSubtitle: siteHealthCheckedAt
         ? `Latest check: ${new Date(siteHealthCheckedAt).toLocaleDateString()} • ${siteHealthIssueCounts?.failingChecks || 0} failing checks`
         : null,
-      trafficSubtitle: hasRealTraffic
+      trafficSubtitle: hasRealGsc
         ? `${gscImpressions.toLocaleString()} impressions • ${gscCtrPercent.toFixed(2)}% CTR • ${
           gscTopDevice?.device ? `Top device: ${String(gscTopDevice.device).toUpperCase()}` : 'Search analytics data'
         }`
+        : hasRealGa4
+          ? `${gaUsers.toLocaleString()} users • ${gaEngagementRatePercent.toFixed(2)}% engagement`
         : (rankedRows.length ? `${rankedRows.length} ranking URLs contributed` : null),
-      gscPositionSubtitle: hasRealTraffic
+      gscPositionSubtitle: hasRealGsc
         ? `${gscTopCountry?.country ? `Top country: ${String(gscTopCountry.country).toUpperCase()}` : 'Average across selected period'}`
         : null,
       aiVisibilitySubtitle: data.aiVisibilityModule?.metadata?.sampleSize
@@ -471,6 +533,11 @@ export default function Dashboard() {
     && kpiValues.gscAveragePositionValue == null
     && kpiValues.gscTopQueryValue == null
     && kpiValues.gscTopPageValue == null
+    && kpiValues.gaUsersValue == null
+    && kpiValues.gaSessionsValue == null
+    && kpiValues.gaEngagementValue == null
+    && kpiValues.gaAvgSessionValue == null
+    && kpiValues.gaConversionsValue == null
     && kpiValues.organicKeywordsValue == null
     && kpiValues.backlinksValue == null
     && kpiValues.serpCoverageValue == null
@@ -499,7 +566,7 @@ export default function Dashboard() {
 
       <DashboardSection
         title="KPI Cards"
-        description="AI Visibility, Site Health, GSC traffic metrics, Organic Keywords, Backlinks, and SERP Coverage."
+        description="AI Visibility, Site Health, Google traffic metrics (GSC + GA4), Organic Keywords, Backlinks, and SERP Coverage."
       >
         <DashboardGrid>
           <KpiCard
@@ -576,6 +643,51 @@ export default function Dashboard() {
             isLoading={loading}
             error={cardErrors.gscTopPage}
             emptyMessage="No top page rows found in this date range."
+          />
+          <KpiCard
+            title="GA4 Users"
+            value={kpiValues.gaUsersValue}
+            subtitle={kpiValues.gaUsersSubtitle}
+            badge={hasGaData(data.trafficModule) ? 'GA4' : null}
+            isLoading={loading}
+            error={cardErrors.gaUsers}
+            emptyMessage="Connect Google Analytics provider to show users."
+          />
+          <KpiCard
+            title="GA4 Sessions"
+            value={kpiValues.gaSessionsValue}
+            subtitle={kpiValues.gaSessionsSubtitle}
+            badge={hasGaData(data.trafficModule) ? 'GA4' : null}
+            isLoading={loading}
+            error={cardErrors.gaSessions}
+            emptyMessage="Connect Google Analytics provider to show sessions."
+          />
+          <KpiCard
+            title="GA4 Engagement"
+            value={kpiValues.gaEngagementValue}
+            subtitle={kpiValues.gaEngagementSubtitle}
+            badge={hasGaData(data.trafficModule) ? 'GA4' : null}
+            isLoading={loading}
+            error={cardErrors.gaEngagement}
+            emptyMessage="Connect Google Analytics provider to show engagement rate."
+          />
+          <KpiCard
+            title="GA4 Avg Session"
+            value={kpiValues.gaAvgSessionValue}
+            subtitle={kpiValues.gaAvgSessionSubtitle}
+            badge={hasGaData(data.trafficModule) ? 'GA4' : null}
+            isLoading={loading}
+            error={cardErrors.gaAvgSession}
+            emptyMessage="Connect Google Analytics provider to show session duration."
+          />
+          <KpiCard
+            title="GA4 Conversions"
+            value={kpiValues.gaConversionsValue}
+            subtitle={kpiValues.gaConversionsSubtitle}
+            badge={hasGaData(data.trafficModule) ? 'GA4' : null}
+            isLoading={loading}
+            error={cardErrors.gaConversions}
+            emptyMessage="Connect Google Analytics provider to show conversions."
           />
           <KpiCard
             title="Organic Keywords"

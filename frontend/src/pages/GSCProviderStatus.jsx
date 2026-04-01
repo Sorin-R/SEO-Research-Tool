@@ -115,7 +115,7 @@ export default function GSCProviderStatus() {
       applyUpdatedProvider(updatedProvider);
       setNotice(
         updatedProvider.enabled
-          ? `${updatedProvider.name} is ON and available for Search Console data ingestion.`
+          ? `${updatedProvider.name} is ON and available for dashboard ingestion.`
           : `${updatedProvider.name} is OFF and will be skipped.`
       );
     } catch (err) {
@@ -134,13 +134,21 @@ export default function GSCProviderStatus() {
     setError(null);
 
     try {
-      const result = await testGSCProviderConnection(provider.id);
+      const providerDraft = credentialDrafts[provider.id] || {};
+      const result = await testGSCProviderConnection(provider.id, {
+        siteUrl: providerDraft.GOOGLE_SEARCH_CONSOLE_SITE_URL || undefined,
+        propertyId: providerDraft.GOOGLE_ANALYTICS_PROPERTY_ID || undefined,
+      });
       setConnectionChecks((current) => ({
         ...current,
         [provider.id]: result,
       }));
 
-      if (result.siteMatched) {
+      if (provider.id === 'google-analytics') {
+        setNotice(
+          `GA4 test successful. Property ${result.propertyId || 'N/A'} is accessible.`
+        );
+      } else if (result.siteMatched) {
         setNotice(`GSC test successful. Property matched: ${result.matchedSiteUrl || result.configuredSiteUrl}.`);
       } else {
         setNotice('GSC connected, but configured site URL was not found in your accessible properties.');
@@ -153,7 +161,7 @@ export default function GSCProviderStatus() {
   }
 
   if (loading) {
-    return <LoadingSpinner message="Loading Google Search Console provider..." />;
+    return <LoadingSpinner message="Loading Google Tools providers..." />;
   }
 
   if (error && !providers) {
@@ -168,9 +176,9 @@ export default function GSCProviderStatus() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-1">Google Search Console Provider</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-1">Google Tools</h2>
         <p className="text-sm text-gray-500">
-          Save OAuth credentials and the target Search Console property here. Credentials are stored server-side and can be updated anytime.
+          Configure Google Search Console and Google Analytics providers in one place. Credentials are stored server-side and can be updated anytime.
         </p>
       </div>
 
@@ -193,7 +201,7 @@ export default function GSCProviderStatus() {
           <div className="px-5 py-4 border-b border-gray-200">
             <h3 className="font-semibold text-gray-900">Provider Controls</h3>
             <p className="text-sm text-gray-500 mt-1">
-              Add required OAuth values, save, then switch provider ON.
+              Add required values, save, then switch provider ON.
             </p>
           </div>
 
@@ -236,7 +244,13 @@ export default function GSCProviderStatus() {
                         onClick={() => handleTestConnection(provider)}
                         disabled={!provider.configured || isTestingConnection}
                         className="rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
-                        title={!provider.configured ? 'Save required credentials first' : 'Test Search Console connection'}
+                        title={
+                          !provider.configured
+                            ? 'Save required credentials first'
+                            : provider.id === 'google-analytics'
+                              ? 'Test Google Analytics connection'
+                              : 'Test Search Console connection'
+                        }
                       >
                         {isTestingConnection ? 'Testing...' : 'Test Connection'}
                       </button>
@@ -279,7 +293,11 @@ export default function GSCProviderStatus() {
                             {field.hasValue
                               ? field.source === 'saved'
                                 ? 'Saved in app'
-                                : 'Using env'
+                                : field.source === 'saved-fallback'
+                                  ? 'Using saved fallback'
+                                  : field.source === 'env-fallback'
+                                    ? 'Using env fallback'
+                                    : 'Using env'
                               : field.required
                                 ? 'Missing'
                                 : 'Optional'}
@@ -312,31 +330,45 @@ export default function GSCProviderStatus() {
 
                   {connectionCheck && (
                     <div
-                      className={`mt-4 rounded-lg border px-3 py-2 text-xs ${connectionCheck.siteMatched === true
-                        ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                        : connectionCheck.siteMatched === false
-                          ? 'border-amber-200 bg-amber-50 text-amber-900'
-                          : 'border-blue-200 bg-blue-50 text-blue-900'
+                      className={`mt-4 rounded-lg border px-3 py-2 text-xs ${
+                        provider.id === 'google-analytics'
+                          ? 'border-blue-200 bg-blue-50 text-blue-900'
+                          : connectionCheck.siteMatched === true
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                            : connectionCheck.siteMatched === false
+                              ? 'border-amber-200 bg-amber-50 text-amber-900'
+                              : 'border-blue-200 bg-blue-50 text-blue-900'
                       }`}
                     >
-                      <div className="font-medium">
-                        {connectionCheck.siteMatched === true
-                          ? 'Connection OK'
-                          : connectionCheck.siteMatched === false
-                            ? 'Connected, site mismatch'
-                            : 'Account connected'}
-                      </div>
-                      <div className="mt-1">
-                        Configured: <code>{connectionCheck.configuredSiteUrl || 'N/A'}</code>
-                      </div>
-                      {connectionCheck.matchedSiteUrl && (
-                        <div className="mt-1">
-                          Matched: <code>{connectionCheck.matchedSiteUrl}</code>
-                        </div>
+                      {provider.id === 'google-analytics' ? (
+                        <>
+                          <div className="font-medium">GA4 Connection OK</div>
+                          <div className="mt-1">Property ID: <code>{connectionCheck.propertyId || 'N/A'}</code></div>
+                          <div className="mt-1">Sample users: <code>{connectionCheck.sampleUsers ?? 0}</code></div>
+                          <div className="mt-1">Sample sessions: <code>{connectionCheck.sampleSessions ?? 0}</code></div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="font-medium">
+                            {connectionCheck.siteMatched === true
+                              ? 'Connection OK'
+                              : connectionCheck.siteMatched === false
+                                ? 'Connected, site mismatch'
+                                : 'Account connected'}
+                          </div>
+                          <div className="mt-1">
+                            Configured: <code>{connectionCheck.configuredSiteUrl || 'N/A'}</code>
+                          </div>
+                          {connectionCheck.matchedSiteUrl && (
+                            <div className="mt-1">
+                              Matched: <code>{connectionCheck.matchedSiteUrl}</code>
+                            </div>
+                          )}
+                          <div className="mt-1 text-[11px] opacity-80">
+                            Accessible properties: {connectionCheck.totalAccessibleProperties}
+                          </div>
+                        </>
                       )}
-                      <div className="mt-1 text-[11px] opacity-80">
-                        Accessible properties: {connectionCheck.totalAccessibleProperties}
-                      </div>
                     </div>
                   )}
                 </div>
@@ -371,9 +403,10 @@ export default function GSCProviderStatus() {
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-5">
             <h3 className="font-semibold text-blue-900">OAuth Notes</h3>
             <ul className="mt-3 space-y-2 text-sm text-blue-800">
-              <li>Use OAuth credentials for the same Google Cloud project where Search Console API is enabled.</li>
+              <li>Use OAuth credentials for the same Google Cloud project where Search Console and Analytics Data APIs are enabled.</li>
               <li>The Search Console property URL must be exact, for example `sc-domain:example.com`.</li>
-              <li>After saving credentials, switch provider ON to allow Search Console features to use it.</li>
+              <li>GA4 Property ID is numeric (for example: `123456789`).</li>
+              <li>After saving credentials, switch provider ON to allow dashboard features to use it.</li>
             </ul>
           </div>
         </div>

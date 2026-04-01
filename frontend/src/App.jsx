@@ -39,6 +39,7 @@ export default function App() {
           <Route path="/backlink-providers" element={<BacklinkProviderStatus />} />
           <Route path="/ai-providers" element={<AIProviderStatus />} />
           <Route path="/gsc-providers" element={<GSCProviderStatus />} />
+          <Route path="/google-tools" element={<GSCProviderStatus />} />
         </Route>
       </Routes>
     </WebsiteProvider>

@@ -38,6 +38,53 @@ const GSC_PROVIDERS = [
     quotaType: 'Per-minute + per-day',
     setupTime: '~5 min',
   },
+  {
+    id: 'google-analytics',
+    name: 'Google Analytics (GA4)',
+    description: 'Connect GA4 Data API to use users, sessions, engagement, and conversion metrics.',
+    docsUrl: 'https://developers.google.com/analytics/devguides/reporting/data/v1',
+    fields: [
+      {
+        name: 'GOOGLE_ANALYTICS_CLIENT_ID',
+        label: 'OAuth Client ID',
+        envKey: 'GOOGLE_ANALYTICS_CLIENT_ID',
+        fallbackEnvKeys: ['GOOGLE_SEARCH_CONSOLE_CLIENT_ID'],
+        fallbackFromProviders: [
+          { providerId: 'google-search-console', credentialKey: 'GOOGLE_SEARCH_CONSOLE_CLIENT_ID' },
+        ],
+        required: true,
+      },
+      {
+        name: 'GOOGLE_ANALYTICS_CLIENT_SECRET',
+        label: 'OAuth Client Secret',
+        envKey: 'GOOGLE_ANALYTICS_CLIENT_SECRET',
+        fallbackEnvKeys: ['GOOGLE_SEARCH_CONSOLE_CLIENT_SECRET'],
+        fallbackFromProviders: [
+          { providerId: 'google-search-console', credentialKey: 'GOOGLE_SEARCH_CONSOLE_CLIENT_SECRET' },
+        ],
+        required: true,
+      },
+      {
+        name: 'GOOGLE_ANALYTICS_REFRESH_TOKEN',
+        label: 'OAuth Refresh Token',
+        envKey: 'GOOGLE_ANALYTICS_REFRESH_TOKEN',
+        fallbackEnvKeys: ['GOOGLE_SEARCH_CONSOLE_REFRESH_TOKEN'],
+        fallbackFromProviders: [
+          { providerId: 'google-search-console', credentialKey: 'GOOGLE_SEARCH_CONSOLE_REFRESH_TOKEN' },
+        ],
+        required: true,
+      },
+      {
+        name: 'GOOGLE_ANALYTICS_PROPERTY_ID',
+        label: 'GA4 Property ID (numbers only)',
+        envKey: 'GOOGLE_ANALYTICS_PROPERTY_ID',
+        required: true,
+      },
+    ],
+    quota: 'Google API quotas apply',
+    quotaType: 'Per-minute + per-day',
+    setupTime: '~5 min',
+  },
 ];
 
 function shouldUseLocalFallback(err) {
@@ -194,6 +241,30 @@ function resolveCredentialValue(provider, fieldName, credentialsMap) {
     return { value: envValue.trim(), source: 'env' };
   }
 
+  const fallbackFromProviders = Array.isArray(field?.fallbackFromProviders)
+    ? field.fallbackFromProviders
+    : [];
+  for (const fallbackEntry of fallbackFromProviders) {
+    const fallbackProviderId = String(fallbackEntry?.providerId || '').trim();
+    const fallbackCredentialKey = String(fallbackEntry?.credentialKey || '').trim();
+    if (!fallbackProviderId || !fallbackCredentialKey) {
+      continue;
+    }
+
+    const fallbackSaved = credentialsMap[fallbackProviderId]?.[fallbackCredentialKey];
+    if (fallbackSaved?.value) {
+      return { value: fallbackSaved.value, source: 'saved-fallback' };
+    }
+  }
+
+  const fallbackEnvKeys = Array.isArray(field?.fallbackEnvKeys) ? field.fallbackEnvKeys : [];
+  for (const fallbackEnvKey of fallbackEnvKeys) {
+    const fallbackEnvValue = String(process.env[fallbackEnvKey] || '').trim();
+    if (fallbackEnvValue && !fallbackEnvValue.startsWith('your_')) {
+      return { value: fallbackEnvValue, source: 'env-fallback' };
+    }
+  }
+
   return { value: null, source: null };
 }
 
@@ -294,11 +365,19 @@ function getResolvedProviderCredentials(provider, credentialsMap) {
   }, {});
 }
 
-async function fetchGoogleAccessToken(credentials) {
+async function fetchGoogleAccessTokenFromOAuth({ clientId, clientSecret, refreshToken }) {
+  const normalizedClientId = String(clientId || '').trim();
+  const normalizedClientSecret = String(clientSecret || '').trim();
+  const normalizedRefreshToken = String(refreshToken || '').trim();
+
+  if (!normalizedClientId || !normalizedClientSecret || !normalizedRefreshToken) {
+    throw createServiceError('Google OAuth credentials are incomplete.');
+  }
+
   const tokenPayload = new URLSearchParams({
-    client_id: credentials.GOOGLE_SEARCH_CONSOLE_CLIENT_ID,
-    client_secret: credentials.GOOGLE_SEARCH_CONSOLE_CLIENT_SECRET,
-    refresh_token: credentials.GOOGLE_SEARCH_CONSOLE_REFRESH_TOKEN,
+    client_id: normalizedClientId,
+    client_secret: normalizedClientSecret,
+    refresh_token: normalizedRefreshToken,
     grant_type: 'refresh_token',
   });
 
@@ -316,6 +395,14 @@ async function fetchGoogleAccessToken(credentials) {
   return String(tokenResponse?.data?.access_token || '').trim();
 }
 
+async function fetchGoogleAccessToken(credentials) {
+  return fetchGoogleAccessTokenFromOAuth({
+    clientId: credentials.GOOGLE_SEARCH_CONSOLE_CLIENT_ID,
+    clientSecret: credentials.GOOGLE_SEARCH_CONSOLE_CLIENT_SECRET,
+    refreshToken: credentials.GOOGLE_SEARCH_CONSOLE_REFRESH_TOKEN,
+  });
+}
+
 function getGoogleTokenErrorMessage(err) {
   const apiError = String(err?.response?.data?.error || '').trim();
   const apiDescription = String(err?.response?.data?.error_description || '').trim();
@@ -323,7 +410,7 @@ function getGoogleTokenErrorMessage(err) {
   const normalized = `${apiError} ${apiDescription}`.toLowerCase();
 
   if (normalized.includes('invalid_rapt') || normalized.includes('reauth')) {
-    return 'reauth required (invalid_rapt). Refresh token expired or requires re-consent. Generate a new refresh token with access_type=offline and prompt=consent, then save it in GSC Providers.';
+    return 'reauth required (invalid_rapt). Refresh token expired or requires re-consent. Generate a new refresh token with access_type=offline and prompt=consent, then save it in Google Tools.';
   }
 
   if (normalized.includes('invalid_grant')) {
@@ -368,11 +455,66 @@ function normalizeSearchAnalyticsRows(responseData, dimensions = []) {
   });
 }
 
+function normalizeGaPropertyId(value) {
+  const rawValue = String(value || '').trim();
+  if (!rawValue) {
+    return '';
+  }
+
+  const normalized = rawValue.replace(/^properties\//i, '').trim();
+  if (!/^\d+$/.test(normalized)) {
+    throw createServiceError('Google Analytics property ID must be numeric (for example: 123456789).');
+  }
+
+  return normalized;
+}
+
+async function runGa4Report(accessToken, propertyId, requestBody) {
+  const normalizedPropertyId = normalizeGaPropertyId(propertyId);
+  const response = await axios.post(
+    `https://analyticsdata.googleapis.com/v1beta/properties/${normalizedPropertyId}:runReport`,
+    requestBody,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 25000,
+    }
+  );
+
+  return response?.data || {};
+}
+
+function toNumber(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseGaMetricRows(responseData, dimensions = [], metrics = []) {
+  const rows = Array.isArray(responseData?.rows) ? responseData.rows : [];
+  return rows.map((row) => {
+    const entry = {};
+    const dimensionValues = Array.isArray(row?.dimensionValues) ? row.dimensionValues : [];
+    const metricValues = Array.isArray(row?.metricValues) ? row.metricValues : [];
+
+    dimensions.forEach((dimensionName, index) => {
+      entry[dimensionName] = String(dimensionValues[index]?.value || '').trim();
+    });
+
+    metrics.forEach((metricName, index) => {
+      entry[metricName] = toNumber(metricValues[index]?.value, 0);
+    });
+
+    return entry;
+  });
+}
+
 async function toggleProvider(providerId, enabled) {
   const definition = GSC_PROVIDERS.find((provider) => provider.id === providerId);
 
   if (!definition) {
-    throw createServiceError(`Unknown GSC provider: ${providerId}`, 404);
+    throw createServiceError(`Unknown Google Tools provider: ${providerId}`, 404);
   }
 
   await updateSetting(providerId, enabled);
@@ -383,33 +525,35 @@ async function saveProviderCredentials(providerId, credentials) {
   const definition = getProviderDefinition(providerId);
 
   if (!definition) {
-    throw createServiceError(`Unknown GSC provider: ${providerId}`, 404);
+    throw createServiceError(`Unknown Google Tools provider: ${providerId}`, 404);
   }
 
   await updateCredentials(providerId, credentials);
   return getProviderById(providerId);
 }
 
-async function testProviderConnection(providerId, options = {}) {
-  const provider = getProviderDefinition(providerId);
-
-  if (!provider) {
-    throw createServiceError(`Unknown GSC provider: ${providerId}`, 404);
-  }
-
-  const credentialsMap = await getCredentialsMap();
-  const credentials = getResolvedProviderCredentials(provider, credentialsMap);
-  const missingFields = provider.fields
+function getMissingRequiredFields(provider, credentials) {
+  return provider.fields
     .filter((field) => field.required !== false && !credentials[field.name])
     .map((field) => field.name);
+}
 
-  if (missingFields.length > 0) {
-    throw createServiceError(`Missing required credentials: ${missingFields.join(', ')}`);
+async function getGoogleAccessTokenForProvider(provider, credentials) {
+  if (provider.id === 'google-analytics') {
+    return fetchGoogleAccessTokenFromOAuth({
+      clientId: credentials.GOOGLE_ANALYTICS_CLIENT_ID,
+      clientSecret: credentials.GOOGLE_ANALYTICS_CLIENT_SECRET,
+      refreshToken: credentials.GOOGLE_ANALYTICS_REFRESH_TOKEN,
+    });
   }
 
+  return fetchGoogleAccessToken(credentials);
+}
+
+async function testSearchConsoleConnection(provider, credentials, options = {}) {
   let accessToken;
   try {
-    accessToken = await fetchGoogleAccessToken(credentials);
+    accessToken = await getGoogleAccessTokenForProvider(provider, credentials);
   } catch (err) {
     const apiMessage = getGoogleTokenErrorMessage(err);
     throw createServiceError(`Google token request failed: ${apiMessage}`, 502);
@@ -459,24 +603,97 @@ async function testProviderConnection(providerId, options = {}) {
   };
 }
 
-async function getOrganicTrafficSummary(options = {}) {
-  const providerId = 'google-search-console';
-  const providerStatus = await getProviderById(providerId);
-  if (!providerStatus) {
-    throw createServiceError('Google Search Console provider is not available.', 404);
+async function testGoogleAnalyticsConnection(provider, credentials, options = {}) {
+  let accessToken;
+  try {
+    accessToken = await getGoogleAccessTokenForProvider(provider, credentials);
+  } catch (err) {
+    const apiMessage = getGoogleTokenErrorMessage(err);
+    throw createServiceError(`Google token request failed: ${apiMessage}`, 502);
   }
 
-  if (!providerStatus.active) {
+  if (!accessToken) {
+    throw createServiceError('Google token request failed: no access token received.', 502);
+  }
+
+  const rawPropertyId = String(options.propertyId || credentials.GOOGLE_ANALYTICS_PROPERTY_ID || '').trim();
+  const propertyId = normalizeGaPropertyId(rawPropertyId);
+  if (!propertyId) {
+    throw createServiceError('No Google Analytics property ID configured.');
+  }
+
+  let responseData;
+  try {
+    responseData = await runGa4Report(accessToken, propertyId, {
+      dateRanges: [{ startDate: '7daysAgo', endDate: 'today' }],
+      metrics: [{ name: 'totalUsers' }, { name: 'sessions' }],
+      limit: 1,
+    });
+  } catch (err) {
+    const apiMessage = err.response?.data?.error?.message || err.response?.data?.error || err.message;
+    throw createServiceError(`Google Analytics API request failed: ${apiMessage}`, 502);
+  }
+
+  const sample = parseGaMetricRows(responseData, [], ['totalUsers', 'sessions'])[0] || null;
+  return {
+    providerId: provider.id,
+    connected: true,
+    propertyId,
+    sampleUsers: sample?.totalUsers || 0,
+    sampleSessions: sample?.sessions || 0,
+    message: 'Connection successful and GA4 property is accessible.',
+  };
+}
+
+async function testProviderConnection(providerId, options = {}) {
+  const provider = getProviderDefinition(providerId);
+
+  if (!provider) {
+    throw createServiceError(`Unknown Google Tools provider: ${providerId}`, 404);
+  }
+
+  const credentialsMap = await getCredentialsMap();
+  const credentials = getResolvedProviderCredentials(provider, credentialsMap);
+  const missingFields = getMissingRequiredFields(provider, credentials);
+
+  if (missingFields.length > 0) {
+    throw createServiceError(`Missing required credentials: ${missingFields.join(', ')}`);
+  }
+
+  if (provider.id === 'google-analytics') {
+    return testGoogleAnalyticsConnection(provider, credentials, options);
+  }
+
+  return testSearchConsoleConnection(provider, credentials, options);
+}
+
+function getNormalizedDateRange(options = {}) {
+  const defaultRange = getDefaultDateRange();
+  const startDate = toIsoDate(options.dateFrom) || defaultRange.startDate;
+  const endDate = toIsoDate(options.dateTo) || defaultRange.endDate;
+
+  if (!startDate || !endDate) {
+    throw createServiceError('Invalid date range for Google traffic query.');
+  }
+
+  if (new Date(startDate) > new Date(endDate)) {
+    throw createServiceError('Invalid date range: start date is after end date.');
+  }
+
+  return { startDate, endDate };
+}
+
+async function getSearchConsoleTrafficSummary(options = {}) {
+  const providerId = 'google-search-console';
+  const providerStatus = await getProviderById(providerId);
+  if (!providerStatus || !providerStatus.active) {
     throw createServiceError('Google Search Console provider is not active.', 412);
   }
 
   const provider = getProviderDefinition(providerId);
   const credentialsMap = await getCredentialsMap();
   const credentials = getResolvedProviderCredentials(provider, credentialsMap);
-  const missingFields = provider.fields
-    .filter((field) => field.required !== false && !credentials[field.name])
-    .map((field) => field.name);
-
+  const missingFields = getMissingRequiredFields(provider, credentials);
   if (missingFields.length > 0) {
     throw createServiceError(`Missing required credentials: ${missingFields.join(', ')}`);
   }
@@ -490,21 +707,11 @@ async function getOrganicTrafficSummary(options = {}) {
     ? configuredSiteUrl.replace(/^sc-domain:/i, 'sc-domain:')
     : configuredSiteUrl.replace(/\/+$/, '/');
 
-  const defaultRange = getDefaultDateRange();
-  const startDate = toIsoDate(options.dateFrom) || defaultRange.startDate;
-  const endDate = toIsoDate(options.dateTo) || defaultRange.endDate;
-
-  if (!startDate || !endDate) {
-    throw createServiceError('Invalid date range for GSC traffic query.');
-  }
-
-  if (new Date(startDate) > new Date(endDate)) {
-    throw createServiceError('Invalid date range: start date is after end date.');
-  }
+  const { startDate, endDate } = getNormalizedDateRange(options);
 
   let accessToken;
   try {
-    accessToken = await fetchGoogleAccessToken(credentials);
+    accessToken = await getGoogleAccessTokenForProvider(provider, credentials);
   } catch (err) {
     const apiMessage = getGoogleTokenErrorMessage(err);
     throw createServiceError(`Google token request failed: ${apiMessage}`, 502);
@@ -582,6 +789,7 @@ async function getOrganicTrafficSummary(options = {}) {
   const topPage = topPages[0] || null;
 
   return {
+    available: true,
     source: 'gsc',
     providerId,
     siteUrl: normalizedSiteUrl,
@@ -615,6 +823,228 @@ async function getOrganicTrafficSummary(options = {}) {
       topDevice: deviceBreakdown[0] || null,
       topCountry: countryBreakdown[0] || null,
     },
+  };
+}
+
+async function getGoogleAnalyticsTrafficSummary(options = {}) {
+  const providerId = 'google-analytics';
+  const providerStatus = await getProviderById(providerId);
+  if (!providerStatus || !providerStatus.active) {
+    throw createServiceError('Google Analytics provider is not active.', 412);
+  }
+
+  const provider = getProviderDefinition(providerId);
+  const credentialsMap = await getCredentialsMap();
+  const credentials = getResolvedProviderCredentials(provider, credentialsMap);
+  const missingFields = getMissingRequiredFields(provider, credentials);
+  if (missingFields.length > 0) {
+    throw createServiceError(`Missing required credentials: ${missingFields.join(', ')}`);
+  }
+
+  const rawPropertyId = String(options.gaPropertyId || credentials.GOOGLE_ANALYTICS_PROPERTY_ID || '').trim();
+  const propertyId = normalizeGaPropertyId(rawPropertyId);
+  if (!propertyId) {
+    throw createServiceError('No Google Analytics property ID configured for this website.');
+  }
+
+  const { startDate, endDate } = getNormalizedDateRange(options);
+
+  let accessToken;
+  try {
+    accessToken = await getGoogleAccessTokenForProvider(provider, credentials);
+  } catch (err) {
+    const apiMessage = getGoogleTokenErrorMessage(err);
+    throw createServiceError(`Google token request failed: ${apiMessage}`, 502);
+  }
+
+  if (!accessToken) {
+    throw createServiceError('Google token request failed: no access token received.', 502);
+  }
+
+  const metricNames = [
+    'totalUsers',
+    'sessions',
+    'engagedSessions',
+    'engagementRate',
+    'averageSessionDuration',
+    'conversions',
+    'screenPageViews',
+    'bounceRate',
+  ];
+
+  let summaryData;
+  try {
+    summaryData = await runGa4Report(accessToken, propertyId, {
+      dateRanges: [{ startDate, endDate }],
+      metrics: metricNames.map((name) => ({ name })),
+      limit: 1,
+    });
+  } catch (err) {
+    const apiMessage = err.response?.data?.error?.message || err.response?.data?.error || err.message;
+    throw createServiceError(`Google Analytics traffic query failed: ${apiMessage}`, 502);
+  }
+
+  let topPages = [];
+  let deviceBreakdown = [];
+  let countryBreakdown = [];
+  try {
+    const [pagesData, devicesData, countriesData] = await Promise.all([
+      runGa4Report(accessToken, propertyId, {
+        dateRanges: [{ startDate, endDate }],
+        dimensions: [{ name: 'landingPagePlusQueryString' }],
+        metrics: [{ name: 'sessions' }, { name: 'totalUsers' }, { name: 'conversions' }],
+        orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+        limit: 10,
+      }),
+      runGa4Report(accessToken, propertyId, {
+        dateRanges: [{ startDate, endDate }],
+        dimensions: [{ name: 'deviceCategory' }],
+        metrics: [{ name: 'sessions' }],
+        orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+        limit: 10,
+      }),
+      runGa4Report(accessToken, propertyId, {
+        dateRanges: [{ startDate, endDate }],
+        dimensions: [{ name: 'country' }],
+        metrics: [{ name: 'sessions' }, { name: 'totalUsers' }],
+        orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+        limit: 10,
+      }),
+    ]);
+
+    topPages = parseGaMetricRows(
+      pagesData,
+      ['landingPagePlusQueryString'],
+      ['sessions', 'totalUsers', 'conversions']
+    ).map((row) => ({
+      page: row.landingPagePlusQueryString,
+      sessions: row.sessions,
+      users: row.totalUsers,
+      conversions: row.conversions,
+    }));
+
+    deviceBreakdown = parseGaMetricRows(devicesData, ['deviceCategory'], ['sessions']).map((row) => ({
+      device: row.deviceCategory,
+      sessions: row.sessions,
+    }));
+
+    countryBreakdown = parseGaMetricRows(countriesData, ['country'], ['sessions', 'totalUsers']).map((row) => ({
+      country: row.country,
+      sessions: row.sessions,
+      users: row.totalUsers,
+    }));
+  } catch (err) {
+    console.warn('[GSCProviderManager] Extended GA4 breakdown failed:', err.message);
+  }
+
+  const summaryRow = parseGaMetricRows(summaryData, [], metricNames)[0] || {};
+  const topPage = topPages[0] || null;
+
+  return {
+    available: true,
+    source: 'ga4',
+    providerId,
+    propertyId,
+    dateFrom: startDate,
+    dateTo: endDate,
+    summary: {
+      users: summaryRow.totalUsers || 0,
+      sessions: summaryRow.sessions || 0,
+      engagedSessions: summaryRow.engagedSessions || 0,
+      engagementRate: summaryRow.engagementRate || 0,
+      averageSessionDuration: summaryRow.averageSessionDuration || 0,
+      conversions: summaryRow.conversions || 0,
+      screenPageViews: summaryRow.screenPageViews || 0,
+      bounceRate: summaryRow.bounceRate || 0,
+    },
+    topPages,
+    deviceBreakdown,
+    countryBreakdown,
+    highlights: {
+      topPage,
+      topDevice: deviceBreakdown[0] || null,
+      topCountry: countryBreakdown[0] || null,
+    },
+  };
+}
+
+async function getOrganicTrafficSummary(options = {}) {
+  const warnings = [];
+  const { startDate, endDate } = getNormalizedDateRange(options);
+  let gscData = null;
+  let ga4Data = null;
+
+  try {
+    gscData = await getSearchConsoleTrafficSummary({
+      ...options,
+      dateFrom: startDate,
+      dateTo: endDate,
+    });
+  } catch (err) {
+    warnings.push(`GSC unavailable: ${err.message}`);
+  }
+
+  try {
+    ga4Data = await getGoogleAnalyticsTrafficSummary({
+      ...options,
+      dateFrom: startDate,
+      dateTo: endDate,
+    });
+  } catch (err) {
+    warnings.push(`GA4 unavailable: ${err.message}`);
+  }
+
+  if (!gscData && !ga4Data) {
+    throw createServiceError('Google traffic providers are not available. Configure Google Tools and website mapping.', 412);
+  }
+
+  const sources = [];
+  if (gscData) {
+    sources.push('gsc');
+  }
+  if (ga4Data) {
+    sources.push('ga4');
+  }
+
+  return {
+    available: true,
+    source: sources.join('+'),
+    sources,
+    providerId: sources[0] || null,
+    siteUrl: gscData?.siteUrl || null,
+    gaPropertyId: ga4Data?.propertyId || null,
+    dateFrom: startDate,
+    dateTo: endDate,
+    summary: {
+      clicks: gscData?.summary?.clicks || 0,
+      impressions: gscData?.summary?.impressions || 0,
+      ctr: gscData?.summary?.ctr || 0,
+      averagePosition: gscData?.summary?.averagePosition || 0,
+      users: ga4Data?.summary?.users || 0,
+      sessions: ga4Data?.summary?.sessions || 0,
+      engagedSessions: ga4Data?.summary?.engagedSessions || 0,
+      engagementRate: ga4Data?.summary?.engagementRate || 0,
+      averageSessionDuration: ga4Data?.summary?.averageSessionDuration || 0,
+      conversions: ga4Data?.summary?.conversions || 0,
+      screenPageViews: ga4Data?.summary?.screenPageViews || 0,
+      bounceRate: ga4Data?.summary?.bounceRate || 0,
+    },
+    topQueries: gscData?.topQueries || [],
+    topPages: gscData?.topPages || [],
+    deviceBreakdown: gscData?.deviceBreakdown || [],
+    countryBreakdown: gscData?.countryBreakdown || [],
+    highlights: {
+      topQuery: gscData?.highlights?.topQuery || null,
+      topPage: gscData?.highlights?.topPage || null,
+      topDevice: gscData?.highlights?.topDevice || null,
+      topCountry: gscData?.highlights?.topCountry || null,
+      gaTopPage: ga4Data?.highlights?.topPage || null,
+      gaTopDevice: ga4Data?.highlights?.topDevice || null,
+      gaTopCountry: ga4Data?.highlights?.topCountry || null,
+    },
+    ga4: ga4Data,
+    gsc: gscData,
+    warnings,
   };
 }
 

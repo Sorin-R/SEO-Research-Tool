@@ -25,6 +25,7 @@ router.use('/trends', trendsRouter);
 router.use('/google-ads', googleAdsRouter);
 router.use('/ai-providers', aiProvidersRouter);
 router.use('/gsc-providers', gscProvidersRouter);
+router.use('/google-tools', gscProvidersRouter);
 router.use('/websites', websitesRouter);
 router.use('/dashboard', dashboardRouter);
 router.use('/ai-serp', aiSerpRouter);

@@ -189,15 +189,27 @@ const HELP_CONTENT = {
     ],
   },
   '/gsc-providers': {
-    title: 'GSC Providers',
-    summary: 'Connects Google Search Console OAuth credentials and site mapping.',
+    title: 'Google Tools',
+    summary: 'Connects Google Search Console and Google Analytics OAuth credentials.',
     howItWorks: [
-      'Stores OAuth client/refresh credentials and default site URL.',
-      'Tests property access and reports site match status.',
-      'Enables real GSC traffic/query data where available.',
+      'Stores OAuth client/refresh credentials plus GSC site URL and GA4 property ID.',
+      'Tests Search Console property access and GA4 property access.',
+      'Enables real GSC + GA4 traffic data where available.',
     ],
     extraction: [
-      'Data is extracted from Search Console API for verified properties only.',
+      'Data is extracted from Google Search Console API and GA4 Data API for configured properties.',
+    ],
+  },
+  '/google-tools': {
+    title: 'Google Tools',
+    summary: 'Connects Google Search Console and Google Analytics OAuth credentials.',
+    howItWorks: [
+      'Stores OAuth client/refresh credentials plus GSC site URL and GA4 property ID.',
+      'Tests Search Console property access and GA4 property access.',
+      'Enables real GSC + GA4 traffic data where available.',
+    ],
+    extraction: [
+      'Data is extracted from Google Search Console API and GA4 Data API for configured properties.',
     ],
   },
 };

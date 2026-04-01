@@ -22,7 +22,7 @@ router.patch('/:id', async (req, res, next) => {
     const updatedProvider = await gscProviderManager.toggleProvider(req.params.id, enabled);
 
     if (!updatedProvider) {
-      return res.status(404).json({ error: `GSC provider "${req.params.id}" not found.` });
+      return res.status(404).json({ error: `Google Tools provider "${req.params.id}" not found.` });
     }
 
     res.json(updatedProvider);
@@ -45,7 +45,7 @@ router.patch('/:id/credentials', async (req, res, next) => {
     const updatedProvider = await gscProviderManager.saveProviderCredentials(req.params.id, credentials);
 
     if (!updatedProvider) {
-      return res.status(404).json({ error: `GSC provider "${req.params.id}" not found.` });
+      return res.status(404).json({ error: `Google Tools provider "${req.params.id}" not found.` });
     }
 
     res.json(updatedProvider);
@@ -61,6 +61,7 @@ router.post('/:id/test', async (req, res, next) => {
   try {
     const result = await gscProviderManager.testProviderConnection(req.params.id, {
       siteUrl: req.body?.siteUrl,
+      propertyId: req.body?.propertyId,
     });
     res.json(result);
   } catch (err) {

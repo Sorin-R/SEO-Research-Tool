@@ -636,7 +636,7 @@ export async function testAIProviderConnection(providerId) {
   return data;
 }
 
-// ---- Google Search Console Providers ----
+// ---- Google Tools (GSC + GA4) ----
 
 export async function getGSCProviders() {
   const { data } = await api.get('/gsc-providers');
@@ -657,9 +657,15 @@ export async function updateGSCProviderCredentials(providerId, credentials) {
   return data;
 }
 
-export async function testGSCProviderConnection(providerId, siteUrl = null) {
+export async function testGSCProviderConnection(providerId, options = null) {
+  const payload = typeof options === 'string'
+    ? { siteUrl: options || undefined }
+    : {
+        siteUrl: options?.siteUrl || undefined,
+        propertyId: options?.propertyId || undefined,
+      };
   const { data } = await api.post(`/gsc-providers/${providerId}/test`, {
-    siteUrl: siteUrl || undefined,
+    ...payload,
   });
   return data;
 }

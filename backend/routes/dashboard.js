@@ -83,16 +83,16 @@ router.get('/traffic', async (req, res) => {
     }
 
     const siteUrl = String(website.gsc_site_url || website.gscSiteUrl || '').trim();
-    if (!siteUrl) {
-      return res.json({
-        available: false,
-        source: 'estimate',
-        reason: 'missing-website-gsc-site-url',
-      });
-    }
+    const gaPropertyId = String(
+      req.query.gaPropertyId
+      || website.ga_property_id
+      || website.gaPropertyId
+      || ''
+    ).trim();
 
     const summary = await gscProviderManager.getOrganicTrafficSummary({
-      siteUrl,
+      siteUrl: siteUrl || null,
+      gaPropertyId: gaPropertyId || null,
       dateFrom: req.query.dateFrom || null,
       dateTo: req.query.dateTo || null,
       country: req.query.country || null,
@@ -105,12 +105,12 @@ router.get('/traffic', async (req, res) => {
   } catch (err) {
     const message = err.statusCode && err.statusCode < 500
       ? err.message
-      : 'GSC traffic not available.';
+      : 'Google traffic data not available.';
 
     res.json({
       available: false,
       source: 'estimate',
-      reason: 'gsc-unavailable',
+      reason: 'google-tools-unavailable',
       message,
     });
   }

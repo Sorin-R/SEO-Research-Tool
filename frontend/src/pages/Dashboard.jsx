@@ -527,8 +527,10 @@ export default function Dashboard() {
       >
         <SiteHealthModuleView
           moduleData={data.siteHealthModule}
+          backlinksData={data.backlinksModule}
           loading={loading}
           error={cardErrors.siteHealthModule}
+          backlinksError={cardErrors.backlinks}
         />
       </DashboardSection>
 

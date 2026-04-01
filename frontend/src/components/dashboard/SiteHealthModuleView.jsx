@@ -9,8 +9,10 @@ function severityBadgeClass(severity) {
 
 export default function SiteHealthModuleView({
   moduleData,
+  backlinksData = null,
   loading = false,
   error = null,
+  backlinksError = null,
 }) {
   if (loading) {
     return (
@@ -40,6 +42,16 @@ export default function SiteHealthModuleView({
   const topIssues = Array.isArray(moduleData.topIssues) ? moduleData.topIssues : [];
   const affectedPages = Array.isArray(moduleData.affectedPages) ? moduleData.affectedPages : [];
   const score = Number(moduleData.score?.value || 0);
+  const backlinks = Array.isArray(backlinksData?.backlinks) ? backlinksData.backlinks : [];
+  const hasBacklinkSnapshot = Boolean(backlinksData?.available);
+  const activeBacklinksCount = Number(
+    backlinksData?.summary?.activeBacklinksCount
+      || backlinks.filter((item) => String(item?.status || 'active').toLowerCase() !== 'broken').length
+  );
+  const brokenBacklinksCount = Number(
+    backlinksData?.summary?.brokenBacklinksCount
+      || backlinks.filter((item) => String(item?.status || '').toLowerCase() === 'broken').length
+  );
 
   return (
     <div className="space-y-4">
@@ -155,6 +167,84 @@ export default function SiteHealthModuleView({
             </table>
           </div>
         )}
+      </div>
+
+      <div className="rounded-lg border border-gray-200 bg-white">
+        <div className="border-b border-gray-200 px-4 py-3">
+          <h4 className="text-sm font-semibold text-gray-900">All Backlinks (DataForSEO)</h4>
+          {hasBacklinkSnapshot ? (
+            <p className="mt-1 text-xs text-gray-500">
+              Total rows: {backlinks.length} • Active: {activeBacklinksCount} • Broken: {brokenBacklinksCount}
+            </p>
+          ) : null}
+        </div>
+
+        {backlinksError ? (
+          <p className="px-4 py-5 text-sm text-red-700">{backlinksError}</p>
+        ) : null}
+
+        {!backlinksError && !hasBacklinkSnapshot ? (
+          <p className="px-4 py-5 text-sm text-gray-500">
+            No backlink snapshot yet. Configure DataForSEO and refresh Dashboard to load backlinks.
+          </p>
+        ) : null}
+
+        {!backlinksError && hasBacklinkSnapshot && backlinks.length === 0 ? (
+          <p className="px-4 py-5 text-sm text-gray-500">No backlinks found in the latest DataForSEO snapshot.</p>
+        ) : null}
+
+        {!backlinksError && hasBacklinkSnapshot && backlinks.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+                <tr>
+                  <th className="px-4 py-3">Source</th>
+                  <th className="px-4 py-3">Target</th>
+                  <th className="px-4 py-3">Anchor</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Seen</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {backlinks.map((backlink, index) => {
+                  const status = String(backlink.status || 'active').toLowerCase() === 'broken' ? 'broken' : 'active';
+                  const firstSeen = backlink.firstSeen ? new Date(backlink.firstSeen).toLocaleDateString() : '—';
+                  const lastSeen = backlink.lastSeen ? new Date(backlink.lastSeen).toLocaleDateString() : '—';
+
+                  return (
+                    <tr key={`${backlink.sourceUrl || backlink.sourceDomain || 'row'}-${index}`}>
+                      <td className="px-4 py-3">
+                        {backlink.sourceUrl ? (
+                          <a href={backlink.sourceUrl} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline break-all">
+                            {backlink.sourceUrl}
+                          </a>
+                        ) : (
+                          <span className="text-gray-500">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700 break-all">
+                        {backlink.targetUrl || '—'}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">
+                        {backlink.anchorText || '—'}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+                          status === 'broken' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'
+                        }`}>
+                          {status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">
+                        {firstSeen} → {lastSeen}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
       </div>
     </div>
   );

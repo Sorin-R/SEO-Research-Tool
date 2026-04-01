@@ -147,7 +147,6 @@ function mapBacklinkItems(taskResult, maxItems) {
       : [];
 
   const rows = [];
-  const seen = new Set();
 
   for (const item of items) {
     const sourceUrl = String(item?.url_from || '').trim();
@@ -155,13 +154,10 @@ function mapBacklinkItems(taskResult, maxItems) {
     const targetUrl = String(item?.url_to || '').trim();
     if (!sourceUrl || !sourceDomain) continue;
 
-    const dedupeKey = `${sourceUrl}::${targetUrl || sourceDomain}`;
-    if (seen.has(dedupeKey)) continue;
-    seen.add(dedupeKey);
-
     const dofollow = typeof item?.dofollow === 'boolean'
       ? item.dofollow
       : (typeof item?.nofollow === 'boolean' ? !item.nofollow : null);
+    const status = resolveBacklinkStatus(item);
 
     rows.push({
       sourceUrl,
@@ -173,12 +169,40 @@ function mapBacklinkItems(taskResult, maxItems) {
       lastSeen: item?.last_seen || null,
       rank: Number(item?.rank || 0) || null,
       linkType: String(item?.link_type || '').trim() || null,
+      status,
+      isBroken: status === 'broken',
     });
 
     if (rows.length >= maxItems) break;
   }
 
   return rows;
+}
+
+function resolveBacklinkStatus(item = {}) {
+  const explicitBroken =
+    item?.is_broken === true
+    || item?.broken === true
+    || item?.is_lost === true;
+
+  if (explicitBroken) {
+    return 'broken';
+  }
+
+  const statusCandidates = [
+    item?.backlink_status,
+    item?.status,
+    item?.link_status,
+    item?.state,
+  ]
+    .map((value) => String(value || '').trim().toLowerCase())
+    .filter(Boolean);
+
+  if (statusCandidates.some((value) => value.includes('broken') || value.includes('lost'))) {
+    return 'broken';
+  }
+
+  return 'active';
 }
 
 async function saveSnapshot(payload) {
@@ -269,7 +293,7 @@ async function runBacklinkScan({
 
   const backlinksRequest = [{
     target,
-    mode: 'one_per_domain',
+    mode: 'as_is',
     limit: safeLimit,
   }];
 
@@ -277,6 +301,8 @@ async function runBacklinkScan({
   const backlinksTask = extractTaskOrThrow(backlinksResponse, 'backlinks/backlinks/live');
   const backlinks = mapBacklinkItems(backlinksTask.result, safeLimit);
   const uniqueRefDomains = new Set(backlinks.map((item) => item.sourceDomain).filter(Boolean));
+  const brokenBacklinksCount = backlinks.filter((item) => item.status === 'broken').length;
+  const activeBacklinksCount = backlinks.filter((item) => item.status !== 'broken').length;
 
   const backlinksCount = Number(summaryResult?.backlinks || 0) || backlinks.length;
   const referringDomainsCount = Number(summaryResult?.referring_domains || 0) || uniqueRefDomains.size;
@@ -299,6 +325,8 @@ async function runBacklinkScan({
       fetchErrors: 0,
       rowsReturned: backlinks.length,
       limit: safeLimit,
+      activeBacklinksCount,
+      brokenBacklinksCount,
       cost: Number(summaryTask?.cost || 0) + Number(backlinksTask?.cost || 0),
     },
     backlinks,
@@ -358,6 +386,18 @@ async function getLatestBacklinkSnapshot(websiteId) {
         fetchErrors: Number(parsedResult?.summary?.fetchErrors || 0),
         rowsReturned: Number(parsedResult?.summary?.rowsReturned || 0),
         limit: Number(parsedResult?.summary?.limit || 0),
+        activeBacklinksCount: Number(
+          parsedResult?.summary?.activeBacklinksCount
+          || (Array.isArray(parsedResult?.backlinks)
+            ? parsedResult.backlinks.filter((item) => String(item?.status || 'active').toLowerCase() !== 'broken').length
+            : 0)
+        ),
+        brokenBacklinksCount: Number(
+          parsedResult?.summary?.brokenBacklinksCount
+          || (Array.isArray(parsedResult?.backlinks)
+            ? parsedResult.backlinks.filter((item) => String(item?.status || '').toLowerCase() === 'broken').length
+            : 0)
+        ),
         cost: Number(parsedResult?.summary?.cost || 0),
       },
       backlinks: Array.isArray(parsedResult.backlinks) ? parsedResult.backlinks : [],

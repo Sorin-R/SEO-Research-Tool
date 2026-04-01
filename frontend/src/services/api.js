@@ -510,30 +510,86 @@ export async function deleteContentAnalysisHistoryItem(id) {
 
 // ---- Trends ----
 
-export async function getTrends(keyword, geo = '', months = 12) {
+function normalizeTrendOptions(options = {}) {
+  const params = {
+    q: String(options.keyword || '').trim(),
+  };
+
+  const geo = String(options.geo || '').trim();
+  if (geo) params.geo = geo;
+
+  const timeframe = String(options.timeframe || '').trim();
+  if (timeframe) params.timeframe = timeframe;
+
+  const startTime = String(options.startTime || '').trim();
+  if (startTime) params.startTime = startTime;
+
+  const endTime = String(options.endTime || '').trim();
+  if (endTime) params.endTime = endTime;
+
+  const category = Number.parseInt(options.category, 10);
+  if (Number.isFinite(category) && category >= 0) {
+    params.category = category;
+  }
+
+  const property = String(options.property || '').trim();
+  if (property) params.property = property;
+
+  const months = Number.parseInt(options.months, 10);
+  if (Number.isFinite(months) && months > 0) {
+    params.months = months;
+  }
+
+  const resolution = String(options.resolution || '').trim();
+  if (resolution) params.resolution = resolution;
+
+  return params;
+}
+
+export async function getTrends(options = {}) {
+  const params = normalizeTrendOptions(options);
   const { data } = await api.get('/trends', {
-    params: { q: keyword, geo, months },
+    params,
   });
   return data;
 }
 
-export async function getRelatedQueries(keyword, geo = '') {
+export async function getRelatedQueries(options = {}) {
+  const params = normalizeTrendOptions(options);
   const { data } = await api.get('/trends/related', {
-    params: { q: keyword, geo },
+    params,
   });
   return data;
 }
 
-export async function getRelatedTopics(keyword, geo = '') {
+export async function getRelatedTopics(options = {}) {
+  const params = normalizeTrendOptions(options);
   const { data } = await api.get('/trends/topics', {
-    params: { q: keyword, geo },
+    params,
   });
   return data;
 }
 
-export async function compareKeywordTrends(keywords, geo = '', months = 12) {
+export async function compareKeywordTrends(keywords = [], options = {}) {
+  const params = {
+    keywords: (Array.isArray(keywords) ? keywords : [])
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+      .join(','),
+    ...normalizeTrendOptions(options),
+  };
+  delete params.q;
+
   const { data } = await api.get('/trends/compare', {
-    params: { keywords: keywords.join(','), geo, months },
+    params,
+  });
+  return data;
+}
+
+export async function getTrendRegions(options = {}) {
+  const params = normalizeTrendOptions(options);
+  const { data } = await api.get('/trends/regions', {
+    params,
   });
   return data;
 }

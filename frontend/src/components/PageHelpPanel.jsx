@@ -117,9 +117,9 @@ const HELP_CONTENT = {
   },
   '/trends': {
     title: 'Google Trends',
-    summary: 'Shows trend interest over time and related queries/topics.',
+    summary: 'Shows trend interest over time with country/date/search-type filters, related entities, and compare mode.',
     howItWorks: [
-      'Requests trends time-series and related entities for selected geo/time.',
+      'Requests trends time-series, related queries/topics, and regional breakdown for selected filters.',
       'Renders trend curves and related expansions.',
       'Supports compare mode for multiple terms.',
     ],

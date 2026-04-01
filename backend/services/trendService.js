@@ -1,5 +1,99 @@
 const googleTrends = require('google-trends-api');
 
+const ALLOWED_PROPERTIES = new Set(['', 'images', 'news', 'youtube', 'froogle']);
+
+function normalizeGeo(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function normalizeCategory(value) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+function normalizeProperty(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return ALLOWED_PROPERTIES.has(normalized) ? normalized : '';
+}
+
+function toValidDate(value) {
+  if (!value) {
+    return null;
+  }
+  const parsed = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function parseTimeframeWindow(timeframe) {
+  const value = String(timeframe || '').trim();
+  if (!value) {
+    return null;
+  }
+
+  const now = Date.now();
+  const byPreset = {
+    'now 1-H': now - 1 * 60 * 60 * 1000,
+    'now 4-H': now - 4 * 60 * 60 * 1000,
+    'now 1-d': now - 24 * 60 * 60 * 1000,
+    'now 7-d': now - 7 * 24 * 60 * 60 * 1000,
+    'today 1-m': now - 30 * 24 * 60 * 60 * 1000,
+    'today 3-m': now - 90 * 24 * 60 * 60 * 1000,
+    'today 12-m': now - 365 * 24 * 60 * 60 * 1000,
+    'today 5-y': now - 5 * 365 * 24 * 60 * 60 * 1000,
+    all: new Date('2004-01-01T00:00:00.000Z').getTime(),
+  };
+
+  const timestamp = byPreset[value];
+  if (!timestamp) {
+    return null;
+  }
+
+  return {
+    startTime: new Date(timestamp),
+    endTime: new Date(now),
+  };
+}
+
+function resolveDateWindow(options = {}) {
+  const explicitStart = toValidDate(options.startTime);
+  const explicitEnd = toValidDate(options.endTime);
+  if (explicitStart && explicitEnd && explicitStart <= explicitEnd) {
+    return {
+      startTime: explicitStart,
+      endTime: explicitEnd,
+    };
+  }
+
+  const fromTimeframe = parseTimeframeWindow(options.timeframe);
+  if (fromTimeframe) {
+    return fromTimeframe;
+  }
+
+  const months = Number.parseInt(options.months, 10);
+  const monthsBack = Number.isFinite(months) && months > 0 ? months : 12;
+  const endTime = explicitEnd || new Date();
+  const startTime = new Date(endTime.getTime() - monthsBack * 30 * 24 * 60 * 60 * 1000);
+  return {
+    startTime,
+    endTime,
+  };
+}
+
+function buildTrendRequestOptions(options = {}) {
+  const { startTime, endTime } = resolveDateWindow(options);
+  return {
+    geo: normalizeGeo(options.geo),
+    category: normalizeCategory(options.category),
+    property: normalizeProperty(options.property),
+    startTime,
+    endTime,
+  };
+}
+
+function labelGeo(geo) {
+  return geo || 'Worldwide';
+}
+
 /**
  * Get interest-over-time data for a keyword from Google Trends.
  *
@@ -10,13 +104,11 @@ const googleTrends = require('google-trends-api');
  * @returns {Promise<Object>}
  */
 async function getInterestOverTime(keyword, options = {}) {
-  const geo = options.geo || '';
-  const startTime = options.startTime || new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+  const requestOptions = buildTrendRequestOptions(options);
 
   const raw = await googleTrends.interestOverTime({
     keyword,
-    geo,
-    startTime,
+    ...requestOptions,
   });
 
   const data = JSON.parse(raw);
@@ -24,7 +116,13 @@ async function getInterestOverTime(keyword, options = {}) {
 
   return {
     keyword,
-    geo: geo || 'Worldwide',
+    geo: labelGeo(requestOptions.geo),
+    request: {
+      startTime: requestOptions.startTime?.toISOString() || null,
+      endTime: requestOptions.endTime?.toISOString() || null,
+      category: requestOptions.category,
+      property: requestOptions.property || 'web',
+    },
     timelineData: timeline.map((point) => ({
       date: point.formattedTime,
       timestamp: point.time,
@@ -41,13 +139,11 @@ async function getInterestOverTime(keyword, options = {}) {
  * @returns {Promise<Object>} { top, rising }
  */
 async function getRelatedQueries(keyword, options = {}) {
-  const geo = options.geo || '';
-  const startTime = options.startTime || new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+  const requestOptions = buildTrendRequestOptions(options);
 
   const raw = await googleTrends.relatedQueries({
     keyword,
-    geo,
-    startTime,
+    ...requestOptions,
   });
 
   const data = JSON.parse(raw);
@@ -64,7 +160,18 @@ async function getRelatedQueries(keyword, options = {}) {
     formattedValue: item.formattedValue,
   })) || [];
 
-  return { keyword, geo: geo || 'Worldwide', top, rising };
+  return {
+    keyword,
+    geo: labelGeo(requestOptions.geo),
+    request: {
+      startTime: requestOptions.startTime?.toISOString() || null,
+      endTime: requestOptions.endTime?.toISOString() || null,
+      category: requestOptions.category,
+      property: requestOptions.property || 'web',
+    },
+    top,
+    rising,
+  };
 }
 
 /**
@@ -75,13 +182,11 @@ async function getRelatedQueries(keyword, options = {}) {
  * @returns {Promise<Object>} { top, rising }
  */
 async function getRelatedTopics(keyword, options = {}) {
-  const geo = options.geo || '';
-  const startTime = options.startTime || new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+  const requestOptions = buildTrendRequestOptions(options);
 
   const raw = await googleTrends.relatedTopics({
     keyword,
-    geo,
-    startTime,
+    ...requestOptions,
   });
 
   const data = JSON.parse(raw);
@@ -100,7 +205,18 @@ async function getRelatedTopics(keyword, options = {}) {
     formattedValue: item.formattedValue,
   })) || [];
 
-  return { keyword, geo: geo || 'Worldwide', top, rising };
+  return {
+    keyword,
+    geo: labelGeo(requestOptions.geo),
+    request: {
+      startTime: requestOptions.startTime?.toISOString() || null,
+      endTime: requestOptions.endTime?.toISOString() || null,
+      category: requestOptions.category,
+      property: requestOptions.property || 'web',
+    },
+    top,
+    rising,
+  };
 }
 
 /**
@@ -115,13 +231,11 @@ async function compareKeywords(keywords, options = {}) {
     throw new Error('Google Trends comparison supports a maximum of 5 keywords.');
   }
 
-  const geo = options.geo || '';
-  const startTime = options.startTime || new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+  const requestOptions = buildTrendRequestOptions(options);
 
   const raw = await googleTrends.interestOverTime({
     keyword: keywords,
-    geo,
-    startTime,
+    ...requestOptions,
   });
 
   const data = JSON.parse(raw);
@@ -129,7 +243,13 @@ async function compareKeywords(keywords, options = {}) {
 
   return {
     keywords,
-    geo: geo || 'Worldwide',
+    geo: labelGeo(requestOptions.geo),
+    request: {
+      startTime: requestOptions.startTime?.toISOString() || null,
+      endTime: requestOptions.endTime?.toISOString() || null,
+      category: requestOptions.category,
+      property: requestOptions.property || 'web',
+    },
     timelineData: timeline.map((point) => ({
       date: point.formattedTime,
       values: point.value,
@@ -138,9 +258,42 @@ async function compareKeywords(keywords, options = {}) {
   };
 }
 
+async function getInterestByRegion(keyword, options = {}) {
+  const requestOptions = buildTrendRequestOptions(options);
+  const resolution = String(options.resolution || 'COUNTRY').trim().toUpperCase();
+
+  const raw = await googleTrends.interestByRegion({
+    keyword,
+    ...requestOptions,
+    resolution,
+  });
+
+  const data = JSON.parse(raw);
+  const rows = data.default?.geoMapData || [];
+
+  return {
+    keyword,
+    geo: labelGeo(requestOptions.geo),
+    resolution,
+    request: {
+      startTime: requestOptions.startTime?.toISOString() || null,
+      endTime: requestOptions.endTime?.toISOString() || null,
+      category: requestOptions.category,
+      property: requestOptions.property || 'web',
+    },
+    regions: rows.map((row) => ({
+      location: row.geoName || row.geoCode || '',
+      code: row.geoCode || '',
+      value: Array.isArray(row.value) ? (row.value[0] ?? 0) : 0,
+      formattedValue: Array.isArray(row.formattedValue) ? (row.formattedValue[0] ?? '') : '',
+    })),
+  };
+}
+
 module.exports = {
   getInterestOverTime,
   getRelatedQueries,
   getRelatedTopics,
   compareKeywords,
+  getInterestByRegion,
 };

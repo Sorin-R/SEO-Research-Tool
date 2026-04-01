@@ -87,6 +87,32 @@ export default function AiSerpWorkspace() {
     };
   }, [result]);
 
+  const scannedKeywords = useMemo(() => {
+    if (!result) return [];
+
+    const seen = new Set();
+    const output = [];
+
+    const pushKeyword = (value) => {
+      const keyword = String(value || '').replace(/\s+/g, ' ').trim();
+      if (!keyword) return;
+      const key = keyword.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      output.push(keyword);
+    };
+
+    (Array.isArray(result.keywordReports) ? result.keywordReports : []).forEach((item) => {
+      pushKeyword(item?.keyword);
+    });
+
+    (Array.isArray(result.failedKeywords) ? result.failedKeywords : []).forEach((item) => {
+      pushKeyword(item?.keyword);
+    });
+
+    return output;
+  }, [result]);
+
   async function handleRun(event) {
     event.preventDefault();
     if (!selectedWebsiteId) {
@@ -269,6 +295,9 @@ export default function AiSerpWorkspace() {
             <h3 className="text-sm font-semibold text-gray-900">Keyword Citation Results</h3>
             <p className="mt-1 text-xs text-gray-500">
               Website: {selectedWebsite?.domain || 'N/A'} · Mode: LLM ranking by provider
+            </p>
+            <p className="mt-1 text-xs text-gray-500">
+              Keywords scanned: {scannedKeywords.length > 0 ? scannedKeywords.join(', ') : 'N/A'}
             </p>
           </div>
 

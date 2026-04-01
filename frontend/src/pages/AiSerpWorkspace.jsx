@@ -6,9 +6,7 @@ import { getAiSerpHistory, getAiSerpHistoryItem, runAiSerpWorkspace } from '../s
 
 const LLM_PROVIDER_OPTIONS = [
   { id: 'openai', label: 'ChatGPT (OpenAI)' },
-  { id: 'openrouter', label: 'OpenRouter' },
   { id: 'gemini', label: 'Gemini (Google)' },
-  { id: 'gemini-vertex', label: 'Gemini Vertex (OAuth2)' },
   { id: 'grok', label: 'Grok (xAI)' },
 ];
 
@@ -135,9 +133,9 @@ export default function AiSerpWorkspace() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-1">AI SERP Workspace</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-1">SERP AI Ranking</h2>
         <p className="text-sm text-gray-500">
-          Run LLM ranking/citation scans across ChatGPT, OpenRouter, Gemini, and Grok for the selected website.
+          Run LLM ranking/citation scans across ChatGPT, Gemini, and Grok for the selected website.
         </p>
       </div>
 
@@ -306,10 +304,10 @@ export default function AiSerpWorkspace() {
       ) : null}
 
       <div className="rounded-lg border border-gray-200 bg-white p-4">
-        <h3 className="text-sm font-semibold text-gray-900">Recent AI SERP Runs</h3>
+        <h3 className="text-sm font-semibold text-gray-900">Recent SERP AI Ranking Runs</h3>
 
         {historyLoading ? (
-          <div className="mt-3"><LoadingSpinner message="Loading AI SERP history..." /></div>
+          <div className="mt-3"><LoadingSpinner message="Loading SERP AI ranking history..." /></div>
         ) : null}
         {historyError ? <p className="mt-3 text-sm text-red-600">{historyError}</p> : null}
 

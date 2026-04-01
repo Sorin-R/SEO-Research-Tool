@@ -2,11 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
   getLocalSerpAgentStatus,
-  getSearchProviders,
   openLocalSerpCaptchaWindow,
   searchFirstPage,
 } from '../services/api';
-import { buildSerpPrompt } from '../lib/buildSerpPrompt';
 import { parseSerpTarget, SERP_TARGET_OPTIONS } from '../lib/serpTargets';
 
 type SearchResultItem = {
@@ -61,14 +59,6 @@ type SearchResponse = {
     }>;
     normalizedResultCount?: number;
   };
-};
-
-type ProviderEntry = {
-  id: string;
-  name: string;
-  active: boolean;
-  configured: boolean;
-  supportedEngines?: string[];
 };
 
 type LocalAgentStatus = {
@@ -140,15 +130,7 @@ export default function SimpleSerpSearch() {
   const [keyword, setKeyword] = useState('');
   const [location, setLocation] = useState('');
   const [target, setTarget] = useState(DEFAULT_TARGET);
-  const [searchMode, setSearchMode] = useState<'standard' | 'ai' | 'screenshot' | 'local-agent'>('standard');
-  const [highAccuracyMode, setHighAccuracyMode] = useState(true);
-  const [strictMode, setStrictMode] = useState(true);
-  const [verifyUrls, setVerifyUrls] = useState(true);
   const [showDebug, setShowDebug] = useState(true);
-  const [providerId, setProviderId] = useState('');
-  const [providers, setProviders] = useState<ProviderEntry[]>([]);
-  const [providersLoading, setProvidersLoading] = useState(false);
-  const [providersError, setProvidersError] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [data, setData] = useState<SearchResponse | null>(null);
@@ -158,58 +140,11 @@ export default function SimpleSerpSearch() {
   const [openingCaptchaWindow, setOpeningCaptchaWindow] = useState(false);
 
   const targetParts = useMemo(() => parseSerpTarget(target), [target]);
-  const promptPreview = useMemo(
-    () =>
-      buildSerpPrompt({
-        keyword,
-        engine: targetParts.engine,
-        domain: targetParts.domain,
-        location,
-      }),
-    [keyword, location, targetParts.domain, targetParts.engine]
-  );
-  const providerOptions = useMemo(
-    () =>
-      providers.filter(
-        (provider) =>
-          provider.active
-          && provider.id !== 'local-pc-agent'
-          && (provider.supportedEngines || ['google']).includes(targetParts.engine)
-      ),
-    [providers, targetParts.engine]
-  );
   const screenshotPreview = data?.meta?.screenshotImageDataUrl || data?.debug?.screenshotImageDataUrl || null;
-  const shouldPollLocalAgentStatus = searchMode === 'local-agent' || Boolean(data?.meta?.blockedByEngine);
+  const shouldPollLocalAgentStatus = true;
   const localAgentOnline = Number(localAgentStatus?.agents?.online || 0) > 0;
   const captchaPending = Boolean(localAgentStatus?.captchaPending);
   const activeCaptchaAgent = Array.isArray(localAgentStatus?.captchaAgents) ? localAgentStatus.captchaAgents[0] : null;
-
-  useEffect(() => {
-    let alive = true;
-
-    async function loadProviders() {
-      setProvidersLoading(true);
-      setProvidersError('');
-
-      try {
-        const payload = await getSearchProviders();
-        if (!alive) return;
-        setProviders(Array.isArray(payload.providers) ? payload.providers : []);
-      } catch (err: any) {
-        if (!alive) return;
-        setProvidersError(err?.response?.data?.error || err?.message || 'Failed to load providers.');
-      } finally {
-        if (alive) {
-          setProvidersLoading(false);
-        }
-      }
-    }
-
-    loadProviders();
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   useEffect(() => {
     setLocalAgentHistory(loadLocalAgentHistory());
@@ -242,12 +177,6 @@ export default function SimpleSerpSearch() {
     };
   }, [shouldPollLocalAgentStatus]);
 
-  useEffect(() => {
-    if (providerId === 'local-pc-agent') {
-      setProviderId('');
-    }
-  }, [providerId]);
-
   function saveLocalAgentSearchRun(response: SearchResponse, targetValue: string, locationValue: string) {
     const entry: LocalAgentSavedSearch = {
       id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -274,7 +203,6 @@ export default function SimpleSerpSearch() {
     setKeyword(entry.keyword);
     setTarget(entry.target);
     setLocation(entry.location);
-    setSearchMode('local-agent');
     setData(entry.response);
     setError('');
   }
@@ -326,13 +254,13 @@ export default function SimpleSerpSearch() {
         engine: targetParts.engine,
         domain: targetParts.domain,
         location: sanitizedLocation,
-        aiMode: searchMode === 'ai',
-        screenshotMode: searchMode === 'screenshot',
-        localAgentMode: searchMode === 'local-agent',
-        highAccuracyMode,
-        providerId: providerId || undefined,
-        strictMode,
-        verifyUrls,
+        aiMode: false,
+        screenshotMode: false,
+        localAgentMode: true,
+        highAccuracyMode: false,
+        providerId: undefined,
+        strictMode: false,
+        verifyUrls: false,
         debug: showDebug,
       });
 
@@ -350,14 +278,14 @@ export default function SimpleSerpSearch() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-1">SERP Search MVP</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-1">SERP Screenshot</h2>
         <p className="text-sm text-gray-500">
-          Enter one keyword, pick a search target, and fetch the first 10 organic results in ranked order.
+          Local PC Agent SERP capture using your own browser session and IP.
         </p>
       </div>
 
       <form onSubmit={handleSubmit} className="rounded-lg border border-gray-200 bg-white p-5 space-y-4">
-        <div className="grid gap-3 md:grid-cols-[1fr_1fr_220px_180px_auto]">
+        <div className="grid gap-3 md:grid-cols-[1fr_1fr_220px_auto]">
           <input
             type="text"
             value={keyword}
@@ -386,17 +314,6 @@ export default function SimpleSerpSearch() {
               </option>
             ))}
           </select>
-          <select
-            value={searchMode}
-            onChange={(event) => setSearchMode(event.target.value as 'standard' | 'ai' | 'screenshot' | 'local-agent')}
-            className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none"
-            disabled={loading}
-          >
-            <option value="standard">Standard SERP</option>
-            <option value="ai">AI SERP</option>
-            <option value="screenshot">Screenshot OCR SERP</option>
-            <option value="local-agent">Local PC Agent SERP</option>
-          </select>
           <button
             type="submit"
             className="rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
@@ -406,38 +323,8 @@ export default function SimpleSerpSearch() {
           </button>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5">
-          <label className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              checked={highAccuracyMode}
-              onChange={(event) => setHighAccuracyMode(event.target.checked)}
-              className="h-4 w-4"
-              disabled={searchMode !== 'standard'}
-            />
-            High Accuracy Mode
-          </label>
-          <label className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              checked={strictMode}
-              onChange={(event) => setStrictMode(event.target.checked)}
-              className="h-4 w-4"
-              disabled={searchMode !== 'standard' || !highAccuracyMode}
-            />
-            Strict Geo Params
-          </label>
-          <label className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              checked={verifyUrls}
-              onChange={(event) => setVerifyUrls(event.target.checked)}
-              className="h-4 w-4"
-              disabled={searchMode !== 'standard' || !highAccuracyMode}
-            />
-            Verify Redirects
-          </label>
-          <label className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+        <div className="grid gap-3 md:grid-cols-2">
+          <label className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 md:max-w-xs">
             <input
               type="checkbox"
               checked={showDebug}
@@ -446,85 +333,43 @@ export default function SimpleSerpSearch() {
             />
             Debug Payload
           </label>
-          <select
-            value={providerId}
-            onChange={(event) => setProviderId(event.target.value)}
-            disabled={providersLoading || searchMode !== 'standard'}
-            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
-          >
-            <option value="">Provider: Auto fallback</option>
-            {providerOptions.map((provider) => (
-              <option key={provider.id} value={provider.id}>
-                Provider: {provider.name}
-              </option>
-            ))}
-          </select>
         </div>
-        {providersError ? (
-          <p className="text-xs text-red-600">{providersError}</p>
-        ) : null}
-        {searchMode === 'ai' ? (
+        <div className="space-y-2">
           <p className="text-xs text-indigo-600">
-            AI SERP uses your active AI provider from AI Providers (OpenRouter/OpenAI/NVIDIA).
+            Local PC Agent mode runs browser capture on your own computer IP and sends results back to this app.
           </p>
-        ) : null}
-        {searchMode === 'screenshot' ? (
-          <p className="text-xs text-indigo-600">
-            Screenshot OCR SERP opens the engine page, captures a screenshot, then extracts top websites with OpenAI vision.
-          </p>
-        ) : null}
-        {searchMode === 'local-agent' ? (
-          <div className="space-y-2">
-            <p className="text-xs text-indigo-600">
-              Local PC Agent mode runs browser capture on your own computer IP and sends results back to this app.
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className={`rounded-full px-2 py-0.5 text-xs ${localAgentOnline ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                Local Agent: {localAgentOnline ? 'Online' : 'Offline'}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`rounded-full px-2 py-0.5 text-xs ${localAgentOnline ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+              Local Agent: {localAgentOnline ? 'Online' : 'Offline'}
+            </span>
+            {captchaPending ? (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">
+                Captcha pending
               </span>
-              {captchaPending ? (
-                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">
-                  Captcha pending
-                </span>
-              ) : null}
-              <button
-                type="button"
-                onClick={handleOpenCaptchaWindow}
-                disabled={openingCaptchaWindow || !localAgentOnline}
-                className="rounded border border-indigo-200 px-2 py-1 text-xs text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {openingCaptchaWindow ? 'Opening...' : 'Open Captcha Window'}
-              </button>
-            </div>
-            {activeCaptchaAgent?.captchaUrl ? (
-              <p className="text-xs text-amber-700">
-                Captcha URL: {activeCaptchaAgent.captchaUrl}
-              </p>
             ) : null}
-            {localAgentStatusError ? (
-              <p className="text-xs text-red-600">{localAgentStatusError}</p>
-            ) : null}
+            <button
+              type="button"
+              onClick={handleOpenCaptchaWindow}
+              disabled={openingCaptchaWindow || !localAgentOnline}
+              className="rounded border border-indigo-200 px-2 py-1 text-xs text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {openingCaptchaWindow ? 'Opening...' : 'Open Captcha Window'}
+            </button>
           </div>
-        ) : null}
+          {activeCaptchaAgent?.captchaUrl ? (
+            <p className="text-xs text-amber-700">
+              Captcha URL: {activeCaptchaAgent.captchaUrl}
+            </p>
+          ) : null}
+          {localAgentStatusError ? (
+            <p className="text-xs text-red-600">{localAgentStatusError}</p>
+          ) : null}
+        </div>
 
         <div className="rounded-md bg-gray-50 px-3 py-2">
-          <p className="text-xs font-medium text-gray-600">
-            {searchMode === 'ai'
-              ? 'AI SERP prompt source'
-              : searchMode === 'screenshot'
-                ? 'Screenshot OCR prompt source'
-                : searchMode === 'local-agent'
-                  ? 'Local PC Agent mode'
-                : 'Default prompt template used by search logic'}
-          </p>
+          <p className="text-xs font-medium text-gray-600">Local PC Agent mode</p>
           <p className="mt-1 text-xs text-gray-500">
-            {searchMode === 'ai'
-              ? 'AI SERP mode uses backend aiSerpService structured prompt and active AI model.'
-              : searchMode === 'screenshot'
-                ? 'Screenshot mode uses browser screenshot + OpenAI vision extraction prompt on the backend.'
-                : searchMode === 'local-agent'
-                  ? 'Local PC Agent mode sends a job to your running local agent (backend/scripts/localSerpAgent.js).'
-                : promptPreview}
+            Local PC Agent mode sends a job to your running local agent ([backend/scripts/localSerpAgent.js]) and stores the screenshot with results.
           </p>
         </div>
       </form>
@@ -559,12 +404,6 @@ export default function SimpleSerpSearch() {
                 <>
                   {' · '}
                   Model: <span className="font-medium text-gray-900">{data.meta.aiModel}</span>
-                </>
-              ) : null}
-              {data.meta?.screenshotMode ? (
-                <>
-                  {' · '}
-                  Mode: <span className="font-medium text-gray-900">Screenshot OCR</span>
                 </>
               ) : null}
               {data.meta?.localAgentMode ? (
@@ -622,7 +461,7 @@ export default function SimpleSerpSearch() {
               ))}
             </ul>
           )}
-          {(data.meta?.screenshotMode || data.meta?.localAgentMode) && screenshotPreview ? (
+          {data.meta?.localAgentMode && screenshotPreview ? (
             <div className="border-t border-gray-200 px-4 py-4">
               <h3 className="text-sm font-semibold text-gray-900">Captured Screenshot</h3>
               <p className="mt-1 text-xs text-gray-500">
@@ -645,7 +484,7 @@ export default function SimpleSerpSearch() {
       )}
 
       <div className="rounded-lg border border-gray-200 bg-white p-4">
-        <h3 className="text-sm font-semibold text-gray-900">Saved Local PC Agent Searches</h3>
+        <h3 className="text-sm font-semibold text-gray-900">Saved SERP Screenshots</h3>
         {localAgentHistory.length === 0 ? (
           <p className="mt-2 text-sm text-gray-500">No saved Local PC Agent research yet.</p>
         ) : (

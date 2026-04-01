@@ -27,8 +27,8 @@ const DROPDOWN_GROUPS = [
     icon: '🔍',
     items: [
       { to: '/serp', label: 'SERP Analyzer' },
-      { to: '/search', label: 'SERP Search MVP' },
-      { to: '/ai-serp', label: 'AI SERP Workspace' },
+      { to: '/search', label: 'SERP Screenshot' },
+      { to: '/ai-serp', label: 'SERP AI Ranking' },
       { to: '/rank-tracker', label: 'Rank Tracker' },
     ],
   },

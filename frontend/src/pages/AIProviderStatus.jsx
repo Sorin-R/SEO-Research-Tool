@@ -3,6 +3,7 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorAlert from '../components/ErrorAlert';
 import {
   getAIProviders,
+  testAIProviderConnection,
   updateAIProvider,
   updateAIProviderCredentials,
   updateAIProviderModel,
@@ -15,7 +16,9 @@ export default function AIProviderStatus() {
   const [busyProviderId, setBusyProviderId] = useState(null);
   const [savingCredentialsId, setSavingCredentialsId] = useState(null);
   const [savingModelProviderId, setSavingModelProviderId] = useState(null);
+  const [testingProviderId, setTestingProviderId] = useState(null);
   const [credentialDrafts, setCredentialDrafts] = useState({});
+  const [testResults, setTestResults] = useState({});
   const [notice, setNotice] = useState(null);
 
   useEffect(() => {
@@ -137,6 +140,43 @@ export default function AIProviderStatus() {
     }
   }
 
+  async function handleTestProvider(provider) {
+    if (!provider?.id) return;
+
+    setTestingProviderId(provider.id);
+    setError(null);
+
+    try {
+      const result = await testAIProviderConnection(provider.id);
+      setTestResults((current) => ({
+        ...current,
+        [provider.id]: {
+          ok: true,
+          message: result?.message || 'Connection successful.',
+          model: result?.model || provider.selectedModel || provider.defaultModel || '',
+          responseTimeMs: result?.responseTimeMs || null,
+          testedAt: new Date().toISOString(),
+        },
+      }));
+      setNotice(`${provider.name} test successful (${result?.model || provider.selectedModel || 'model'}).`);
+    } catch (err) {
+      const message = err.response?.data?.error || err.message;
+      setTestResults((current) => ({
+        ...current,
+        [provider.id]: {
+          ok: false,
+          message,
+          model: provider.selectedModel || provider.defaultModel || '',
+          responseTimeMs: null,
+          testedAt: new Date().toISOString(),
+        },
+      }));
+      setError(message);
+    } finally {
+      setTestingProviderId(null);
+    }
+  }
+
   if (loading) return <LoadingSpinner message="Loading AI provider status..." />;
   if (error && !providers) return <ErrorAlert message={error} onRetry={fetchProviderStatus} />;
 
@@ -182,6 +222,8 @@ export default function AIProviderStatus() {
               const isBusy = busyProviderId === provider.id;
               const isSavingCredentials = savingCredentialsId === provider.id;
               const providerDraft = credentialDrafts[provider.id] || {};
+              const testResult = testResults[provider.id] || null;
+              const isTesting = testingProviderId === provider.id;
 
               return (
                 <div key={provider.id} className={`px-5 py-5 ${provider.active ? 'bg-emerald-50/50' : ''}`}>
@@ -257,6 +299,28 @@ export default function AIProviderStatus() {
                         </button>
                       ))}
                     </div>
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => handleTestProvider(provider)}
+                        disabled={!provider.configured || isTesting}
+                        className="rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-medium text-indigo-700 hover:border-indigo-300 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {isTesting ? 'Testing...' : 'Test API'}
+                      </button>
+                      {testResult ? (
+                        <span className={`text-xs ${testResult.ok ? 'text-emerald-700' : 'text-red-700'}`}>
+                          {testResult.ok ? 'OK' : 'Failed'}
+                          {testResult.model ? ` · ${testResult.model}` : ''}
+                          {testResult.responseTimeMs ? ` · ${testResult.responseTimeMs}ms` : ''}
+                        </span>
+                      ) : null}
+                    </div>
+                    {testResult?.message ? (
+                      <p className={`text-xs ${testResult.ok ? 'text-emerald-700' : 'text-red-700'}`}>
+                        {testResult.message}
+                      </p>
+                    ) : null}
                   </div>
 
                   <div className="mt-4 space-y-3">

@@ -92,4 +92,17 @@ router.patch('/:id/model', async (req, res, next) => {
   }
 });
 
+// POST /api/ai-providers/:id/test — Test provider with selected model
+router.post('/:id/test', async (req, res, next) => {
+  try {
+    const result = await aiProviderManager.testProviderConnection(req.params.id);
+    res.json(result);
+  } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    next(err);
+  }
+});
+
 module.exports = router;

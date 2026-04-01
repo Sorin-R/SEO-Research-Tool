@@ -566,6 +566,11 @@ export async function updateAIProviderModel(providerId, model) {
   return data;
 }
 
+export async function testAIProviderConnection(providerId) {
+  const { data } = await api.post(`/ai-providers/${providerId}/test`);
+  return data;
+}
+
 // ---- Google Search Console Providers ----
 
 export async function getGSCProviders() {

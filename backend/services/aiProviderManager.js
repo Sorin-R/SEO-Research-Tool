@@ -25,6 +25,7 @@ const OPENROUTER_FALLBACK_FREE_MODELS = [
 ];
 const OPENROUTER_MODEL_CACHE_TTL_MS = Number.parseInt(process.env.OPENROUTER_MODEL_CACHE_TTL_MS || '900000', 10);
 const OPENROUTER_MODEL_FETCH_TIMEOUT_MS = Number.parseInt(process.env.OPENROUTER_MODEL_FETCH_TIMEOUT_MS || '5000', 10);
+const PROVIDER_TEST_TIMEOUT_MS = Number.parseInt(process.env.AI_PROVIDER_TEST_TIMEOUT_MS || '30000', 10);
 
 let openRouterFreeModelCache = {
   models: [...OPENROUTER_FALLBACK_FREE_MODELS],
@@ -675,6 +676,259 @@ async function getProviderCredentials(providerId) {
   return result;
 }
 
+function resolveTestRequestMode(provider) {
+  if (provider.id === 'gemini') return 'gemini';
+  if (provider.id === 'gemini-vertex') return 'vertex_oauth2';
+  if (provider.id === 'claude') return 'anthropic_messages';
+  if (provider.id === 'openai') return 'responses';
+  if (provider.id === 'nvidia' || provider.id === 'openrouter' || provider.id === 'grok' || provider.id === 'deepseek') {
+    return 'chat_completions';
+  }
+
+  return provider.requestMode === 'chat_completions' ? 'chat_completions' : 'responses';
+}
+
+function extractProviderApiKey(provider, credentials = {}) {
+  if (!provider?.fields?.length) return '';
+  const primaryField = provider.fields[0];
+  return String(credentials[primaryField.name] || '').trim();
+}
+
+function extractUpstreamErrorMessage(err) {
+  return String(
+    err?.response?.data?.error?.message
+    || err?.response?.data?.error
+    || err?.response?.data?.message
+    || err?.message
+    || 'Unknown provider error.'
+  ).trim();
+}
+
+async function fetchGoogleOAuthAccessTokenForVertex(credentials = {}) {
+  const clientId = String(credentials.GOOGLE_VERTEX_CLIENT_ID || '').trim();
+  const clientSecret = String(credentials.GOOGLE_VERTEX_CLIENT_SECRET || '').trim();
+  const refreshToken = String(credentials.GOOGLE_VERTEX_REFRESH_TOKEN || '').trim();
+
+  if (!clientId || !clientSecret || !refreshToken) {
+    throw createServiceError('Gemini Vertex credentials are incomplete.', 412);
+  }
+
+  const response = await axios.post(
+    'https://oauth2.googleapis.com/token',
+    new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
+      grant_type: 'refresh_token',
+    }).toString(),
+    {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      timeout: PROVIDER_TEST_TIMEOUT_MS,
+    }
+  );
+
+  const accessToken = String(response?.data?.access_token || '').trim();
+  if (!accessToken) {
+    throw createServiceError('Gemini Vertex token exchange returned no access token.', 502);
+  }
+
+  return accessToken;
+}
+
+async function requestProviderTest(provider, credentials = {}) {
+  const model = String(provider.selectedModel || provider.defaultModel || credentials.MODEL || '').trim();
+  if (!model) {
+    throw createServiceError(`No model selected for ${provider.name}.`, 400);
+  }
+
+  const requestMode = resolveTestRequestMode(provider);
+  const baseUrl = String(provider.baseUrl || '').replace(/\/+$/, '');
+  const apiKey = extractProviderApiKey(provider, credentials);
+
+  if (requestMode !== 'vertex_oauth2' && requestMode !== 'gemini' && requestMode !== 'anthropic_messages' && !apiKey) {
+    throw createServiceError(`${provider.name} API key is missing.`, 412);
+  }
+
+  if (requestMode === 'gemini') {
+    const endpoint = `${baseUrl}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    await axios.post(
+      endpoint,
+      {
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: 'Reply with exactly: OK' }],
+          },
+        ],
+        generationConfig: {
+          temperature: 0,
+        },
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout: PROVIDER_TEST_TIMEOUT_MS,
+      }
+    );
+    return requestMode;
+  }
+
+  if (requestMode === 'vertex_oauth2') {
+    const projectId = String(credentials.GOOGLE_VERTEX_PROJECT_ID || '').trim();
+    const location = String(credentials.GOOGLE_VERTEX_LOCATION || '').trim().toLowerCase();
+    if (!projectId || !location) {
+      throw createServiceError('Gemini Vertex requires GOOGLE_VERTEX_PROJECT_ID and GOOGLE_VERTEX_LOCATION.', 412);
+    }
+
+    const accessToken = await fetchGoogleOAuthAccessTokenForVertex(credentials);
+    const endpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/locations/${encodeURIComponent(location)}/publishers/google/models/${encodeURIComponent(model)}:generateContent`;
+    await axios.post(
+      endpoint,
+      {
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: 'Reply with exactly: OK' }],
+          },
+        ],
+        generationConfig: {
+          temperature: 0,
+        },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: PROVIDER_TEST_TIMEOUT_MS,
+      }
+    );
+    return requestMode;
+  }
+
+  if (requestMode === 'anthropic_messages') {
+    await axios.post(
+      `${baseUrl}/messages`,
+      {
+        model,
+        max_tokens: 16,
+        messages: [
+          {
+            role: 'user',
+            content: 'Reply with exactly: OK',
+          },
+        ],
+      },
+      {
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json',
+        },
+        timeout: PROVIDER_TEST_TIMEOUT_MS,
+      }
+    );
+    return requestMode;
+  }
+
+  if (requestMode === 'chat_completions') {
+    const response = await axios.post(
+      `${baseUrl}/chat/completions`,
+      {
+        model,
+        temperature: 0,
+        max_tokens: 16,
+        messages: [
+          {
+            role: 'user',
+            content: 'Reply with exactly: OK',
+          },
+        ],
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: PROVIDER_TEST_TIMEOUT_MS,
+      }
+    );
+
+    const firstContent = String(response?.data?.choices?.[0]?.message?.content || '').trim();
+    if (!firstContent && !Array.isArray(response?.data?.choices)) {
+      throw createServiceError(`${provider.name} returned an unexpected response payload.`, 502);
+    }
+
+    return requestMode;
+  }
+
+  // Default: OpenAI-style responses API
+  await axios.post(
+    `${baseUrl}/responses`,
+    {
+      model,
+      input: 'Reply with exactly: OK',
+      max_output_tokens: 16,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: PROVIDER_TEST_TIMEOUT_MS,
+    }
+  );
+
+  return 'responses';
+}
+
+async function testProviderConnection(providerId) {
+  const provider = await getProviderById(providerId);
+  if (!provider) {
+    throw createServiceError(`Unknown AI provider: ${providerId}`, 404);
+  }
+
+  const credentials = await getProviderCredentials(provider.id);
+  if (!provider.configured) {
+    throw createServiceError(`${provider.name} is not configured. Add required credentials first.`, 412);
+  }
+
+  const startedAt = Date.now();
+
+  try {
+    const requestMode = await requestProviderTest(provider, credentials || {});
+    return {
+      providerId: provider.id,
+      providerName: provider.name,
+      connected: true,
+      model: provider.selectedModel || provider.defaultModel || credentials?.MODEL || null,
+      requestMode,
+      responseTimeMs: Date.now() - startedAt,
+      message: `${provider.name} test successful.`,
+    };
+  } catch (err) {
+    if (err.statusCode) {
+      throw err;
+    }
+
+    const statusCode = Number(err?.response?.status || 0);
+    const upstreamMessage = extractUpstreamErrorMessage(err);
+
+    if (statusCode === 401 || statusCode === 403) {
+      throw createServiceError(`${provider.name} authentication failed: ${upstreamMessage}`, 401);
+    }
+
+    if (statusCode === 429) {
+      throw createServiceError(`${provider.name} is rate limited right now.`, 429);
+    }
+
+    throw createServiceError(`${provider.name} test failed: ${upstreamMessage}`, 502);
+  }
+}
+
 module.exports = {
   AI_PROVIDERS,
   getStatus,
@@ -685,6 +939,7 @@ module.exports = {
   updateProviderModel,
   getProviderApiKey,
   getProviderCredentials,
+  testProviderConnection,
   getKeywordAIRuntimeConfig,
   getAICredentialsMap,
   getAISettingsMap,

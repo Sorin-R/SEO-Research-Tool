@@ -5,6 +5,7 @@ import { useWebsiteContext } from '../context/WebsiteContext';
 const TOP_LEVEL_ITEMS = [
   { to: '/', label: 'Dashboard', icon: '📊' },
   { to: '/websites', label: 'Websites', icon: '🌐' },
+  { to: '/rank-tracker', label: 'Rank Tracker', icon: '📈' },
   { to: '/analyze', label: 'Content Analyzer', icon: '📝' },
   { to: '/site-audit', label: 'Site Audit', icon: '🩺' },
 ];
@@ -23,13 +24,12 @@ const DROPDOWN_GROUPS = [
   },
   {
     key: 'serp',
-    label: 'SERP Analyzer',
+    label: 'SERP Tools',
     icon: '🔍',
     items: [
       { to: '/serp', label: 'SERP Analyzer' },
       { to: '/search', label: 'SERP Screenshot' },
       { to: '/ai-serp', label: 'SERP AI Ranking' },
-      { to: '/rank-tracker', label: 'Rank Tracker' },
     ],
   },
   {

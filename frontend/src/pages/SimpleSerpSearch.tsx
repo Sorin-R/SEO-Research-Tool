@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
-import { getSearchProviders, searchFirstPage } from '../services/api';
+import {
+  getLocalSerpAgentStatus,
+  getSearchProviders,
+  openLocalSerpCaptchaWindow,
+  searchFirstPage,
+} from '../services/api';
 import { buildSerpPrompt } from '../lib/buildSerpPrompt';
 import { parseSerpTarget, SERP_TARGET_OPTIONS } from '../lib/serpTargets';
 
@@ -66,6 +71,39 @@ type ProviderEntry = {
   supportedEngines?: string[];
 };
 
+type LocalAgentStatus = {
+  ok: boolean;
+  queue?: {
+    total?: number;
+    pending?: number;
+    claimed?: number;
+    completed?: number;
+    failed?: number;
+  };
+  agents?: {
+    total?: number;
+    online?: number;
+    maxAgeMs?: number;
+    agents?: Array<{
+      id: string;
+      lastSeen: number;
+      online: boolean;
+      state?: {
+        captchaPending?: boolean;
+        captchaUrl?: string | null;
+        status?: string | null;
+      };
+    }>;
+  };
+  captchaPending?: boolean;
+  captchaAgents?: Array<{
+    id: string;
+    captchaUrl?: string | null;
+    status?: string | null;
+    lastSeen?: number;
+  }>;
+};
+
 const DEFAULT_TARGET = 'google.com';
 const LOCAL_AGENT_HISTORY_STORAGE_KEY = 'seo-tool:local-agent-serp-history';
 const MAX_LOCAL_AGENT_HISTORY = 20;
@@ -115,6 +153,9 @@ export default function SimpleSerpSearch() {
   const [error, setError] = useState('');
   const [data, setData] = useState<SearchResponse | null>(null);
   const [localAgentHistory, setLocalAgentHistory] = useState<LocalAgentSavedSearch[]>([]);
+  const [localAgentStatus, setLocalAgentStatus] = useState<LocalAgentStatus | null>(null);
+  const [localAgentStatusError, setLocalAgentStatusError] = useState('');
+  const [openingCaptchaWindow, setOpeningCaptchaWindow] = useState(false);
 
   const targetParts = useMemo(() => parseSerpTarget(target), [target]);
   const promptPreview = useMemo(
@@ -138,6 +179,10 @@ export default function SimpleSerpSearch() {
     [providers, targetParts.engine]
   );
   const screenshotPreview = data?.meta?.screenshotImageDataUrl || data?.debug?.screenshotImageDataUrl || null;
+  const shouldPollLocalAgentStatus = searchMode === 'local-agent' || Boolean(data?.meta?.blockedByEngine);
+  const localAgentOnline = Number(localAgentStatus?.agents?.online || 0) > 0;
+  const captchaPending = Boolean(localAgentStatus?.captchaPending);
+  const activeCaptchaAgent = Array.isArray(localAgentStatus?.captchaAgents) ? localAgentStatus.captchaAgents[0] : null;
 
   useEffect(() => {
     let alive = true;
@@ -169,6 +214,33 @@ export default function SimpleSerpSearch() {
   useEffect(() => {
     setLocalAgentHistory(loadLocalAgentHistory());
   }, []);
+
+  useEffect(() => {
+    if (!shouldPollLocalAgentStatus) {
+      return undefined;
+    }
+
+    let active = true;
+
+    async function refresh() {
+      try {
+        const payload = await getLocalSerpAgentStatus();
+        if (!active) return;
+        setLocalAgentStatus(payload);
+        setLocalAgentStatusError('');
+      } catch (err: any) {
+        if (!active) return;
+        setLocalAgentStatusError(err?.response?.data?.error || err?.message || 'Failed to load Local Agent status.');
+      }
+    }
+
+    refresh();
+    const timer = window.setInterval(refresh, 4000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [shouldPollLocalAgentStatus]);
 
   useEffect(() => {
     if (providerId === 'local-pc-agent') {
@@ -213,6 +285,26 @@ export default function SimpleSerpSearch() {
       saveLocalAgentHistory(next);
       return next;
     });
+  }
+
+  async function handleOpenCaptchaWindow() {
+    setOpeningCaptchaWindow(true);
+    setError('');
+    try {
+      await openLocalSerpCaptchaWindow({
+        keyword: keyword.replace(/\s+/g, ' ').trim() || 'google',
+        engine: targetParts.engine,
+        domain: targetParts.domain,
+        location: location.replace(/\s+/g, ' ').trim(),
+      });
+      const payload = await getLocalSerpAgentStatus();
+      setLocalAgentStatus(payload);
+      setLocalAgentStatusError('');
+    } catch (requestError: any) {
+      setError(requestError?.response?.data?.error || requestError?.message || 'Failed to open captcha window.');
+    } finally {
+      setOpeningCaptchaWindow(false);
+    }
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -373,7 +465,7 @@ export default function SimpleSerpSearch() {
         ) : null}
         {searchMode === 'ai' ? (
           <p className="text-xs text-indigo-600">
-            AI SERP uses your active AI provider from AI Providers (OpenAI/NVIDIA).
+            AI SERP uses your active AI provider from AI Providers (OpenRouter/OpenAI/NVIDIA).
           </p>
         ) : null}
         {searchMode === 'screenshot' ? (
@@ -382,9 +474,37 @@ export default function SimpleSerpSearch() {
           </p>
         ) : null}
         {searchMode === 'local-agent' ? (
-          <p className="text-xs text-indigo-600">
-            Local PC Agent mode runs browser capture on your own computer IP and sends results back to this app.
-          </p>
+          <div className="space-y-2">
+            <p className="text-xs text-indigo-600">
+              Local PC Agent mode runs browser capture on your own computer IP and sends results back to this app.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`rounded-full px-2 py-0.5 text-xs ${localAgentOnline ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                Local Agent: {localAgentOnline ? 'Online' : 'Offline'}
+              </span>
+              {captchaPending ? (
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">
+                  Captcha pending
+                </span>
+              ) : null}
+              <button
+                type="button"
+                onClick={handleOpenCaptchaWindow}
+                disabled={openingCaptchaWindow || !localAgentOnline}
+                className="rounded border border-indigo-200 px-2 py-1 text-xs text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {openingCaptchaWindow ? 'Opening...' : 'Open Captcha Window'}
+              </button>
+            </div>
+            {activeCaptchaAgent?.captchaUrl ? (
+              <p className="text-xs text-amber-700">
+                Captcha URL: {activeCaptchaAgent.captchaUrl}
+              </p>
+            ) : null}
+            {localAgentStatusError ? (
+              <p className="text-xs text-red-600">{localAgentStatusError}</p>
+            ) : null}
+          </div>
         ) : null}
 
         <div className="rounded-md bg-gray-50 px-3 py-2">
@@ -460,9 +580,19 @@ export default function SimpleSerpSearch() {
               </p>
             ) : null}
             {data.meta?.blockedByEngine ? (
-              <p className="mt-1 text-xs text-amber-700">
-                Search engine blocked this request (captcha/consent page). Use Local PC Agent mode and complete consent/captcha.
-              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <p className="text-xs text-amber-700">
+                  Search engine blocked this request (captcha/consent page). Open captcha window, complete challenge, then run Search again.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleOpenCaptchaWindow}
+                  disabled={openingCaptchaWindow}
+                  className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {openingCaptchaWindow ? 'Opening...' : 'Open Captcha Window'}
+                </button>
+              </div>
             ) : null}
           </div>
 

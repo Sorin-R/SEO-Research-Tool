@@ -280,6 +280,21 @@ export async function getSearchProviders() {
   return data;
 }
 
+export async function getLocalSerpAgentStatus() {
+  const { data } = await api.get('/local-serp-agent/public-status');
+  return data;
+}
+
+export async function openLocalSerpCaptchaWindow({ keyword, engine, domain, location }) {
+  const { data } = await api.post('/local-serp-agent/captcha/open', {
+    keyword,
+    engine,
+    domain,
+    location,
+  });
+  return data;
+}
+
 export async function getTrackedWebsites(options = {}) {
   const { data } = await api.get('/websites', {
     params: {

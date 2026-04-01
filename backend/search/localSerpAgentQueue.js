@@ -194,13 +194,29 @@ function getQueueStats() {
   };
 }
 
-function registerAgentHeartbeat(agentId = 'local-agent') {
+function registerAgentHeartbeat(agentId = 'local-agent', nextState = null) {
   cleanupJobs();
   const normalizedAgentId = String(agentId || 'local-agent').trim() || 'local-agent';
+  const existing = agents.get(normalizedAgentId) || {};
+  const state = existing.state && typeof existing.state === 'object' ? { ...existing.state } : {};
+
+  if (nextState && typeof nextState === 'object') {
+    if ('captchaPending' in nextState) {
+      state.captchaPending = Boolean(nextState.captchaPending);
+    }
+    if ('captchaUrl' in nextState) {
+      state.captchaUrl = nextState.captchaUrl ? String(nextState.captchaUrl).trim() : null;
+    }
+    if ('status' in nextState) {
+      state.status = nextState.status ? String(nextState.status).trim().slice(0, 80) : null;
+    }
+    state.updatedAt = now();
+  }
 
   agents.set(normalizedAgentId, {
     id: normalizedAgentId,
     lastSeen: now(),
+    state,
   });
 }
 
@@ -213,6 +229,7 @@ function getAgentStats(maxAgeMs = DEFAULT_AGENT_STALE_MS) {
     id: entry.id,
     lastSeen: entry.lastSeen,
     online: timestamp - Number(entry.lastSeen || 0) <= ageLimit,
+    state: entry.state || {},
   }));
 
   return {

@@ -18,8 +18,29 @@ const USER_AGENT = String(
   || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
 ).trim();
 
+let agentState = {
+  status: 'idle',
+  captchaPending: false,
+  captchaUrl: null,
+};
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, Number.isFinite(ms) ? ms : 1000));
+}
+
+function setAgentState(nextState = {}) {
+  agentState = {
+    ...agentState,
+    ...nextState,
+  };
+}
+
+function getAgentStatePayload() {
+  return {
+    status: String(agentState.status || 'idle').trim() || 'idle',
+    captchaPending: Boolean(agentState.captchaPending),
+    captchaUrl: agentState.captchaUrl ? String(agentState.captchaUrl).trim() : null,
+  };
 }
 
 function isDetachedFrameError(error) {
@@ -36,7 +57,8 @@ function safePageUrl(page, fallback = '') {
 }
 
 function resolveHeadlessMode() {
-  const raw = String(process.env.LOCAL_SERP_AGENT_HEADLESS || 'new').trim().toLowerCase();
+  const defaultMode = MANUAL_CAPTCHA_ENABLED ? 'false' : 'new';
+  const raw = String(process.env.LOCAL_SERP_AGENT_HEADLESS || defaultMode).trim().toLowerCase();
   if (raw === 'new') {
     return 'new';
   }
@@ -429,7 +451,7 @@ async function extractOrganicResultsFromDom(page, engine, maxResults = 10) {
   }
 }
 
-async function captureSerpLocally(payload) {
+async function captureSerpLocally(payload, options = {}) {
   const puppeteer = loadPuppeteer();
   if (!puppeteer) {
     throw new Error('Puppeteer is not installed. Run: npm --prefix backend install');
@@ -482,6 +504,14 @@ async function captureSerpLocally(payload) {
         if (payload.engine === 'google' && shouldHandleGoogleConsent(safePageUrl(page, searchUrl)) && MANUAL_CAPTCHA_ENABLED) {
           const waitUntil = Date.now() + CAPTCHA_WAIT_MS;
           console.log('[LocalAgent] Google block/captcha detected. Solve it in the opened browser window...');
+          if (typeof options.onCaptchaPending === 'function') {
+            await options.onCaptchaPending({
+              pending: true,
+              url: safePageUrl(page, searchUrl),
+              status: 'captcha-required',
+            });
+          }
+          let lastHeartbeatAt = 0;
 
           while (Date.now() < waitUntil) {
             try {
@@ -493,8 +523,26 @@ async function captureSerpLocally(payload) {
             if (!shouldHandleGoogleConsent(currentUrl)) {
               break;
             }
+            if (typeof options.onCaptchaPending === 'function') {
+              const timestamp = Date.now();
+              if (timestamp - lastHeartbeatAt >= 5000) {
+                lastHeartbeatAt = timestamp;
+                await options.onCaptchaPending({
+                  pending: true,
+                  url: currentUrl,
+                  status: 'captcha-required',
+                });
+              }
+            }
             await handleGoogleConsent(page);
             await sleep(1500);
+          }
+          if (typeof options.onCaptchaPending === 'function') {
+            await options.onCaptchaPending({
+              pending: false,
+              url: safePageUrl(page, searchUrl),
+              status: 'processing',
+            });
           }
         }
 
@@ -559,6 +607,39 @@ async function captureSerpLocally(payload) {
   }
 }
 
+async function runCaptchaHelper(payload) {
+  const helperPayload = {
+    ...payload,
+    engine: payload.engine || 'google',
+    keyword: payload.keyword || 'google',
+  };
+  const result = await captureSerpLocally(helperPayload, {
+    onCaptchaPending: async ({ pending, url, status }) => {
+      setAgentState({
+        captchaPending: Boolean(pending),
+        captchaUrl: url || null,
+        status: status || (pending ? 'captcha-required' : 'processing'),
+      });
+      try {
+        await postHeartbeat();
+      } catch {
+        // ignore heartbeat errors
+      }
+    },
+  });
+
+  return {
+    results: [],
+    screenshotUrl: result.screenshotUrl || null,
+    screenshotImageDataUrl: result.screenshotImageDataUrl || null,
+    blockedByEngine: Boolean(result.blockedByEngine),
+    debug: {
+      ...(result.debug || {}),
+      helper: 'captcha-open',
+    },
+  };
+}
+
 function buildHeaders() {
   const headers = {
     'Content-Type': 'application/json',
@@ -572,13 +653,30 @@ function buildHeaders() {
 async function pollJob() {
   const { data } = await axios.post(
     `${API_BASE_URL}/local-serp-agent/poll`,
-    { agentId: AGENT_ID },
+    {
+      agentId: AGENT_ID,
+      state: getAgentStatePayload(),
+    },
     {
       headers: buildHeaders(),
       timeout: 30000,
     }
   );
   return data;
+}
+
+async function postHeartbeat() {
+  await axios.post(
+    `${API_BASE_URL}/local-serp-agent/heartbeat`,
+    {
+      agentId: AGENT_ID,
+      state: getAgentStatePayload(),
+    },
+    {
+      headers: buildHeaders(),
+      timeout: 10000,
+    }
+  );
 }
 
 async function completeJob(jobId, payload) {
@@ -614,12 +712,60 @@ async function processJob(job) {
   }
 
   try {
-    const result = await captureSerpLocally(payload);
+    setAgentState({
+      status: payload?.type === 'captcha-helper' ? 'captcha-helper' : 'working',
+      captchaPending: false,
+      captchaUrl: null,
+    });
+    try {
+      await postHeartbeat();
+    } catch {
+      // ignore heartbeat errors
+    }
+
+    const result = payload?.type === 'captcha-helper'
+      ? await runCaptchaHelper(payload)
+      : await captureSerpLocally(payload, {
+        onCaptchaPending: async ({ pending, url, status }) => {
+          setAgentState({
+            captchaPending: Boolean(pending),
+            captchaUrl: url || null,
+            status: status || (pending ? 'captcha-required' : 'working'),
+          });
+          try {
+            await postHeartbeat();
+          } catch {
+            // ignore heartbeat errors
+          }
+        },
+      });
+
+    setAgentState({
+      status: 'idle',
+      captchaPending: false,
+      captchaUrl: null,
+    });
+    try {
+      await postHeartbeat();
+    } catch {
+      // ignore heartbeat errors
+    }
+
     await completeJob(jobId, result);
     const resultCount = Array.isArray(result.results) ? result.results.length : 0;
     console.log(`[LocalAgent] Completed job ${jobId} with ${resultCount} results.`);
   } catch (error) {
     const message = error?.message || 'Failed to process local SERP job.';
+    setAgentState({
+      status: 'idle',
+      captchaPending: false,
+      captchaUrl: null,
+    });
+    try {
+      await postHeartbeat();
+    } catch {
+      // ignore heartbeat errors
+    }
     try {
       await failJob(jobId, message);
     } catch {
@@ -636,6 +782,16 @@ async function run() {
   console.log(`[LocalAgent] Headless mode: ${resolveHeadlessMode() === false ? 'off (visible browser)' : String(resolveHeadlessMode())}`);
   console.log(`[LocalAgent] User profile dir: ${USER_DATA_DIR}`);
   console.log(`[LocalAgent] Manual captcha handling: ${MANUAL_CAPTCHA_ENABLED ? 'enabled' : 'disabled'}`);
+  setAgentState({
+    status: 'idle',
+    captchaPending: false,
+    captchaUrl: null,
+  });
+  try {
+    await postHeartbeat();
+  } catch {
+    // ignore startup heartbeat errors
+  }
 
   while (true) {
     try {

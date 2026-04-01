@@ -17,6 +17,7 @@ const MAX_SERP_HISTORY_ENTRIES = 12;
 let rankingsSchemaRepairPromise = null;
 const ALLOWED_TRACKING_DEPTHS = [10, 20, 50, 100];
 const LOCAL_PROVIDER_STATUS_TTL_MS = Number.parseInt(process.env.LOCAL_SERP_PROVIDER_STATUS_TTL_MS || '15000', 10);
+const LOCAL_SERP_BACKGROUND_ENABLED = String(process.env.LOCAL_SERP_BACKGROUND_ENABLED || 'false').trim().toLowerCase() === 'true';
 let localProviderStatusCache = {
   value: false,
   expiresAt: 0,
@@ -209,6 +210,10 @@ async function getRankTrackingResults(keyword, options = {}) {
 }
 
 async function isLocalTrackingProviderActive() {
+  if (!LOCAL_SERP_BACKGROUND_ENABLED) {
+    return false;
+  }
+
   const timestamp = Date.now();
   if (timestamp < localProviderStatusCache.expiresAt) {
     return localProviderStatusCache.value;

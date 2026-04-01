@@ -704,6 +704,20 @@ function extractUpstreamErrorMessage(err) {
   ).trim();
 }
 
+function isBillingOrCreditsError(message) {
+  const text = String(message || '').toLowerCase();
+  return (
+    text.includes("doesn't have any credits") ||
+    text.includes('does not have any credits') ||
+    text.includes('no credits') ||
+    text.includes('no credit') ||
+    text.includes('insufficient credits') ||
+    text.includes('license') ||
+    text.includes('payment required') ||
+    text.includes('billing')
+  );
+}
+
 async function fetchGoogleOAuthAccessTokenForVertex(credentials = {}) {
   const clientId = String(credentials.GOOGLE_VERTEX_CLIENT_ID || '').trim();
   const clientSecret = String(credentials.GOOGLE_VERTEX_CLIENT_SECRET || '').trim();
@@ -916,6 +930,13 @@ async function testProviderConnection(providerId) {
 
     const statusCode = Number(err?.response?.status || 0);
     const upstreamMessage = extractUpstreamErrorMessage(err);
+
+    if (isBillingOrCreditsError(upstreamMessage)) {
+      throw createServiceError(
+        `${provider.name} billing required: ${upstreamMessage}`,
+        402
+      );
+    }
 
     if (statusCode === 401 || statusCode === 403) {
       throw createServiceError(`${provider.name} authentication failed: ${upstreamMessage}`, 401);

@@ -10,6 +10,19 @@ function createServiceError(message, statusCode = 400) {
   return error;
 }
 
+function isBillingOrCreditsError(message) {
+  const text = String(message || '').toLowerCase();
+  return (
+    text.includes("doesn't have any credits") ||
+    text.includes('does not have any credits') ||
+    text.includes('no credits') ||
+    text.includes('insufficient credits') ||
+    text.includes('license') ||
+    text.includes('payment required') ||
+    text.includes('billing')
+  );
+}
+
 function normalizeUrl(value) {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -478,6 +491,10 @@ async function requestProviderResults({ runtime, keyword, country, location, max
       || err?.response?.data?.error
       || err?.response?.data?.message
       || err.message;
+
+    if (isBillingOrCreditsError(upstreamMessage)) {
+      throw createServiceError(`${runtime.name} requires billing/credits: ${upstreamMessage}`, 402);
+    }
 
     if (statusCode === 401 || statusCode === 403) {
       throw createServiceError(`${runtime.name} authentication failed: ${upstreamMessage}`, 401);

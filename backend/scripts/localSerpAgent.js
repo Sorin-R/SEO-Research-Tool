@@ -8,11 +8,9 @@ const API_BASE_URL = String(process.env.LOCAL_SERP_BACKEND_URL || 'http://localh
 const AGENT_TOKEN = String(process.env.LOCAL_SERP_AGENT_TOKEN || '').trim();
 const AGENT_ID = String(process.env.LOCAL_SERP_AGENT_ID || `${os.hostname()}-local-serp-agent`).trim();
 const DEFAULT_POLL_MS = Number.parseInt(process.env.LOCAL_SERP_AGENT_POLL_MS || '2000', 10);
-const CAPTCHA_WAIT_MS = Number.parseInt(process.env.LOCAL_SERP_AGENT_CAPTCHA_WAIT_MS || '180000', 10);
 const USER_DATA_DIR = String(
   process.env.LOCAL_SERP_AGENT_USER_DATA_DIR || path.join(os.homedir(), '.local-serp-agent-profile')
 ).trim();
-const MANUAL_CAPTCHA_ENABLED = String(process.env.LOCAL_SERP_AGENT_MANUAL_CAPTCHA || 'true').trim().toLowerCase() !== 'false';
 const USER_AGENT = String(
   process.env.LOCAL_SERP_AGENT_USER_AGENT
   || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
@@ -57,7 +55,7 @@ function safePageUrl(page, fallback = '') {
 }
 
 function resolveHeadlessMode() {
-  const defaultMode = MANUAL_CAPTCHA_ENABLED ? 'false' : 'new';
+  const defaultMode = 'new';
   const raw = String(process.env.LOCAL_SERP_AGENT_HEADLESS || defaultMode).trim().toLowerCase();
   if (raw === 'new') {
     return 'new';
@@ -451,7 +449,7 @@ async function extractOrganicResultsFromDom(page, engine, maxResults = 10) {
   }
 }
 
-async function captureSerpLocally(payload, options = {}) {
+async function captureSerpLocally(payload) {
   const puppeteer = loadPuppeteer();
   if (!puppeteer) {
     throw new Error('Puppeteer is not installed. Run: npm --prefix backend install');
@@ -501,49 +499,25 @@ async function captureSerpLocally(payload, options = {}) {
           await sleep(1300);
         }
 
-        if (payload.engine === 'google' && shouldHandleGoogleConsent(safePageUrl(page, searchUrl)) && MANUAL_CAPTCHA_ENABLED) {
-          const waitUntil = Date.now() + CAPTCHA_WAIT_MS;
-          console.log('[LocalAgent] Google block/captcha detected. Solve it in the opened browser window...');
-          if (typeof options.onCaptchaPending === 'function') {
-            await options.onCaptchaPending({
-              pending: true,
-              url: safePageUrl(page, searchUrl),
-              status: 'captcha-required',
-            });
-          }
-          let lastHeartbeatAt = 0;
-
-          while (Date.now() < waitUntil) {
-            try {
-              await page.bringToFront();
-            } catch {
-              // ignore
-            }
-            const currentUrl = safePageUrl(page, searchUrl);
-            if (!shouldHandleGoogleConsent(currentUrl)) {
-              break;
-            }
-            if (typeof options.onCaptchaPending === 'function') {
-              const timestamp = Date.now();
-              if (timestamp - lastHeartbeatAt >= 5000) {
-                lastHeartbeatAt = timestamp;
-                await options.onCaptchaPending({
-                  pending: true,
-                  url: currentUrl,
-                  status: 'captcha-required',
-                });
-              }
-            }
-            await handleGoogleConsent(page);
-            await sleep(1500);
-          }
-          if (typeof options.onCaptchaPending === 'function') {
-            await options.onCaptchaPending({
-              pending: false,
-              url: safePageUrl(page, searchUrl),
-              status: 'processing',
-            });
-          }
+        const currentUrl = safePageUrl(page, searchUrl);
+        if (payload.engine === 'google' && shouldHandleGoogleConsent(currentUrl)) {
+          const blockedScreenshotBuffer = await page.screenshot({
+            fullPage: true,
+            type: 'jpeg',
+            quality: 60,
+          });
+          const blockedImageBase64 = Buffer.from(blockedScreenshotBuffer).toString('base64');
+          return {
+            results: [],
+            screenshotUrl: currentUrl,
+            screenshotImageDataUrl: `data:image/jpeg;base64,${blockedImageBase64}`,
+            blockedByEngine: true,
+            debug: {
+              capturedUrl: currentUrl,
+              attempt,
+              blockReason: 'captcha-or-consent',
+            },
+          };
         }
 
         await waitForResults(page, payload.engine);
@@ -605,39 +579,6 @@ async function captureSerpLocally(payload, options = {}) {
   } finally {
     await browser.close();
   }
-}
-
-async function runCaptchaHelper(payload) {
-  const helperPayload = {
-    ...payload,
-    engine: payload.engine || 'google',
-    keyword: payload.keyword || 'google',
-  };
-  const result = await captureSerpLocally(helperPayload, {
-    onCaptchaPending: async ({ pending, url, status }) => {
-      setAgentState({
-        captchaPending: Boolean(pending),
-        captchaUrl: url || null,
-        status: status || (pending ? 'captcha-required' : 'processing'),
-      });
-      try {
-        await postHeartbeat();
-      } catch {
-        // ignore heartbeat errors
-      }
-    },
-  });
-
-  return {
-    results: [],
-    screenshotUrl: result.screenshotUrl || null,
-    screenshotImageDataUrl: result.screenshotImageDataUrl || null,
-    blockedByEngine: Boolean(result.blockedByEngine),
-    debug: {
-      ...(result.debug || {}),
-      helper: 'captcha-open',
-    },
-  };
 }
 
 function buildHeaders() {
@@ -712,8 +653,12 @@ async function processJob(job) {
   }
 
   try {
+    if (payload?.type === 'captcha-helper') {
+      throw new Error('Manual captcha helper is disabled. Retry a normal SERP scan.');
+    }
+
     setAgentState({
-      status: payload?.type === 'captcha-helper' ? 'captcha-helper' : 'working',
+      status: 'working',
       captchaPending: false,
       captchaUrl: null,
     });
@@ -723,22 +668,7 @@ async function processJob(job) {
       // ignore heartbeat errors
     }
 
-    const result = payload?.type === 'captcha-helper'
-      ? await runCaptchaHelper(payload)
-      : await captureSerpLocally(payload, {
-        onCaptchaPending: async ({ pending, url, status }) => {
-          setAgentState({
-            captchaPending: Boolean(pending),
-            captchaUrl: url || null,
-            status: status || (pending ? 'captcha-required' : 'working'),
-          });
-          try {
-            await postHeartbeat();
-          } catch {
-            // ignore heartbeat errors
-          }
-        },
-      });
+    const result = await captureSerpLocally(payload);
 
     setAgentState({
       status: 'idle',
@@ -781,7 +711,7 @@ async function run() {
   console.log(`[LocalAgent] Token provided: ${AGENT_TOKEN ? 'yes' : 'no'}`);
   console.log(`[LocalAgent] Headless mode: ${resolveHeadlessMode() === false ? 'off (visible browser)' : String(resolveHeadlessMode())}`);
   console.log(`[LocalAgent] User profile dir: ${USER_DATA_DIR}`);
-  console.log(`[LocalAgent] Manual captcha handling: ${MANUAL_CAPTCHA_ENABLED ? 'enabled' : 'disabled'}`);
+  console.log('[LocalAgent] Manual captcha handling: disabled');
   setAgentState({
     status: 'idle',
     captchaPending: false,

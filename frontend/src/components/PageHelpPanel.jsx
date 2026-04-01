@@ -87,7 +87,7 @@ const HELP_CONTENT = {
     ],
     extraction: [
       'Uses your local browser/IP, not third-party SERP APIs.',
-      'When blocked by consent/captcha, you complete it in the opened browser window.',
+      'If blocked by consent/captcha, the run is marked blocked and returns screenshot evidence for debugging.',
     ],
   },
   '/ai-serp': {
@@ -289,4 +289,3 @@ export default function PageHelpPanel() {
     </>
   );
 }
-

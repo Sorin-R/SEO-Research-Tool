@@ -1,6 +1,5 @@
 const express = require('express');
 const {
-  createJob,
   claimNextJob,
   completeJob,
   failJob,
@@ -42,31 +41,6 @@ function requireAuth(req, res, next) {
     });
   }
   next();
-}
-
-function normalizeEngine(value) {
-  return String(value || '').trim().toLowerCase() === 'bing' ? 'bing' : 'google';
-}
-
-function normalizeCountry(value) {
-  return String(value || '').trim().toUpperCase() === 'GB' ? 'GB' : 'US';
-}
-
-function normalizeSearchDomain(engine, domain, country, searchDomain) {
-  const explicit = String(searchDomain || '').trim().toLowerCase();
-  if (explicit) {
-    return explicit;
-  }
-
-  const normalizedDomain = String(domain || '').trim().toLowerCase();
-  if (engine === 'bing') {
-    if (normalizedDomain === 'co.uk') return 'bing.co.uk';
-    return 'bing.com';
-  }
-
-  if (normalizedDomain === 'co.uk') return 'google.co.uk';
-  if (normalizedDomain === 'com') return 'google.com';
-  return country === 'GB' ? 'google.co.uk' : 'google.com';
 }
 
 function summarizeAgentStatus() {
@@ -139,27 +113,9 @@ router.post('/poll', requireAuth, (req, res) => {
 });
 
 router.post('/captcha/open', (req, res) => {
-  const engine = normalizeEngine(req.body?.engine);
-  const country = normalizeCountry(req.body?.country);
-  const searchDomain = normalizeSearchDomain(engine, req.body?.domain, country, req.body?.searchDomain);
-  const keyword = String(req.body?.keyword || 'google').replace(/\s+/g, ' ').trim() || 'google';
-  const location = String(req.body?.location || '').replace(/\s+/g, ' ').trim() || null;
-
-  const job = createJob({
-    type: 'captcha-helper',
-    keyword,
-    engine,
-    searchDomain,
-    country,
-    location,
-    requestedAt: new Date().toISOString(),
-    source: 'captcha-helper',
-  });
-
-  return res.json({
-    ok: true,
-    jobId: job.id,
-    message: 'Captcha helper job queued for Local PC Agent.',
+  return res.status(410).json({
+    ok: false,
+    error: 'Manual captcha helper is disabled for Local PC Agent.',
   });
 });
 

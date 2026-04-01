@@ -112,13 +112,14 @@ export default function Sidebar() {
         {DROPDOWN_GROUPS.map((group) => {
           const isOpen = openGroups[group.key];
           const active = isGroupActive(group);
+          const isHighlighted = active || isOpen;
           return (
             <div key={group.key} className="pt-1">
               <button
                 type="button"
                 onClick={() => toggleGroup(group.key)}
                 className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                  active
+                  isHighlighted
                     ? 'bg-gray-800 text-white'
                     : 'text-gray-300 hover:bg-gray-800 hover:text-white'
                 }`}

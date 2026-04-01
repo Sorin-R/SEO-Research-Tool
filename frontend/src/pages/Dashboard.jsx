@@ -10,7 +10,6 @@ import {
   getDashboardAiVisibilityModule,
   getDashboardBacklinksModule,
   getDashboardSiteHealthModule,
-  getDashboardSerpModule,
   getDashboardTrafficModule,
   getLatestRankings,
   getRankingTrendsSummary,
@@ -189,11 +188,6 @@ export default function Dashboard() {
         dateFrom,
         dateTo,
       }),
-      serpModule: getDashboardSerpModule({
-        websiteId: selectedWebsiteId,
-        country,
-        refresh: forceSerpRefresh,
-      }),
     };
 
     const keys = Object.keys(requests);
@@ -266,10 +260,6 @@ export default function Dashboard() {
         }
         if (key === 'rankingSummary' || key === 'rankings' || key === 'trackedKeywords') {
           nextCardErrors.organicKeywords = message;
-          nextCardErrors.serpCoverage = message;
-        }
-        if (key === 'serpModule') {
-          nextCardErrors.serpModule = message;
           nextCardErrors.serpCoverage = message;
         }
       }
@@ -354,7 +344,6 @@ export default function Dashboard() {
     const gscImpressions = Number(data.trafficModule?.summary?.impressions || 0);
     const gscCtrPercent = Number(data.trafficModule?.summary?.ctr || 0) * 100;
 
-    const serpModuleSnapshots = Array.isArray(data.serpModule?.snapshots) ? data.serpModule.snapshots : [];
     const backlinksSummary = data.backlinksModule?.summary || null;
     const backlinksCount = Number(backlinksSummary?.backlinksCount || 0);
     const backlinksRefDomains = Number(backlinksSummary?.referringDomainsCount || 0);
@@ -364,7 +353,7 @@ export default function Dashboard() {
     const coveragePercent = totalKeywords > 0
       ? Math.round((top10Keywords / totalKeywords) * 100)
       : null;
-    const serpSnapshots = serpModuleSnapshots.length || filteredSerpHistory.length;
+    const serpSnapshots = filteredSerpHistory.length;
 
     return {
       aiVisibilityScore,
@@ -426,8 +415,6 @@ export default function Dashboard() {
     data.siteHealthModule?.metadata?.checkedAt,
     data.siteHealthModule?.score?.value,
     data.rankingSummary,
-    data.serpModule?.snapshots,
-    data.serpModule?.table,
     data.trackedKeywords.length,
     data.trafficModule?.available,
     data.trafficModule?.summary,

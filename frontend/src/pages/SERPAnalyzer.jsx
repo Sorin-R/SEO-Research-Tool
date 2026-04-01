@@ -36,7 +36,6 @@ const GOOGLE_DOMAINS = [
 export default function SERPAnalyzer() {
   const [keyword, setKeyword] = useState('');
   const [country, setCountry] = useState('US');
-  const [aiOnlyMode, setAiOnlyMode] = useState(false);
   const [engine, setEngine] = useState('google');
   const [searchDomain, setSearchDomain] = useState('google.com');
   const [data, setData] = useState(null);
@@ -67,10 +66,6 @@ export default function SERPAnalyzer() {
 
       if (typeof parsed.country === 'string') {
         setCountry(parsed.country);
-      }
-
-      if (typeof parsed.aiOnlyMode === 'boolean') {
-        setAiOnlyMode(parsed.aiOnlyMode);
       }
 
       if (typeof parsed.engine === 'string') {
@@ -138,7 +133,6 @@ export default function SERPAnalyzer() {
         JSON.stringify({
           keyword,
           country,
-          aiOnlyMode,
           engine,
           searchDomain,
           data,
@@ -148,7 +142,7 @@ export default function SERPAnalyzer() {
     } catch {
       // Ignore storage quota issues.
     }
-  }, [aiOnlyMode, country, data, engine, keyword, searchDomain, storageHydrated]);
+  }, [country, data, engine, keyword, searchDomain, storageHydrated]);
 
   async function refreshHistory() {
     try {
@@ -175,9 +169,8 @@ export default function SERPAnalyzer() {
         searchKeyword,
         forceRefresh,
         country,
-        !aiOnlyMode,
+        true,
         {
-          aiOnly: aiOnlyMode,
           engine,
           searchDomain: engine === 'bing' ? 'bing.com' : searchDomain,
         }
@@ -185,7 +178,6 @@ export default function SERPAnalyzer() {
       setData(result);
       setKeyword(result.keyword || searchKeyword);
       setCountry(result.country || country);
-      setAiOnlyMode(Boolean(result.aiOnly));
       setEngine(result.engine === 'bing' ? 'bing' : engine);
       setSearchDomain(result.searchDomain || searchDomain);
       setRestoreNotice(buildSERPNotice(result, forceRefresh));
@@ -208,7 +200,6 @@ export default function SERPAnalyzer() {
       setData(result);
       setKeyword(result.keyword || '');
       setCountry(result.country || 'US');
-      setAiOnlyMode(Boolean(result.aiOnly));
       setEngine(result.engine === 'bing' ? 'bing' : 'google');
       setSearchDomain(result.searchDomain || 'google.com');
       setRestoreNotice('Loaded a saved SERP analysis from history.');
@@ -260,7 +251,7 @@ export default function SERPAnalyzer() {
     <div>
       <h2 className="text-2xl font-bold text-gray-900 mb-1">SERP Analyzer</h2>
       <p className="text-sm text-gray-500 mb-6">
-        Analyze top 10 results by engine/domain, or run AI-only SERP mode for fast experimental snapshots.
+        Analyze top 10 results by engine/domain and sync tracked ranking data.
       </p>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-3 lg:flex-row">
@@ -283,15 +274,6 @@ export default function SERPAnalyzer() {
               {option.name}
             </option>
           ))}
-        </select>
-        <select
-          value={aiOnlyMode ? 'ai-only' : 'standard'}
-          onChange={(event) => setAiOnlyMode(event.target.value === 'ai-only')}
-          className="px-4 py-2.5 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-          disabled={loading}
-        >
-          <option value="standard">Standard SERP</option>
-          <option value="ai-only">AI-only SERP (Experimental)</option>
         </select>
         <select
           value={engine}

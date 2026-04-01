@@ -355,6 +355,15 @@ export async function updateSerpProviderCredentials(providerId, credentials) {
   return data;
 }
 
+export async function testSerpProvider(providerId, options = {}) {
+  const { data } = await api.post(`/serp/providers/${providerId}/test`, {
+    keyword: options.keyword || undefined,
+    engine: options.engine || undefined,
+    country: options.country || undefined,
+  });
+  return data;
+}
+
 export async function exportRankings(websiteId = null, format = 'json') {
   if (format === 'csv') {
     const { data } = await api.get('/serp/export', {

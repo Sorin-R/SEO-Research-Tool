@@ -350,6 +350,20 @@ router.patch('/providers/:providerId/credentials', async (req, res) => {
   }
 });
 
+router.post('/providers/:providerId/test', async (req, res) => {
+  try {
+    const result = await serpApiManager.testProvider(req.params.providerId, {
+      keyword: req.body?.keyword,
+      engine: req.body?.engine,
+      country: req.body?.country,
+    });
+    res.json(result);
+  } catch (err) {
+    console.error('[Route /serp/providers/:providerId/test POST] Error:', err.message);
+    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to test provider.' });
+  }
+});
+
 // ---- Export ----
 
 router.get('/export', async (req, res) => {

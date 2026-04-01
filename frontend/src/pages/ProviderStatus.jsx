@@ -3,6 +3,7 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorAlert from '../components/ErrorAlert';
 import {
   getSerpProviders,
+  testSerpProvider,
   updateSerpProvider,
   updateSerpProviderCredentials,
 } from '../services/api';
@@ -13,7 +14,9 @@ export default function ProviderStatus() {
   const [error, setError] = useState(null);
   const [busyProviderId, setBusyProviderId] = useState(null);
   const [savingCredentialsId, setSavingCredentialsId] = useState(null);
+  const [testingProviderId, setTestingProviderId] = useState(null);
   const [credentialDrafts, setCredentialDrafts] = useState({});
+  const [testFeedback, setTestFeedback] = useState({});
   const [notice, setNotice] = useState(null);
 
   useEffect(() => {
@@ -123,6 +126,50 @@ export default function ProviderStatus() {
     }
   }
 
+  async function handleTestProvider(provider) {
+    if (!provider.configured) {
+      setError(`Configure ${provider.name} first, then run test.`);
+      return;
+    }
+
+    setTestingProviderId(provider.id);
+    setError(null);
+
+    try {
+      const preferredEngine = Array.isArray(provider.supportedEngines) && provider.supportedEngines.includes('google')
+        ? 'google'
+        : (provider.supportedEngines?.[0] || 'google');
+      const result = await testSerpProvider(provider.id, {
+        engine: preferredEngine,
+        country: 'US',
+      });
+
+      setTestFeedback((current) => ({
+        ...current,
+        [provider.id]: {
+          success: true,
+          message: result.message || 'Provider test succeeded.',
+          sampleUrl: result.sample?.url || null,
+        },
+      }));
+      setNotice(`${provider.name} test passed.`);
+      await fetchProviderStatus();
+    } catch (err) {
+      const message = err.response?.data?.error || err.message;
+      setTestFeedback((current) => ({
+        ...current,
+        [provider.id]: {
+          success: false,
+          message,
+          sampleUrl: null,
+        },
+      }));
+      setError(message);
+    } finally {
+      setTestingProviderId(null);
+    }
+  }
+
   if (loading) return <LoadingSpinner message="Loading provider status..." />;
   if (error && !providers) return <ErrorAlert message={error} onRetry={fetchProviderStatus} />;
 
@@ -181,7 +228,9 @@ export default function ProviderStatus() {
                 {providerDetails.map((provider) => {
                   const isBusy = busyProviderId === provider.id;
                   const isSavingCredentials = savingCredentialsId === provider.id;
+                  const isTestingProvider = testingProviderId === provider.id;
                   const providerDraft = credentialDrafts[provider.id] || {};
+                  const providerTestFeedback = testFeedback[provider.id] || null;
                   const requiresCredentials = Array.isArray(provider.fields) && provider.fields.length > 0;
 
                   return (
@@ -236,10 +285,40 @@ export default function ProviderStatus() {
                               >
                                 {isSavingCredentials ? 'Saving...' : 'Save Credentials'}
                               </button>
+                              <button
+                                type="button"
+                                onClick={() => handleTestProvider(provider)}
+                                disabled={isTestingProvider || !provider.configured}
+                                className="ml-2 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-medium text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {isTestingProvider ? 'Testing...' : 'Test'}
+                              </button>
                             </>
                           ) : (
-                            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
-                              No API key required. Keep your local agent running to use this provider.
+                            <>
+                              <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                                No API key required. Keep your local agent running to use this provider.
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleTestProvider(provider)}
+                                disabled={isTestingProvider || !provider.configured}
+                                className="rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-medium text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {isTestingProvider ? 'Testing...' : 'Test'}
+                              </button>
+                            </>
+                          )}
+                          {providerTestFeedback && (
+                            <div className={`rounded-lg border px-3 py-2 text-xs ${
+                              providerTestFeedback.success
+                                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                                : 'border-red-200 bg-red-50 text-red-700'
+                            }`}>
+                              <div>{providerTestFeedback.message}</div>
+                              {providerTestFeedback.sampleUrl && (
+                                <div className="mt-1 truncate text-[11px] text-emerald-700">{providerTestFeedback.sampleUrl}</div>
+                              )}
                             </div>
                           )}
                         </div>

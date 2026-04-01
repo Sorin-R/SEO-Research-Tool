@@ -16,6 +16,7 @@ const localPcAgentProvider = require('./providers/localPcAgentProvider');
 const providerCredentialsService = require('../services/providerCredentialsService');
 const providerSettingsService = require('../services/providerSettingsService');
 const providerUsageService = require('../services/providerUsageService');
+const { hasRecentAgent, getAgentStats } = require('../search/localSerpAgentQueue');
 
 function hasConfiguredValue(value) {
   if (!value) return false;
@@ -524,6 +525,79 @@ async function updateProviderCredentials(providerId, credentials) {
   return status.availableProviders.find((entry) => entry.id === providerId) || null;
 }
 
+async function testProvider(providerId, options = {}) {
+  const providerContexts = await getProviderContexts();
+  const providerContext = providerContexts.find((entry) => entry.config.id === providerId);
+
+  if (!providerContext) {
+    const error = new Error('Provider not found.');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (!providerContext.detail.configured) {
+    const error = new Error(`Provider "${providerContext.detail.name}" is not configured yet.`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (providerId === 'local-pc-agent') {
+    const agentStats = getAgentStats();
+    const online = hasRecentAgent();
+    if (!online) {
+      const error = new Error(
+        `Local PC Agent is offline (online agents: ${agentStats.online}). Start "npm --prefix backend run local-serp-agent".`
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    return {
+      providerId: providerContext.config.id,
+      providerName: providerContext.detail.name,
+      ok: true,
+      testedAt: new Date().toISOString(),
+      message: `Local PC Agent is online (${agentStats.online} active agent${agentStats.online === 1 ? '' : 's'}).`,
+    };
+  }
+
+  const requestedEngine = normalizeEngine(options.engine);
+  const engine = providerSupportsEngine(providerContext.config, requestedEngine)
+    ? requestedEngine
+    : (providerContext.config.supportedEngines?.[0] || 'google');
+  const keyword = String(options.keyword || '').trim() || 'seo';
+  const country = String(options.country || '').trim().toUpperCase() || 'US';
+
+  const rawResults = await providerContext.config.provider.search(keyword, 1, {
+    engine,
+    country,
+    credentials: providerContext.credentials,
+  });
+  await consumeProviderUsageSafe(providerContext.config);
+
+  const normalizedResults = normalizeProviderResults(rawResults, 1);
+  if (normalizedResults.length === 0) {
+    const error = new Error(`Provider "${providerContext.detail.name}" returned no test results.`);
+    error.statusCode = 502;
+    throw error;
+  }
+
+  const sample = normalizedResults[0];
+  return {
+    providerId: providerContext.config.id,
+    providerName: providerContext.detail.name,
+    ok: true,
+    testedAt: new Date().toISOString(),
+    engine,
+    country,
+    message: 'Provider test succeeded.',
+    sample: {
+      title: sample.title || null,
+      url: sample.url || null,
+    },
+  };
+}
+
 function isProviderEnabled(providerConfig, settings = {}) {
   if (!providerConfig) {
     return true;
@@ -670,4 +744,5 @@ module.exports = {
   getStatus,
   updateProviderState,
   updateProviderCredentials,
+  testProvider,
 };

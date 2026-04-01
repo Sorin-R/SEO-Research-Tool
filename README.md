@@ -15,6 +15,17 @@ This repository includes a focused SERP MVP flow with:
 
 Existing project features remain available.
 
+## Desktop App (macOS + Windows)
+
+The repository now includes an Electron desktop wrapper that:
+
+- launches **Backend** automatically
+- launches **Frontend** inside the app window automatically
+- launches **Local PC Agent** automatically (headless)
+- can auto-start on OS login (macOS + Windows)
+
+No terminal is needed after the desktop app is installed.
+
 ## New MVP Architecture
 
 ### Backend
@@ -118,6 +129,49 @@ npm --prefix frontend run dev
 
 Frontend default URL: `http://localhost:5173`
 
+## Desktop Setup
+
+### Development run (opens desktop app)
+
+```bash
+npm run desktop:dev
+```
+
+This command prepares backend/frontend dependencies, builds frontend, then opens the desktop app.
+
+### Build installers
+
+macOS:
+
+```bash
+npm run desktop:build:mac
+```
+
+Windows:
+
+```bash
+npm run desktop:build:win
+```
+
+Both (from a compatible build machine):
+
+```bash
+npm run desktop:build
+```
+
+Build outputs are created in:
+
+`desktop-release/`
+
+### Auto-start on login
+
+When running as packaged app, auto-start on login is enabled by default.  
+You can disable with:
+
+```bash
+DESKTOP_AUTO_LAUNCH=false
+```
+
 ## Notes
 
 - Duplicate exact URLs are removed after normalization.
@@ -159,17 +213,16 @@ npm --prefix backend run local-serp-agent
 ```
 
 Defaults:
-- visible browser (`LOCAL_SERP_AGENT_HEADLESS=false`)
+- headless browser (`LOCAL_SERP_AGENT_HEADLESS=new`)
 - persistent Chrome profile (`~/.local-serp-agent-profile`)
-- manual captcha wait enabled (`LOCAL_SERP_AGENT_MANUAL_CAPTCHA=true`)
+- manual captcha helper disabled
 
 Useful overrides:
 
 ```bash
 LOCAL_SERP_AGENT_HEADLESS=false
-LOCAL_SERP_AGENT_MANUAL_CAPTCHA=true
-LOCAL_SERP_AGENT_CAPTCHA_WAIT_MS=180000
 LOCAL_SERP_AGENT_USER_DATA_DIR="$HOME/.local-serp-agent-profile"
+LOCAL_SERP_AGENT_CHROME_PATH="/path/to/chrome-or-electron"
 ```
 
 ### 3. Use UI mode

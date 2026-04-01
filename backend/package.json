@@ -18,7 +18,8 @@
     "google-ads-api": "^23.0.0",
     "google-trends-api": "^4.9.2",
     "mysql2": "^3.10.1",
-    "node-cron": "^3.0.3"
+    "node-cron": "^3.0.3",
+    "puppeteer-core": "^24.7.1"
   },
   "optionalDependencies": {
     "puppeteer": "^22.12.0"

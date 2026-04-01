@@ -11,8 +11,9 @@ package-lock.json
 yarn.lock
 
 # Build outputs
-dist/
 build/
+# Keep frontend/dist/ tracked for Hostinger deployment
+desktop-release/
 
 # IDE
 .vscode/

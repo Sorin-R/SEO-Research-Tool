@@ -15,6 +15,7 @@ const USER_AGENT = String(
   process.env.LOCAL_SERP_AGENT_USER_AGENT
   || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
 ).trim();
+const CHROME_EXECUTABLE_PATH = String(process.env.LOCAL_SERP_AGENT_CHROME_PATH || '').trim();
 
 let agentState = {
   status: 'idle',
@@ -65,7 +66,13 @@ function resolveHeadlessMode() {
 
 function loadPuppeteer() {
   try {
-    return require('puppeteer');
+    return { launcher: require('puppeteer'), mode: 'puppeteer' };
+  } catch {
+    // ignore
+  }
+
+  try {
+    return { launcher: require('puppeteer-core'), mode: 'puppeteer-core' };
   } catch {
     return null;
   }
@@ -450,9 +457,13 @@ async function extractOrganicResultsFromDom(page, engine, maxResults = 10) {
 }
 
 async function captureSerpLocally(payload) {
-  const puppeteer = loadPuppeteer();
-  if (!puppeteer) {
-    throw new Error('Puppeteer is not installed. Run: npm --prefix backend install');
+  const puppeteerRuntime = loadPuppeteer();
+  if (!puppeteerRuntime) {
+    throw new Error('Neither puppeteer nor puppeteer-core is installed.');
+  }
+
+  if (puppeteerRuntime.mode === 'puppeteer-core' && !CHROME_EXECUTABLE_PATH) {
+    throw new Error('LOCAL_SERP_AGENT_CHROME_PATH is required when using puppeteer-core.');
   }
 
   const searchUrl = buildSearchUrl({
@@ -463,7 +474,7 @@ async function captureSerpLocally(payload) {
     location: payload.location,
   });
 
-  const browser = await puppeteer.launch({
+  const launchOptions = {
     headless: resolveHeadlessMode(),
     userDataDir: USER_DATA_DIR || undefined,
     args: [
@@ -472,7 +483,13 @@ async function captureSerpLocally(payload) {
       '--disable-blink-features=AutomationControlled',
       '--window-size=1366,2300',
     ],
-  });
+  };
+
+  if (CHROME_EXECUTABLE_PATH) {
+    launchOptions.executablePath = CHROME_EXECUTABLE_PATH;
+  }
+
+  const browser = await puppeteerRuntime.launcher.launch(launchOptions);
 
   try {
     let lastError = null;
@@ -711,6 +728,11 @@ async function run() {
   console.log(`[LocalAgent] Token provided: ${AGENT_TOKEN ? 'yes' : 'no'}`);
   console.log(`[LocalAgent] Headless mode: ${resolveHeadlessMode() === false ? 'off (visible browser)' : String(resolveHeadlessMode())}`);
   console.log(`[LocalAgent] User profile dir: ${USER_DATA_DIR}`);
+  const runtime = loadPuppeteer();
+  console.log(`[LocalAgent] Puppeteer runtime: ${runtime?.mode || 'missing'}`);
+  if (CHROME_EXECUTABLE_PATH) {
+    console.log(`[LocalAgent] Browser executable: ${CHROME_EXECUTABLE_PATH}`);
+  }
   console.log('[LocalAgent] Manual captcha handling: disabled');
   setAgentState({
     status: 'idle',

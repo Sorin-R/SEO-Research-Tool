@@ -1,14 +1,50 @@
 {
   "name": "seo-research-tool",
   "private": true,
-  "main": "server.js",
+  "main": "desktop/main.cjs",
   "scripts": {
     "start": "node server.js",
     "build": "npm --prefix frontend run build",
-    "postinstall": "npm install --prefix backend --omit=dev --omit=optional && npm install --prefix frontend --omit=dev && npm run build"
+    "postinstall": "npm install --prefix backend --omit=dev --omit=optional && npm install --prefix frontend --omit=dev && npm run build",
+    "desktop:prepare": "npm --prefix backend install && npm --prefix frontend install && npm --prefix frontend run build",
+    "desktop:dev": "npm run desktop:prepare && electron desktop/main.cjs",
+    "desktop:build": "npm run desktop:prepare && electron-builder --mac --win",
+    "desktop:build:mac": "npm run desktop:prepare && electron-builder --mac",
+    "desktop:build:win": "npm run desktop:prepare && electron-builder --win"
   },
   "dependencies": {
     "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "electron": "^36.2.1",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.sorinr.seoresearchtool",
+    "productName": "SEO Research Tool",
+    "asar": false,
+    "directories": {
+      "output": "desktop-release"
+    },
+    "files": [
+      "desktop/**/*",
+      "backend/**/*",
+      "frontend/dist/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    }
   },
   "engines": {
     "node": ">=20.19.0"

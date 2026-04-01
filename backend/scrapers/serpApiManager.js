@@ -11,6 +11,7 @@ const searchApiProvider = require('./providers/searchApiProvider');
 const scaleserpProvider = require('./providers/scaleserpProvider');
 const googleSearchProvider = require('./providers/googleSearchProvider');
 const bingSearchProvider = require('./providers/bingSearchProvider');
+const azureFoundryWebSearchProvider = require('./providers/azureFoundryWebSearchProvider');
 const localPcAgentProvider = require('./providers/localPcAgentProvider');
 const providerCredentialsService = require('../services/providerCredentialsService');
 const providerSettingsService = require('../services/providerSettingsService');
@@ -43,6 +44,27 @@ const providers = [
     fields: [],
     defaultEnabled: false,
     skipUsage: true,
+  },
+  {
+    id: 'azure-foundry-web-search',
+    name: 'Azure Foundry Web Search',
+    provider: azureFoundryWebSearchProvider,
+    supportedEngines: ['google', 'bing'],
+    docsUrl: 'https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/tools/web-search',
+    quota: 'Azure billing',
+    quotaType: 'Per tool call',
+    setupTime: '8 min',
+    requestLimit: 1000,
+    defaultRemaining: 1000,
+    fields: [
+      { key: 'AZURE_AI_PROJECT_ENDPOINT', label: 'Project Endpoint' },
+      { key: 'AZURE_AI_MODEL_DEPLOYMENT_NAME', label: 'Model Deployment Name' },
+      { key: 'AZURE_AI_AGENT_TOKEN', label: 'Agent Token (optional override)' },
+      { key: 'AZURE_TENANT_ID', label: 'Tenant ID' },
+      { key: 'AZURE_CLIENT_ID', label: 'Client ID' },
+      { key: 'AZURE_CLIENT_SECRET', label: 'Client Secret' },
+    ],
+    defaultEnabled: false,
   },
   {
     id: 'serpapi',
@@ -550,7 +572,25 @@ function buildProviderDetail(providerConfig, settings, storedCredentials, usage)
     };
   });
 
-  const configured = fields.every((field) => field.hasValue);
+  let configured = fields.every((field) => field.hasValue);
+  if (providerConfig.id === 'azure-foundry-web-search') {
+    const endpoint = resolveCredential('AZURE_AI_PROJECT_ENDPOINT', storedCredentials).value;
+    const deployment = resolveCredential('AZURE_AI_MODEL_DEPLOYMENT_NAME', storedCredentials).value;
+    const agentToken = resolveCredential('AZURE_AI_AGENT_TOKEN', storedCredentials).value;
+    const tenantId = resolveCredential('AZURE_TENANT_ID', storedCredentials).value;
+    const clientId = resolveCredential('AZURE_CLIENT_ID', storedCredentials).value;
+    const clientSecret = resolveCredential('AZURE_CLIENT_SECRET', storedCredentials).value;
+
+    const hasServicePrincipalAuth =
+      hasConfiguredValue(tenantId)
+      && hasConfiguredValue(clientId)
+      && hasConfiguredValue(clientSecret);
+
+    configured =
+      hasConfiguredValue(endpoint)
+      && hasConfiguredValue(deployment)
+      && (hasConfiguredValue(agentToken) || hasServicePrincipalAuth);
+  }
   const enabled = isProviderEnabled(providerConfig, settings);
 
   return {

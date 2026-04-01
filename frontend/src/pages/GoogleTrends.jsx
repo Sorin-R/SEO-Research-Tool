@@ -99,6 +99,7 @@ export default function GoogleTrends() {
   const [regionData, setRegionData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [regionError, setRegionError] = useState(null);
 
   const keywords = useMemo(() => parseKeywords(keyword, compareInput), [keyword, compareInput]);
   const isCompareMode = keywords.length > 1;
@@ -164,21 +165,32 @@ export default function GoogleTrends() {
 
     setLoading(true);
     setError(null);
+    setRegionError(null);
 
     try {
-      const [trendResponse, relatedQueriesResponse, relatedTopicsResponse, regionResponse] = await Promise.all([
+      const [trendResponse, relatedQueriesResponse, relatedTopicsResponse] = await Promise.all([
         queryKeywords.length > 1
           ? compareKeywordTrends(queryKeywords, options)
           : getTrends(options),
         getRelatedQueries(options),
         getRelatedTopics(options),
-        getTrendRegions(options),
       ]);
 
       setTrendData(trendResponse);
       setRelatedQueries(relatedQueriesResponse);
       setRelatedTopics(relatedTopicsResponse);
-      setRegionData(regionResponse);
+      try {
+        const regionResponse = await getTrendRegions(options);
+        setRegionData(regionResponse);
+        const regionMessages = [
+          ...(Array.isArray(regionResponse?.warnings) ? regionResponse.warnings : []),
+          ...(Array.isArray(regionResponse?.errors) ? regionResponse.errors : []),
+        ].filter(Boolean);
+        setRegionError(regionMessages[0] || null);
+      } catch (regionErr) {
+        setRegionData(null);
+        setRegionError(regionErr.response?.data?.error || regionErr.message || 'Regional trends fetch failed.');
+      }
     } catch (err) {
       setError(err.response?.data?.error || err.message || 'Failed to fetch trends data.');
     } finally {
@@ -448,6 +460,9 @@ export default function GoogleTrends() {
 
             <div className="rounded-lg border border-gray-200 bg-white p-6">
               <h3 className="mb-4 font-semibold text-gray-900">Interest by Region</h3>
+              {regionError ? (
+                <p className="mb-3 text-sm text-amber-700">{regionError}</p>
+              ) : null}
               {topRegions.length > 0 ? (
                 <div className="space-y-2">
                   {topRegions.map((item, index) => (

@@ -36,6 +36,7 @@
       "package.json"
     ],
     "mac": {
+      "icon": "build/icons/icon.icns",
       "category": "public.app-category.productivity",
       "target": [
         "dmg",

@@ -333,6 +333,41 @@ function getGoogleTokenErrorMessage(err) {
   return fallbackMessage;
 }
 
+async function runSearchAnalyticsQuery(accessToken, siteUrl, requestBody) {
+  const response = await axios.post(
+    `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`,
+    requestBody,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 25000,
+    }
+  );
+
+  return response?.data || {};
+}
+
+function normalizeSearchAnalyticsRows(responseData, dimensions = []) {
+  const rows = Array.isArray(responseData?.rows) ? responseData.rows : [];
+  return rows.map((row) => {
+    const mapped = {
+      clicks: Number(row?.clicks || 0) || 0,
+      impressions: Number(row?.impressions || 0) || 0,
+      ctr: Number(row?.ctr || 0) || 0,
+      position: Number(row?.position || 0) || 0,
+    };
+
+    const keys = Array.isArray(row?.keys) ? row.keys : [];
+    dimensions.forEach((dimension, index) => {
+      mapped[dimension] = String(keys[index] || '').trim();
+    });
+
+    return mapped;
+  });
+}
+
 async function toggleProvider(providerId, enabled) {
   const definition = GSC_PROVIDERS.find((provider) => provider.id === providerId);
 
@@ -481,32 +516,70 @@ async function getOrganicTrafficSummary(options = {}) {
 
   let response;
   try {
-    response = await axios.post(
-      `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(normalizedSiteUrl)}/searchAnalytics/query`,
-      {
-        startDate,
-        endDate,
-        rowLimit: 1,
-        startRow: 0,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 20000,
-      }
-    );
+    response = await runSearchAnalyticsQuery(accessToken, normalizedSiteUrl, {
+      startDate,
+      endDate,
+      rowLimit: 1,
+      startRow: 0,
+    });
   } catch (err) {
     const apiMessage = err.response?.data?.error?.message || err.response?.data?.error || err.message;
     throw createServiceError(`Search Console traffic query failed: ${apiMessage}`, 502);
   }
 
-  const row = Array.isArray(response?.data?.rows) ? response.data.rows[0] : null;
+  let topQueries = [];
+  let topPages = [];
+  let deviceBreakdown = [];
+  let countryBreakdown = [];
+
+  try {
+    const [queryData, pageData, deviceData, countryData] = await Promise.all([
+      runSearchAnalyticsQuery(accessToken, normalizedSiteUrl, {
+        startDate,
+        endDate,
+        dimensions: ['query'],
+        rowLimit: 10,
+        startRow: 0,
+      }),
+      runSearchAnalyticsQuery(accessToken, normalizedSiteUrl, {
+        startDate,
+        endDate,
+        dimensions: ['page'],
+        rowLimit: 10,
+        startRow: 0,
+      }),
+      runSearchAnalyticsQuery(accessToken, normalizedSiteUrl, {
+        startDate,
+        endDate,
+        dimensions: ['device'],
+        rowLimit: 10,
+        startRow: 0,
+      }),
+      runSearchAnalyticsQuery(accessToken, normalizedSiteUrl, {
+        startDate,
+        endDate,
+        dimensions: ['country'],
+        rowLimit: 10,
+        startRow: 0,
+      }),
+    ]);
+
+    topQueries = normalizeSearchAnalyticsRows(queryData, ['query']);
+    topPages = normalizeSearchAnalyticsRows(pageData, ['page']);
+    deviceBreakdown = normalizeSearchAnalyticsRows(deviceData, ['device']);
+    countryBreakdown = normalizeSearchAnalyticsRows(countryData, ['country']);
+  } catch (err) {
+    console.warn('[GSCProviderManager] Extended Search Analytics breakdown failed:', err.message);
+  }
+
+  const row = Array.isArray(response?.rows) ? response.rows[0] : null;
   const clicks = Number(row?.clicks || 0);
   const impressions = Number(row?.impressions || 0);
   const ctr = Number(row?.ctr || 0);
   const avgPosition = Number(row?.position || 0);
+
+  const topQuery = topQueries[0] || null;
+  const topPage = topPages[0] || null;
 
   return {
     source: 'gsc',
@@ -519,6 +592,28 @@ async function getOrganicTrafficSummary(options = {}) {
       impressions: Number.isFinite(impressions) ? impressions : 0,
       ctr: Number.isFinite(ctr) ? ctr : 0,
       averagePosition: Number.isFinite(avgPosition) ? avgPosition : 0,
+    },
+    topQueries,
+    topPages,
+    deviceBreakdown,
+    countryBreakdown,
+    highlights: {
+      topQuery: topQuery ? {
+        query: topQuery.query || '',
+        clicks: topQuery.clicks,
+        impressions: topQuery.impressions,
+        ctr: topQuery.ctr,
+        position: topQuery.position,
+      } : null,
+      topPage: topPage ? {
+        page: topPage.page || '',
+        clicks: topPage.clicks,
+        impressions: topPage.impressions,
+        ctr: topPage.ctr,
+        position: topPage.position,
+      } : null,
+      topDevice: deviceBreakdown[0] || null,
+      topCountry: countryBreakdown[0] || null,
     },
   };
 }

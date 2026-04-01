@@ -81,6 +81,10 @@ function toDateParam(value) {
   return parsed.toISOString().slice(0, 10);
 }
 
+function hasGscData(trafficModule) {
+  return Boolean(trafficModule?.available && trafficModule?.source === 'gsc' && trafficModule?.summary);
+}
+
 export default function Dashboard() {
   const { websites, selectedWebsiteId, selectedWebsite, setSelectedWebsiteId } = useWebsiteContext();
 
@@ -253,6 +257,14 @@ export default function Dashboard() {
           nextCardErrors.siteHealth = message;
           nextCardErrors.siteHealthModule = message;
         }
+        if (key === 'trafficModule') {
+          nextCardErrors.organicTraffic = message;
+          nextCardErrors.gscImpressions = message;
+          nextCardErrors.gscCtr = message;
+          nextCardErrors.gscPosition = message;
+          nextCardErrors.gscTopQuery = message;
+          nextCardErrors.gscTopPage = message;
+        }
         if (key === 'backlinksModule') nextCardErrors.backlinks = message;
         if (key === 'aiVisibilityModule') {
           nextCardErrors.aiVisibility = message;
@@ -343,6 +355,11 @@ export default function Dashboard() {
     const gscClicks = Number(data.trafficModule?.summary?.clicks || 0);
     const gscImpressions = Number(data.trafficModule?.summary?.impressions || 0);
     const gscCtrPercent = Number(data.trafficModule?.summary?.ctr || 0) * 100;
+    const gscAveragePosition = Number(data.trafficModule?.summary?.averagePosition || 0);
+    const gscTopQuery = data.trafficModule?.highlights?.topQuery || null;
+    const gscTopPage = data.trafficModule?.highlights?.topPage || null;
+    const gscTopDevice = data.trafficModule?.highlights?.topDevice || null;
+    const gscTopCountry = data.trafficModule?.highlights?.topCountry || null;
 
     const backlinksSummary = data.backlinksModule?.summary || null;
     const backlinksCount = Number(backlinksSummary?.backlinksCount || 0);
@@ -361,6 +378,23 @@ export default function Dashboard() {
       siteHealthScore: Number.isFinite(siteHealthScore) ? siteHealthScore : null,
       organicTrafficValue: hasRealTraffic ? gscClicks : estimatedTraffic,
       organicTrafficBadge: hasRealTraffic ? 'GSC' : 'Estimated',
+      gscImpressionsValue: hasRealTraffic ? gscImpressions.toLocaleString() : null,
+      gscCtrValue: hasRealTraffic ? `${gscCtrPercent.toFixed(2)}%` : null,
+      gscAveragePositionValue: hasRealTraffic && Number.isFinite(gscAveragePosition)
+        ? `#${gscAveragePosition.toFixed(2)}`
+        : null,
+      gscTopQueryValue: hasRealTraffic && gscTopQuery
+        ? Number(gscTopQuery.clicks || 0).toLocaleString()
+        : null,
+      gscTopQuerySubtitle: hasRealTraffic && gscTopQuery
+        ? `${gscTopQuery.query || '—'} • ${(Number(gscTopQuery.ctr || 0) * 100).toFixed(2)}% CTR`
+        : null,
+      gscTopPageValue: hasRealTraffic && gscTopPage
+        ? Number(gscTopPage.clicks || 0).toLocaleString()
+        : null,
+      gscTopPageSubtitle: hasRealTraffic && gscTopPage
+        ? `${String(gscTopPage.page || '—').replace(/^https?:\/\//, '')}`
+        : null,
       organicKeywordsValue: totalKeywords > 0 ? `${rankedKeywords} / ${totalKeywords}` : null,
       backlinksValue: hasBacklinksData ? backlinksCount.toLocaleString() : null,
       backlinksSubtitle: hasBacklinksData
@@ -380,8 +414,13 @@ export default function Dashboard() {
         ? `Latest check: ${new Date(siteHealthCheckedAt).toLocaleDateString()} • ${siteHealthIssueCounts?.failingChecks || 0} failing checks`
         : null,
       trafficSubtitle: hasRealTraffic
-        ? `${gscImpressions.toLocaleString()} impressions • ${gscCtrPercent.toFixed(2)}% CTR`
+        ? `${gscImpressions.toLocaleString()} impressions • ${gscCtrPercent.toFixed(2)}% CTR • ${
+          gscTopDevice?.device ? `Top device: ${String(gscTopDevice.device).toUpperCase()}` : 'Search analytics data'
+        }`
         : (rankedRows.length ? `${rankedRows.length} ranking URLs contributed` : null),
+      gscPositionSubtitle: hasRealTraffic
+        ? `${gscTopCountry?.country ? `Top country: ${String(gscTopCountry.country).toUpperCase()}` : 'Average across selected period'}`
+        : null,
       aiVisibilitySubtitle: data.aiVisibilityModule?.metadata?.sampleSize
         ? (() => {
             const sampleSize = data.aiVisibilityModule.metadata.sampleSize || {};
@@ -418,6 +457,7 @@ export default function Dashboard() {
     data.trackedKeywords.length,
     data.trafficModule?.available,
     data.trafficModule?.summary,
+    data.trafficModule?.highlights,
     filteredRankings,
     filteredSerpHistory.length,
   ]);
@@ -426,6 +466,11 @@ export default function Dashboard() {
     kpiValues.aiVisibilityScore == null
     && kpiValues.siteHealthScore == null
     && kpiValues.organicTrafficValue == null
+    && kpiValues.gscImpressionsValue == null
+    && kpiValues.gscCtrValue == null
+    && kpiValues.gscAveragePositionValue == null
+    && kpiValues.gscTopQueryValue == null
+    && kpiValues.gscTopPageValue == null
     && kpiValues.organicKeywordsValue == null
     && kpiValues.backlinksValue == null
     && kpiValues.serpCoverageValue == null
@@ -454,7 +499,7 @@ export default function Dashboard() {
 
       <DashboardSection
         title="KPI Cards"
-        description="AI Visibility, Site Health, Organic Traffic, Organic Keywords, Backlinks, and SERP Coverage."
+        description="AI Visibility, Site Health, GSC traffic metrics, Organic Keywords, Backlinks, and SERP Coverage."
       >
         <DashboardGrid>
           <KpiCard
@@ -486,6 +531,51 @@ export default function Dashboard() {
             isLoading={loading}
             error={cardErrors.organicTraffic}
             emptyMessage="No ranking data to estimate traffic."
+          />
+          <KpiCard
+            title="GSC Impressions"
+            value={kpiValues.gscImpressionsValue}
+            subtitle={hasGscData(data.trafficModule) ? 'Total impressions in selected range' : null}
+            badge={hasGscData(data.trafficModule) ? 'GSC' : null}
+            isLoading={loading}
+            error={cardErrors.gscImpressions}
+            emptyMessage="Connect GSC and set website property to show impressions."
+          />
+          <KpiCard
+            title="GSC CTR"
+            value={kpiValues.gscCtrValue}
+            subtitle={hasGscData(data.trafficModule) ? 'Average click-through rate' : null}
+            badge={hasGscData(data.trafficModule) ? 'GSC' : null}
+            isLoading={loading}
+            error={cardErrors.gscCtr}
+            emptyMessage="Connect GSC and set website property to show CTR."
+          />
+          <KpiCard
+            title="GSC Avg Position"
+            value={kpiValues.gscAveragePositionValue}
+            subtitle={kpiValues.gscPositionSubtitle}
+            badge={hasGscData(data.trafficModule) ? 'GSC' : null}
+            isLoading={loading}
+            error={cardErrors.gscPosition}
+            emptyMessage="Connect GSC and set website property to show average position."
+          />
+          <KpiCard
+            title="Top Query Clicks"
+            value={kpiValues.gscTopQueryValue}
+            subtitle={kpiValues.gscTopQuerySubtitle}
+            badge={hasGscData(data.trafficModule) ? 'GSC' : null}
+            isLoading={loading}
+            error={cardErrors.gscTopQuery}
+            emptyMessage="No top query rows found in this date range."
+          />
+          <KpiCard
+            title="Top Page Clicks"
+            value={kpiValues.gscTopPageValue}
+            subtitle={kpiValues.gscTopPageSubtitle}
+            badge={hasGscData(data.trafficModule) ? 'GSC' : null}
+            isLoading={loading}
+            error={cardErrors.gscTopPage}
+            emptyMessage="No top page rows found in this date range."
           />
           <KpiCard
             title="Organic Keywords"

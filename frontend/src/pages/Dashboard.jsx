@@ -1,14 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import ErrorAlert from '../components/ErrorAlert';
 import LoadingSpinner from '../components/LoadingSpinner';
-import AiVisibilityModuleView from '../components/dashboard/AiVisibilityModuleView';
 import DashboardHeader from '../components/dashboard/DashboardHeader';
 import KpiCard from '../components/dashboard/KpiCard';
 import { DashboardGrid, DashboardSection, DashboardShell } from '../components/dashboard/DashboardLayout';
 import SiteHealthModuleView from '../components/dashboard/SiteHealthModuleView';
-import SerpKeywordTable from '../components/dashboard/SerpKeywordTable';
-import SerpOpportunityCards from '../components/dashboard/SerpOpportunityCards';
-import SerpSnapshotView from '../components/dashboard/SerpSnapshotView';
 import { useWebsiteContext } from '../context/WebsiteContext';
 import {
   getDashboardAiVisibilityModule,
@@ -547,53 +543,6 @@ export default function Dashboard() {
           loading={loading}
           error={cardErrors.siteHealthModule}
         />
-      </DashboardSection>
-
-      <DashboardSection
-        title="AI Visibility Module"
-        description="Modeled AI-era visibility using brand/domain/page mentions, content structure, and topical coverage proxies."
-      >
-        <AiVisibilityModuleView
-          moduleData={data.aiVisibilityModule}
-          loading={loading}
-          error={cardErrors.aiVisibilityModule}
-        />
-      </DashboardSection>
-
-      <DashboardSection
-        title="SERP Dashboard Module"
-        description="Top 10 keyword extraction from Google and Bing, opportunity cards, and SERP snapshot view."
-      >
-        {data.serpModule?.metadata ? (
-          <div className="mb-4 grid gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600 md:grid-cols-4">
-            <div>Queries: <span className="font-medium text-gray-800">{data.serpModule.metadata.queryCount || 0}</span></div>
-            <div>Google Rows: <span className="font-medium text-gray-800">{data.serpModule.metadata.googleResultCount || 0}</span></div>
-            <div>Bing Rows: <span className="font-medium text-gray-800">{data.serpModule.metadata.bingResultCount || 0}</span></div>
-            <div>Keyword Overlap: <span className="font-medium text-gray-800">{data.serpModule.metadata.overlapRate || 0}%</span></div>
-          </div>
-        ) : null}
-
-        <SerpOpportunityCards
-          opportunities={data.serpModule?.opportunities}
-          loading={loading}
-          error={cardErrors.serpModule}
-        />
-
-        <div className="mt-4">
-          <SerpKeywordTable
-            rows={data.serpModule?.table || []}
-            loading={loading}
-            error={cardErrors.serpModule}
-          />
-        </div>
-
-        <div className="mt-4">
-          <SerpSnapshotView
-            snapshots={data.serpModule?.snapshots || []}
-            loading={loading}
-            error={cardErrors.serpModule}
-          />
-        </div>
       </DashboardSection>
 
       {loading ? <LoadingSpinner message="Loading dashboard metrics..." /> : null}

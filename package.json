@@ -1,5 +1,8 @@
 {
   "name": "seo-research-tool",
+  "version": "1.0.0",
+  "description": "SEO Research Tool desktop app with integrated backend, frontend, and local SERP agent.",
+  "author": "Sorin R",
   "private": true,
   "main": "desktop/main.cjs",
   "scripts": {

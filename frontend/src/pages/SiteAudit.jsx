@@ -188,6 +188,17 @@ export default function SiteAudit() {
     }
   }
 
+  function handleDownloadReport() {
+    if (!data) {
+      return;
+    }
+
+    const report = buildSiteAuditReportMarkdown(data);
+    const domainPart = sanitizeFilenamePart(data.url || 'site-audit');
+    const timestampPart = new Date().toISOString().slice(0, 10);
+    downloadMarkdownFile(`site-audit-${domainPart}-${timestampPart}.md`, report);
+  }
+
   return (
     <div>
       <h2 className="text-2xl font-bold text-gray-900 mb-1">Site Audit</h2>
@@ -236,6 +247,18 @@ export default function SiteAudit() {
       {restoreNotice && !loading && (
         <div className="mt-4 bg-emerald-50 border border-emerald-200 rounded-lg px-5 py-4 text-sm text-emerald-900">
           {restoreNotice}
+        </div>
+      )}
+
+      {data && !loading && (
+        <div className="mt-4 flex justify-end">
+          <button
+            type="button"
+            onClick={handleDownloadReport}
+            className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-50"
+          >
+            Download .md Report
+          </button>
         </div>
       )}
 
@@ -458,4 +481,104 @@ function formatDateTime(value) {
   if (Number.isNaN(date.getTime())) return 'Saved recently';
 
   return date.toLocaleString();
+}
+
+function downloadMarkdownFile(filename, content) {
+  const blob = new Blob([content], { type: 'text/markdown;charset=utf-8;' });
+  const fileUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = fileUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(fileUrl);
+}
+
+function sanitizeFilenamePart(value) {
+  return String(value || 'report')
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'report';
+}
+
+function formatMetric(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function buildSiteAuditReportMarkdown(result) {
+  const lines = [];
+  lines.push('# Site Audit Report');
+  lines.push('');
+  lines.push(`Generated: ${new Date().toISOString()}`);
+  lines.push(`URL: ${result.url || 'N/A'}`);
+  lines.push(`Checked At: ${result.checkedAt || 'N/A'}`);
+  lines.push('');
+
+  lines.push('## Summary');
+  lines.push('');
+  lines.push(`- Audit Score: ${formatMetric(result.auditScore)}/100`);
+  lines.push(`- Pages Crawled: ${formatMetric(result.crawledPages)}`);
+  lines.push(`- Pages With Issues: ${formatMetric(result.totals?.pagesWithIssues)}`);
+  lines.push(`- Broken Pages: ${formatMetric(result.totals?.brokenPages)}`);
+  lines.push(`- Broken Internal Links: ${formatMetric(result.totals?.brokenInternalLinks)}`);
+  lines.push(`- Missing Titles: ${formatMetric(result.totals?.missingTitles)}`);
+  lines.push(`- Missing Meta Descriptions: ${formatMetric(result.totals?.missingMetaDescriptions)}`);
+  lines.push(`- Duplicate Titles: ${formatMetric(result.totals?.duplicateTitles)}`);
+  lines.push(`- Thin Content Pages: ${formatMetric(result.totals?.thinContentPages)}`);
+  lines.push('');
+
+  lines.push('## Top Issues');
+  lines.push('');
+  if (Array.isArray(result.topIssues) && result.topIssues.length > 0) {
+    for (const issue of result.topIssues) {
+      lines.push(`- [${String(issue.severity || 'low').toUpperCase()}] ${issue.label}: ${formatMetric(issue.count)} pages`);
+      if (issue.description) {
+        lines.push(`  ${issue.description}`);
+      }
+    }
+  } else {
+    lines.push('- No major issues found.');
+  }
+  lines.push('');
+
+  lines.push('## Affected Pages');
+  lines.push('');
+  if (Array.isArray(result.pages) && result.pages.length > 0) {
+    for (const page of result.pages) {
+      lines.push(`### ${page.path || page.url || 'Page'}`);
+      lines.push('');
+      lines.push(`- URL: ${page.url || 'N/A'}`);
+      lines.push(`- Status: ${page.statusCode != null ? page.statusCode : 'Error'}${page.redirected ? ' (redirect)' : ''}`);
+      lines.push(`- Load Time: ${formatMetric(page.loadTimeMs)} ms`);
+      lines.push(`- Noindex: ${page.noindex ? 'Yes' : 'No'}`);
+      lines.push(`- Words: ${formatMetric(page.wordCount)}`);
+      lines.push(`- H1 Count: ${formatMetric(page.h1Count)}`);
+      lines.push(`- Title Length: ${formatMetric(page.titleLength)} chars`);
+      lines.push(`- Meta Description Length: ${formatMetric(page.metaDescriptionLength)} chars`);
+      lines.push(`- Images Without Alt: ${formatMetric(page.imagesWithoutAlt)}`);
+
+      if (Array.isArray(page.issues) && page.issues.length > 0) {
+        lines.push('- Issues:');
+        for (const issue of page.issues) {
+          lines.push(`  - [${String(issue.severity || 'low').toUpperCase()}] ${issue.label}`);
+        }
+      } else {
+        lines.push('- Issues: None');
+      }
+
+      if (page.fetchError) {
+        lines.push(`- Fetch Error: ${page.fetchError}`);
+      }
+      lines.push('');
+    }
+  } else {
+    lines.push('No pages were included in this audit result.');
+    lines.push('');
+  }
+
+  return lines.join('\n').trim() + '\n';
 }

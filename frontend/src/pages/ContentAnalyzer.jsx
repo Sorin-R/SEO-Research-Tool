@@ -211,6 +211,17 @@ export default function ContentAnalyzer() {
     }
   }
 
+  function handleDownloadReport() {
+    if (!data) {
+      return;
+    }
+
+    const report = buildContentAnalyzerReportMarkdown(data);
+    const keywordPart = sanitizeFilenamePart(data.keyword || keyword || 'content-analysis');
+    const timestampPart = new Date().toISOString().slice(0, 10);
+    downloadMarkdownFile(`content-analyzer-${keywordPart}-${timestampPart}.md`, report);
+  }
+
   return (
     <div>
       <h2 className="text-2xl font-bold text-gray-900 mb-1">Content Analyzer</h2>
@@ -389,6 +400,16 @@ export default function ContentAnalyzer() {
 
       {data && !loading && (
         <div className="mt-8 space-y-6">
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={handleDownloadReport}
+              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-50"
+            >
+              Download .md Report
+            </button>
+          </div>
+
           {restoreNotice && (
             <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-5 py-4 text-sm text-emerald-900">
               {restoreNotice}
@@ -661,4 +682,146 @@ function formatSavedAt(value) {
   }
 
   return date.toLocaleString();
+}
+
+function downloadMarkdownFile(filename, content) {
+  const blob = new Blob([content], { type: 'text/markdown;charset=utf-8;' });
+  const fileUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = fileUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(fileUrl);
+}
+
+function sanitizeFilenamePart(value) {
+  return String(value || 'report')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'report';
+}
+
+function formatNumber(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function buildContentAnalyzerReportMarkdown(result) {
+  const generatedAt = new Date().toISOString();
+  const sections = [];
+
+  sections.push('# Content Analyzer Report');
+  sections.push('');
+  sections.push(`Generated: ${generatedAt}`);
+  sections.push(`Keyword: ${result.keyword || 'N/A'}`);
+  sections.push(`Input mode: ${result.inputMode || 'N/A'}`);
+  sections.push(`URL: ${result.url || 'N/A'}`);
+  sections.push(`Compare to SERP: ${result.compareToSerp ? 'Yes' : 'No'}`);
+  sections.push('');
+
+  sections.push('## Scores');
+  sections.push('');
+  sections.push(`- SEO Score: ${formatNumber(result.seoScore)}/100`);
+  sections.push(`- Readability Score: ${formatNumber(result.readabilityScore)}/100`);
+  sections.push(`- Page Title Score: ${formatNumber(result.pageTitleScore)}/100`);
+  sections.push(`- Meta Description Score: ${formatNumber(result.metaDescriptionScore)}/100`);
+  sections.push(`- Content Score: ${formatNumber(result.contentScore)}/100`);
+  sections.push('');
+
+  sections.push('## Core Metrics');
+  sections.push('');
+  sections.push(`- Word Count: ${formatNumber(result.wordCount)}`);
+  sections.push(`- Recommended Word Count: ${formatNumber(result.recommendedWordCount)}`);
+  sections.push(`- Keyword Count: ${formatNumber(result.keywordCount)}`);
+  sections.push(`- Keyword Density: ${formatNumber(result.keywordDensity)}%`);
+  sections.push(`- Internal Links: ${formatNumber(result.internalLinkCount)}`);
+  sections.push(`- External Links: ${formatNumber(result.externalLinkCount)}`);
+  sections.push(`- Image Count: ${formatNumber(result.imageCount)}`);
+  sections.push(`- Headings: H1 ${formatNumber(result.headings?.h1)}, H2 ${formatNumber(result.headings?.h2)}, H3 ${formatNumber(result.headings?.h3)}`);
+  sections.push('');
+
+  sections.push('## Title and Meta');
+  sections.push('');
+  sections.push(`- Page Title (${formatNumber(result.pageTitleLength, String(result.pageTitle || '').length)} chars): ${result.pageTitle || 'N/A'}`);
+  sections.push(`- Meta Description (${formatNumber(result.metaDescriptionLength, String(result.metaDescription || '').length)} chars): ${result.metaDescription || 'N/A'}`);
+  sections.push('');
+
+  if (result.firstParagraph) {
+    sections.push('## First Paragraph');
+    sections.push('');
+    sections.push(`Keyword in first paragraph: ${result.keywordInFirstParagraph ? 'Yes' : 'No'}`);
+    sections.push('');
+    sections.push(result.firstParagraph);
+    sections.push('');
+  }
+
+  sections.push('## Audit Checks');
+  sections.push('');
+  appendAuditSection(sections, 'Page Title', result.audit?.pageTitle?.checks || []);
+  appendAuditSection(sections, 'Meta Description', result.audit?.metaDescription?.checks || []);
+  appendAuditSection(sections, 'Content', result.audit?.content?.checks || []);
+  appendAuditSection(sections, 'Readability', result.audit?.readability?.checks || []);
+
+  const subheadingSections = result.readability?.subheadingSections || [];
+  if (subheadingSections.length > 0) {
+    sections.push('## Subheading Sections');
+    sections.push('');
+    sections.push('| Heading | Level | Word Count | Status |');
+    sections.push('| --- | --- | ---: | --- |');
+    for (const section of subheadingSections) {
+      sections.push(
+        `| ${escapeMarkdownTableCell(section.heading || 'Untitled')} | ${escapeMarkdownTableCell(String(section.level || 'N/A').toUpperCase())} | ${formatNumber(section.wordCount)} | ${section.wordCount > 300 ? 'Over limit' : 'OK'} |`
+      );
+    }
+    sections.push('');
+  }
+
+  if (Array.isArray(result.suggestions) && result.suggestions.length > 0) {
+    sections.push('## Improvement Suggestions');
+    sections.push('');
+    for (const suggestion of result.suggestions) {
+      sections.push(`- ${suggestion}`);
+    }
+    sections.push('');
+  }
+
+  if (Array.isArray(result.missingTopics) && result.missingTopics.length > 0) {
+    sections.push('## Missing Topics');
+    sections.push('');
+    for (const topic of result.missingTopics) {
+      sections.push(`- ${topic}`);
+    }
+    sections.push('');
+  }
+
+  return sections.join('\n').trim() + '\n';
+}
+
+function appendAuditSection(lines, title, checks) {
+  lines.push(`### ${title}`);
+  lines.push('');
+
+  if (!checks.length) {
+    lines.push('- No checks available.');
+    lines.push('');
+    return;
+  }
+
+  for (const check of checks) {
+    lines.push(`- [${String(check.status || 'fail').toUpperCase()}] ${check.label}: ${check.message}`);
+    if (check.status !== 'pass' && check.suggestion) {
+      lines.push(`  Suggestion: ${check.suggestion}`);
+    }
+  }
+  lines.push('');
+}
+
+function escapeMarkdownTableCell(value) {
+  return String(value || '')
+    .replace(/\|/g, '\\|')
+    .replace(/\n/g, ' ')
+    .trim();
 }

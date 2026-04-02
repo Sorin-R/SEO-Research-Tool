@@ -131,13 +131,27 @@ Frontend default URL: `http://localhost:5173`
 
 ## Desktop Setup
 
-### Development run (opens desktop app)
+### Development workflow (no DMG needed for each change)
+
+First run (installs deps + builds frontend + opens desktop app):
+
+```bash
+npm run desktop:dev:first-run
+```
+
+Next runs (fast, no reinstall/repackage):
 
 ```bash
 npm run desktop:dev
 ```
 
-This command prepares backend/frontend dependencies, builds frontend, then opens the desktop app.
+After frontend code changes:
+
+```bash
+npm run desktop:dev:update
+```
+
+Then close and reopen the desktop app window to load the fresh build.
 
 ### Build installers
 
@@ -146,6 +160,8 @@ macOS:
 ```bash
 npm run desktop:build:mac
 ```
+
+Use this only when you want a new installable `.dmg` package.
 
 Windows:
 

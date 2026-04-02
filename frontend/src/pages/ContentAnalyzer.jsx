@@ -321,6 +321,13 @@ export default function ContentAnalyzer() {
             ? `Changes applied to ${result.pagePath}. Backup created: ${result.backupPath}. Provider: ${providerLabel}.`
             : `Changes applied to ${result.pagePath}. Provider: ${providerLabel}.`
         );
+      } else if (result.proposedPath) {
+        const reasons = Array.isArray(result?.safetyCheck?.reasons)
+          ? result.safetyCheck.reasons.join(' ')
+          : '';
+        setAiChatNotice(
+          `Automatic overwrite was blocked for safety. Proposed file: ${result.proposedPath}.${reasons ? ` Reason: ${reasons}` : ''}`
+        );
       } else {
         setAiChatNotice(result.applyWarning || 'AI completed, but no file changes were needed.');
       }

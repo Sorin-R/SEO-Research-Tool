@@ -40,6 +40,135 @@ function normalizeLineEndings(value) {
   return String(value || '').replace(/\r\n/g, '\n');
 }
 
+function countOccurrences(source, token) {
+  if (!source || !token) {
+    return 0;
+  }
+
+  let count = 0;
+  let cursor = 0;
+  while (cursor < source.length) {
+    const index = source.indexOf(token, cursor);
+    if (index === -1) {
+      break;
+    }
+    count += 1;
+    cursor = index + token.length;
+  }
+
+  return count;
+}
+
+function toWordSet(input) {
+  const words = String(input || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter((word) => word.length >= 3);
+  return new Set(words);
+}
+
+function computeWordJaccard(left, right) {
+  const leftSet = toWordSet(left);
+  const rightSet = toWordSet(right);
+
+  if (leftSet.size === 0 && rightSet.size === 0) {
+    return 1;
+  }
+
+  if (leftSet.size === 0 || rightSet.size === 0) {
+    return 0;
+  }
+
+  let intersection = 0;
+  for (const word of leftSet) {
+    if (rightSet.has(word)) {
+      intersection += 1;
+    }
+  }
+
+  const union = leftSet.size + rightSet.size - intersection;
+  return union > 0 ? intersection / union : 0;
+}
+
+function isMarkupLikePath(filePath) {
+  const extension = String(path.extname(String(filePath || '')) || '').toLowerCase();
+  return ['.html', '.htm', '.php', '.phtml', '.xhtml', '.tpl', '.twig'].includes(extension);
+}
+
+function validateUpdatedPageContent({
+  originalContent,
+  updatedContent,
+  pagePath,
+}) {
+  const original = normalizeLineEndings(originalContent || '');
+  const updated = normalizeLineEndings(updatedContent || '');
+  const originalTrimmedLength = original.trim().length;
+  const updatedTrimmedLength = updated.trim().length;
+  const safe = {
+    reasons: [],
+    warnings: [],
+    metrics: {
+      lengthRatio: 1,
+      wordSimilarity: 1,
+      originalTagCount: 0,
+      updatedTagCount: 0,
+    },
+  };
+
+  if (!updatedTrimmedLength) {
+    safe.reasons.push('Updated page content is empty.');
+    return safe;
+  }
+
+  if (!originalTrimmedLength) {
+    safe.warnings.push('Original page content is empty; safety checks are limited.');
+    safe.metrics.lengthRatio = updatedTrimmedLength > 0 ? 1 : 0;
+  } else {
+    safe.metrics.lengthRatio = updatedTrimmedLength / originalTrimmedLength;
+    if (safe.metrics.lengthRatio < 0.45 || safe.metrics.lengthRatio > 2.2) {
+      safe.reasons.push('Updated content size changed too much compared with the original file.');
+    }
+  }
+
+  const originalLower = original.toLowerCase();
+  const updatedLower = updated.toLowerCase();
+  const requiredTokens = ['<?php', '<head', '<body', '</html>', '<title']
+    .filter((token) => originalLower.includes(token));
+  for (const token of requiredTokens) {
+    if (!updatedLower.includes(token)) {
+      safe.reasons.push(`Updated content is missing required structure token: ${token}`);
+    }
+  }
+
+  if (updated.includes('```')) {
+    safe.reasons.push('Updated content still contains markdown code fences.');
+  }
+
+  if (/"assistantReply"\s*:/.test(updated) && /"updatedPageContent"\s*:/.test(updated)) {
+    safe.reasons.push('Updated content looks like JSON metadata instead of final page content.');
+  }
+
+  safe.metrics.wordSimilarity = computeWordJaccard(original, updated);
+  if (safe.metrics.wordSimilarity < 0.25) {
+    safe.reasons.push('Updated content diverges too far from the original page.');
+  } else if (safe.metrics.wordSimilarity < 0.4) {
+    safe.warnings.push('Updated content has a low similarity to the original page.');
+  }
+
+  const originalTagCount = (original.match(/<[^>]+>/g) || []).length;
+  const updatedTagCount = (updated.match(/<[^>]+>/g) || []).length;
+  safe.metrics.originalTagCount = originalTagCount;
+  safe.metrics.updatedTagCount = updatedTagCount;
+
+  if (isMarkupLikePath(pagePath) && originalTagCount >= 20 && updatedTagCount < (originalTagCount * 0.4)) {
+    safe.reasons.push('Updated content has too few markup tags compared with the original page.');
+  }
+
+  return safe;
+}
+
 function extractLongestCodeBlock(text) {
   const input = String(text || '');
   const matches = [...input.matchAll(/```[a-zA-Z0-9_-]*\n([\s\S]*?)```/g)];
@@ -350,6 +479,7 @@ router.post('/ai-chat', async (req, res) => {
     providerId,
     pagePath,
     reportPath,
+    applyChanges,
   } = req.body || {};
 
   const userMessage = String(message || '').trim();
@@ -360,7 +490,7 @@ router.post('/ai-chat', async (req, res) => {
   try {
     const normalizedPagePath = requireAbsoluteFilePath(pagePath, 'pagePath');
     const normalizedReportPath = requireAbsoluteFilePath(reportPath, 'reportPath');
-    const shouldApplyChanges = true;
+    const shouldApplyChanges = applyChanges !== false;
 
     if (!normalizedPagePath) {
       return res.status(400).json({ error: 'pagePath is required and must be an absolute path.' });
@@ -482,16 +612,33 @@ router.post('/ai-chat', async (req, res) => {
 
     let applied = false;
     let backupPath = null;
+    let proposedPath = null;
     let applyWarning = null;
+    let safetyCheck = null;
 
     if (shouldApplyChanges) {
       if (!updatedPageContent) {
         applyWarning = 'AI response did not include "updatedPageContent"; no file changes were written.';
       } else if (typeof pageContent === 'string' && updatedPageContent !== pageContent) {
-        backupPath = `${normalizedPagePath}.bak-${Date.now()}`;
-        await fs.writeFile(backupPath, pageContent, 'utf8');
-        await fs.writeFile(normalizedPagePath, updatedPageContent, 'utf8');
-        applied = true;
+        safetyCheck = validateUpdatedPageContent({
+          originalContent: pageContent,
+          updatedContent: updatedPageContent,
+          pagePath: normalizedPagePath,
+        });
+
+        if (safetyCheck.reasons.length > 0) {
+          proposedPath = `${normalizedPagePath}.ai-proposed-${Date.now()}`;
+          await fs.writeFile(proposedPath, updatedPageContent, 'utf8');
+          applyWarning = `Safety check blocked automatic overwrite. ${safetyCheck.reasons.join(' ')} Proposed file saved at ${proposedPath}.`;
+        } else {
+          backupPath = `${normalizedPagePath}.bak-${Date.now()}`;
+          await fs.writeFile(backupPath, pageContent, 'utf8');
+          await fs.writeFile(normalizedPagePath, updatedPageContent, 'utf8');
+          applied = true;
+          if (safetyCheck.warnings.length > 0) {
+            applyWarning = `Changes applied with warnings: ${safetyCheck.warnings.join(' ')}`;
+          }
+        }
       } else {
         applyWarning = 'No file changes were necessary.';
       }
@@ -507,6 +654,8 @@ router.post('/ai-chat', async (req, res) => {
       reportPath: normalizedReportPath,
       applied,
       backupPath,
+      proposedPath,
+      safetyCheck,
       applyWarning,
       warning: completion.warning || null,
       updatedPageContentPreview: updatedPageContent ? updatedPageContent.slice(0, 4000) : null,

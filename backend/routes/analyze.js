@@ -36,6 +36,110 @@ function extractJsonObject(text) {
   }
 }
 
+function normalizeLineEndings(value) {
+  return String(value || '').replace(/\r\n/g, '\n');
+}
+
+function extractLongestCodeBlock(text) {
+  const input = String(text || '');
+  const matches = [...input.matchAll(/```[a-zA-Z0-9_-]*\n([\s\S]*?)```/g)];
+  if (!matches.length) {
+    return '';
+  }
+
+  return matches
+    .map((entry) => String(entry?.[1] || ''))
+    .sort((left, right) => right.length - left.length)[0]
+    .trim();
+}
+
+function extractUpdatedPageContentFromPayload(payload, rawText) {
+  const source = payload && typeof payload === 'object' ? payload : {};
+  const directCandidates = [
+    source.updatedPageContent,
+    source.updated_page_content,
+    source.updatedContent,
+    source.updated_content,
+    source.pageContent,
+    source.page_content,
+    source.updatedHtml,
+    source.updated_html,
+    source.html,
+    source.content,
+  ];
+
+  for (const candidate of directCandidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return normalizeLineEndings(candidate);
+    }
+  }
+
+  if (source.result && typeof source.result === 'object') {
+    const nested = extractUpdatedPageContentFromPayload(source.result, rawText);
+    if (nested) {
+      return nested;
+    }
+  }
+
+  const codeBlock = extractLongestCodeBlock(rawText);
+  if (codeBlock) {
+    return normalizeLineEndings(codeBlock);
+  }
+
+  return '';
+}
+
+async function retryForUpdatedPageContent({
+  providerId,
+  originalRequest,
+  originalPageContent,
+  reportContent,
+  previousRawOutput,
+}) {
+  const systemPrompt = [
+    'You are formatting output for a content update pipeline.',
+    'Return strict JSON only with exactly these keys:',
+    '{ "assistantReply": "...", "changeSummary": ["..."], "updatedPageContent": "..." }',
+    'Rules:',
+    '- updatedPageContent MUST contain the full final page content.',
+    '- If prior output is unusable, rewrite from the original page content + report.',
+    '- No markdown fences, no explanations, JSON only.',
+  ].join('\n');
+
+  const userPrompt = JSON.stringify(
+    {
+      request: originalRequest,
+      previousModelOutput: previousRawOutput,
+      originalPageContent,
+      reportMarkdown: reportContent,
+    },
+    null,
+    2
+  );
+
+  const repaired = await aiProviderManager.runProviderPrompt({
+    providerId: String(providerId || '').trim() || null,
+    systemPrompt,
+    userPrompt,
+    maxTokens: 3200,
+    temperature: 0.1,
+  });
+
+  const rawText = String(repaired?.text || '').trim();
+  const parsed = extractJsonObject(rawText);
+  const updatedPageContent = extractUpdatedPageContentFromPayload(parsed, rawText);
+  const assistantReply = String(parsed?.assistantReply || rawText || '').trim();
+  const changeSummary = Array.isArray(parsed?.changeSummary)
+    ? parsed.changeSummary.map((entry) => String(entry || '').trim()).filter(Boolean)
+    : [];
+
+  return {
+    updatedPageContent,
+    assistantReply,
+    changeSummary,
+  };
+}
+
 function requireAbsoluteFilePath(value, fieldName) {
   const normalized = String(value || '').trim();
   if (!normalized) {
@@ -274,13 +378,37 @@ router.post('/ai-chat', async (req, res) => {
 
     const rawText = String(completion?.text || '').trim();
     const parsed = extractJsonObject(rawText);
-    const assistantReply = String(parsed?.assistantReply || rawText || 'No reply.').trim();
-    const changeSummary = Array.isArray(parsed?.changeSummary)
+    let assistantReply = String(parsed?.assistantReply || rawText || 'No reply.').trim();
+    let changeSummary = Array.isArray(parsed?.changeSummary)
       ? parsed.changeSummary.map((entry) => String(entry || '').trim()).filter(Boolean)
       : [];
-    const updatedPageContent = typeof parsed?.updatedPageContent === 'string'
-      ? parsed.updatedPageContent
-      : null;
+    let updatedPageContent = extractUpdatedPageContentFromPayload(parsed, rawText);
+
+    if (!updatedPageContent) {
+      try {
+        const repaired = await retryForUpdatedPageContent({
+          providerId: String(providerId || '').trim() || null,
+          originalRequest: userMessage,
+          originalPageContent: pageContent,
+          reportContent,
+          previousRawOutput: rawText,
+        });
+
+        if (repaired.updatedPageContent) {
+          updatedPageContent = repaired.updatedPageContent;
+        }
+
+        if (repaired.assistantReply) {
+          assistantReply = repaired.assistantReply;
+        }
+
+        if (repaired.changeSummary.length > 0) {
+          changeSummary = repaired.changeSummary;
+        }
+      } catch (retryError) {
+        console.warn('[Route /analyze/ai-chat] Retry formatter failed:', retryError.message);
+      }
+    }
 
     let applied = false;
     let backupPath = null;

@@ -1,7 +1,8 @@
 const path = require('path');
 const http = require('http');
 const { spawn } = require('child_process');
-const { app, BrowserWindow, dialog, shell } = require('electron');
+const { app, BrowserWindow, dialog, shell, nativeImage } = require('electron');
+const fs = require('fs');
 
 const BACKEND_PORT = Number.parseInt(process.env.DESKTOP_BACKEND_PORT || '3210', 10);
 const BACKEND_BASE_URL = `http://127.0.0.1:${BACKEND_PORT}`;
@@ -23,6 +24,58 @@ function resolveAppRoot() {
 
 function resolveDesktopPath(...segments) {
   return path.join(resolveAppRoot(), ...segments);
+}
+
+function resolveExistingPath(candidates) {
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+
+    try {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    } catch {
+      // ignore and continue
+    }
+  }
+
+  return null;
+}
+
+function resolveDockIconPath() {
+  return resolveExistingPath([
+    path.join(process.resourcesPath || '', 'icon.icns'),
+    path.join(process.resourcesPath || '', 'icon.png'),
+    resolveDesktopPath('build', 'icons', 'icon.icns'),
+    resolveDesktopPath('build', 'icons', 'icon-tight.png'),
+    resolveDesktopPath('build', 'icons', 'icon-source.png'),
+  ]);
+}
+
+function resolveWindowIconPath() {
+  return resolveExistingPath([
+    path.join(process.resourcesPath || '', 'icon.png'),
+    resolveDesktopPath('build', 'icons', 'icon-tight.png'),
+    resolveDesktopPath('build', 'icons', 'icon-source.png'),
+  ]);
+}
+
+function applyRuntimeAppIcon() {
+  const iconPath = resolveDockIconPath();
+  if (!iconPath) {
+    return;
+  }
+
+  const iconImage = nativeImage.createFromPath(iconPath);
+  if (iconImage.isEmpty()) {
+    return;
+  }
+
+  if (process.platform === 'darwin' && app.dock?.setIcon) {
+    app.dock.setIcon(iconImage);
+  }
 }
 
 function logChildOutput(prefix, child) {
@@ -100,11 +153,13 @@ async function waitForBackend(maxWaitMs = 90000) {
 
 function startBackendProcess() {
   const backendScript = resolveDesktopPath('backend', 'server.js');
+  const desktopEnvPath = path.join(app.getPath('userData'), '.env');
   backendProcess = spawnNodeProcess(
     backendScript,
     {
       PORT: String(BACKEND_PORT),
       LOCAL_SERP_AGENT_TOKEN: AGENT_TOKEN,
+      DESKTOP_ENV_PATH: desktopEnvPath,
     },
     '[Backend]'
   );
@@ -158,12 +213,14 @@ function stopBackgroundProcesses() {
 }
 
 async function createMainWindow() {
+  const windowIcon = resolveWindowIconPath();
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 960,
     minWidth: 1200,
     minHeight: 760,
     backgroundColor: '#0f172a',
+    ...(windowIcon ? { icon: windowIcon } : {}),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -179,6 +236,8 @@ async function createMainWindow() {
 }
 
 async function boot() {
+  applyRuntimeAppIcon();
+
   if (AUTO_LAUNCH_ENABLED) {
     app.setLoginItemSettings({
       openAtLogin: true,

@@ -1,6 +1,11 @@
 const path = require('path');
+const fs = require('fs');
 
 require('dotenv').config({ path: path.join(__dirname, '.env') });
+const desktopEnvPath = String(process.env.DESKTOP_ENV_PATH || '').trim();
+if (desktopEnvPath && fs.existsSync(desktopEnvPath)) {
+  require('dotenv').config({ path: desktopEnvPath, override: true });
+}
 
 const express = require('express');
 const cors = require('cors');

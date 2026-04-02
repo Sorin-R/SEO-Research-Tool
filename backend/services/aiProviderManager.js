@@ -950,6 +950,352 @@ async function testProviderConnection(providerId) {
   }
 }
 
+function normalizeArrayOfStrings(value, maxLength = 8) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .slice(0, maxLength);
+}
+
+function extractTextFromOpenAIResponsesPayload(data = {}) {
+  if (typeof data.output_text === 'string' && data.output_text.trim()) {
+    return data.output_text.trim();
+  }
+
+  const output = Array.isArray(data.output) ? data.output : [];
+  const chunks = [];
+
+  for (const item of output) {
+    const content = Array.isArray(item?.content) ? item.content : [];
+    for (const part of content) {
+      if (part?.type === 'output_text' && typeof part.text === 'string') {
+        chunks.push(part.text.trim());
+      }
+    }
+  }
+
+  return chunks.join('\n').trim();
+}
+
+function extractTextFromChatCompletionsPayload(data = {}) {
+  const content = data?.choices?.[0]?.message?.content;
+
+  if (typeof content === 'string') {
+    return content.trim();
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        if (typeof part?.text === 'string') return part.text;
+        return '';
+      })
+      .join('\n')
+      .trim();
+  }
+
+  return '';
+}
+
+function extractTextFromGeminiPayload(data = {}) {
+  const candidates = Array.isArray(data?.candidates) ? data.candidates : [];
+  const parts = Array.isArray(candidates?.[0]?.content?.parts) ? candidates[0].content.parts : [];
+
+  return parts
+    .map((part) => String(part?.text || '').trim())
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+}
+
+function extractTextFromAnthropicPayload(data = {}) {
+  const content = Array.isArray(data?.content) ? data.content : [];
+  return content
+    .map((item) => String(item?.text || '').trim())
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+}
+
+function extractJsonObject(text) {
+  if (!text || typeof text !== 'string') {
+    return null;
+  }
+
+  const trimmed = text.trim();
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      // continue to regex fallback
+    }
+  }
+
+  const match = trimmed.match(/\{[\s\S]*\}/);
+  if (!match) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(match[0]);
+  } catch {
+    return null;
+  }
+}
+
+function buildFallbackGuidance(moduleName, summary = {}) {
+  const target = moduleName === 'site-audit'
+    ? `site health for ${summary?.url || 'your website'}`
+    : `content optimization for ${summary?.keyword || summary?.url || 'your page'}`;
+
+  return {
+    implementationPrompt: [
+      `You are a senior SEO implementation assistant.`,
+      `Use the report findings to produce a concrete execution plan for ${target}.`,
+      `Return: (1) quick wins, (2) high-impact fixes, (3) exact on-page changes, (4) QA checklist.`,
+      `Prioritize by impact and implementation effort.`,
+    ].join(' '),
+    suggestions: [
+      'Prioritize high-severity issues first.',
+      'Group fixes into quick wins and structural improvements.',
+      'Validate changes with a follow-up crawl and ranking checks.',
+    ],
+    quickWins: [],
+    priorityFixes: [],
+  };
+}
+
+function normalizeGuidancePayload(payload, moduleName, summary) {
+  const fallback = buildFallbackGuidance(moduleName, summary);
+  if (!payload || typeof payload !== 'object') {
+    return fallback;
+  }
+
+  const implementationPrompt = String(payload.implementationPrompt || '').trim() || fallback.implementationPrompt;
+
+  return {
+    implementationPrompt,
+    suggestions: normalizeArrayOfStrings(payload.suggestions, 12),
+    quickWins: normalizeArrayOfStrings(payload.quickWins, 12),
+    priorityFixes: normalizeArrayOfStrings(payload.priorityFixes, 12),
+  };
+}
+
+function buildReportGuidancePrompts(moduleName, summary) {
+  const safeSummary = summary && typeof summary === 'object' ? summary : {};
+  const summaryJson = JSON.stringify(safeSummary, null, 2);
+
+  const systemPrompt = [
+    'You are a senior SEO strategist and technical editor.',
+    'Given module output summary data, produce practical implementation guidance.',
+    'Return STRICT JSON only with this shape:',
+    '{',
+    '  "implementationPrompt": "string for an AI chat to implement fixes",',
+    '  "suggestions": ["..."],',
+    '  "quickWins": ["..."],',
+    '  "priorityFixes": ["..."]',
+    '}',
+    'Rules:',
+    '- Be specific and actionable.',
+    '- Keep each list item short.',
+    '- No markdown, no extra text, JSON only.',
+  ].join('\n');
+
+  const userPrompt = [
+    `Module: ${moduleName}`,
+    'Summary data:',
+    summaryJson,
+  ].join('\n\n');
+
+  return { systemPrompt, userPrompt };
+}
+
+async function requestProviderGuidanceText(provider, credentials = {}, prompts = {}) {
+  const model = String(provider.selectedModel || provider.defaultModel || credentials.MODEL || '').trim();
+  if (!model) {
+    throw createServiceError(`No model selected for ${provider.name}.`, 400);
+  }
+
+  const requestMode = resolveTestRequestMode(provider);
+  const baseUrl = String(provider.baseUrl || '').replace(/\/+$/, '');
+  const apiKey = extractProviderApiKey(provider, credentials);
+  const systemPrompt = String(prompts.systemPrompt || '').trim();
+  const userPrompt = String(prompts.userPrompt || '').trim();
+  const combinedPrompt = `${systemPrompt}\n\n${userPrompt}`.trim();
+
+  if (requestMode !== 'vertex_oauth2' && requestMode !== 'gemini' && requestMode !== 'anthropic_messages' && !apiKey) {
+    throw createServiceError(`${provider.name} API key is missing.`, 412);
+  }
+
+  if (requestMode === 'gemini') {
+    const endpoint = `${baseUrl}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const response = await axios.post(
+      endpoint,
+      {
+        contents: [{ role: 'user', parts: [{ text: combinedPrompt }] }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 1200 },
+      },
+      {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: PROVIDER_TEST_TIMEOUT_MS,
+      }
+    );
+
+    return extractTextFromGeminiPayload(response?.data);
+  }
+
+  if (requestMode === 'vertex_oauth2') {
+    const projectId = String(credentials.GOOGLE_VERTEX_PROJECT_ID || '').trim();
+    const location = String(credentials.GOOGLE_VERTEX_LOCATION || '').trim().toLowerCase();
+    if (!projectId || !location) {
+      throw createServiceError('Gemini Vertex requires GOOGLE_VERTEX_PROJECT_ID and GOOGLE_VERTEX_LOCATION.', 412);
+    }
+
+    const accessToken = await fetchGoogleOAuthAccessTokenForVertex(credentials);
+    const endpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/locations/${encodeURIComponent(location)}/publishers/google/models/${encodeURIComponent(model)}:generateContent`;
+    const response = await axios.post(
+      endpoint,
+      {
+        contents: [{ role: 'user', parts: [{ text: combinedPrompt }] }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 1200 },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: PROVIDER_TEST_TIMEOUT_MS,
+      }
+    );
+
+    return extractTextFromGeminiPayload(response?.data);
+  }
+
+  if (requestMode === 'anthropic_messages') {
+    const response = await axios.post(
+      `${baseUrl}/messages`,
+      {
+        model,
+        system: systemPrompt,
+        max_tokens: 1200,
+        temperature: 0.2,
+        messages: [{ role: 'user', content: userPrompt }],
+      },
+      {
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json',
+        },
+        timeout: PROVIDER_TEST_TIMEOUT_MS,
+      }
+    );
+
+    return extractTextFromAnthropicPayload(response?.data);
+  }
+
+  if (requestMode === 'chat_completions') {
+    const response = await axios.post(
+      `${baseUrl}/chat/completions`,
+      {
+        model,
+        temperature: 0.2,
+        max_tokens: 1200,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: PROVIDER_TEST_TIMEOUT_MS,
+      }
+    );
+
+    return extractTextFromChatCompletionsPayload(response?.data);
+  }
+
+  const response = await axios.post(
+    `${baseUrl}/responses`,
+    {
+      model,
+      input: combinedPrompt,
+      max_output_tokens: 1200,
+      temperature: 0.2,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: PROVIDER_TEST_TIMEOUT_MS,
+    }
+  );
+
+  return extractTextFromOpenAIResponsesPayload(response?.data);
+}
+
+function compareProviderPriority(left, right) {
+  const order = ['openai', 'grok', 'gemini', 'openrouter', 'nvidia', 'deepseek', 'claude', 'gemini-vertex'];
+  const leftIndex = order.indexOf(left?.id);
+  const rightIndex = order.indexOf(right?.id);
+  const safeLeftIndex = leftIndex === -1 ? 999 : leftIndex;
+  const safeRightIndex = rightIndex === -1 ? 999 : rightIndex;
+  return safeLeftIndex - safeRightIndex;
+}
+
+async function generateReportGuidance({ moduleName, summary = {} }) {
+  const normalizedModule = String(moduleName || '').trim().toLowerCase();
+  if (!normalizedModule) {
+    throw createServiceError('moduleName is required.', 400);
+  }
+
+  const prompts = buildReportGuidancePrompts(normalizedModule, summary);
+  const details = await getProviderDetails();
+  const activeProviders = details.filter((provider) => provider.active).sort(compareProviderPriority);
+
+  if (activeProviders.length === 0) {
+    throw createServiceError('No active AI provider available. Configure and enable at least one AI provider.', 412);
+  }
+
+  const failures = [];
+
+  for (const provider of activeProviders) {
+    try {
+      const credentials = await getProviderCredentials(provider.id);
+      const rawText = await requestProviderGuidanceText(provider, credentials || {}, prompts);
+      const parsed = extractJsonObject(rawText);
+      const guidance = normalizeGuidancePayload(parsed, normalizedModule, summary);
+
+      return {
+        providerId: provider.id,
+        providerName: provider.name,
+        model: provider.selectedModel || provider.defaultModel || credentials?.MODEL || null,
+        guidance,
+      };
+    } catch (err) {
+      failures.push(`${provider.name}: ${extractUpstreamErrorMessage(err)}`);
+    }
+  }
+
+  const fallback = buildFallbackGuidance(normalizedModule, summary);
+  return {
+    providerId: null,
+    providerName: null,
+    model: null,
+    guidance: fallback,
+    warning: `AI guidance fallback used. Provider errors: ${failures.join(' | ')}`,
+  };
+}
+
 module.exports = {
   AI_PROVIDERS,
   getStatus,
@@ -961,6 +1307,7 @@ module.exports = {
   getProviderApiKey,
   getProviderCredentials,
   testProviderConnection,
+  generateReportGuidance,
   getKeywordAIRuntimeConfig,
   getAICredentialsMap,
   getAISettingsMap,

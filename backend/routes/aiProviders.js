@@ -4,6 +4,7 @@
  * GET    /api/ai-providers              - List all AI providers with status
  * PATCH  /api/ai-providers/:id          - Toggle provider enabled/disabled
  * PATCH  /api/ai-providers/:id/credentials - Save provider credentials
+ * POST   /api/ai-providers/report-guidance - Generate report suggestions using active AI provider
  */
 
 const express = require('express');
@@ -96,6 +97,29 @@ router.patch('/:id/model', async (req, res, next) => {
 router.post('/:id/test', async (req, res, next) => {
   try {
     const result = await aiProviderManager.testProviderConnection(req.params.id);
+    res.json(result);
+  } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    next(err);
+  }
+});
+
+// POST /api/ai-providers/report-guidance — Generate markdown report guidance
+router.post('/report-guidance', async (req, res, next) => {
+  try {
+    const { moduleName, summary } = req.body || {};
+
+    if (!moduleName || !String(moduleName).trim()) {
+      return res.status(400).json({ error: 'A non-empty "moduleName" value is required.' });
+    }
+
+    const result = await aiProviderManager.generateReportGuidance({
+      moduleName: String(moduleName).trim(),
+      summary: summary && typeof summary === 'object' ? summary : {},
+    });
+
     res.json(result);
   } catch (err) {
     if (err.statusCode) {

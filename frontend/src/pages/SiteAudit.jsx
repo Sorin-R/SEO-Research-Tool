@@ -6,6 +6,7 @@ import StatCard from '../components/StatCard';
 import {
   auditSite,
   deleteSiteAuditHistoryItem,
+  generateAIReportGuidance,
   getSiteAuditHistory,
   getSiteAuditHistoryItem,
 } from '../services/api';
@@ -25,6 +26,7 @@ export default function SiteAudit() {
   const [historyError, setHistoryError] = useState(null);
   const [loadingHistoryId, setLoadingHistoryId] = useState(null);
   const [deletingHistoryId, setDeletingHistoryId] = useState(null);
+  const [exportingReport, setExportingReport] = useState(false);
   const [storageHydrated, setStorageHydrated] = useState(false);
   const [restoreNotice, setRestoreNotice] = useState(null);
 
@@ -188,15 +190,28 @@ export default function SiteAudit() {
     }
   }
 
-  function handleDownloadReport() {
+  async function handleDownloadReport() {
     if (!data) {
       return;
     }
 
-    const report = buildSiteAuditReportMarkdown(data);
+    setExportingReport(true);
+    const reportBody = buildSiteAuditReportMarkdown(data);
+    let finalReport = reportBody;
+
+    try {
+      const guidance = await generateAIReportGuidance('site-audit', buildSiteAuditSummary(data));
+      finalReport = prependAiGuidanceMarkdown(reportBody, guidance, 'Site Audit');
+    } catch (err) {
+      const fallbackMessage = String(err?.response?.data?.error || err?.message || 'AI guidance unavailable.');
+      finalReport = prependGuidanceUnavailableMarkdown(reportBody, fallbackMessage);
+    } finally {
+      setExportingReport(false);
+    }
+
     const domainPart = sanitizeFilenamePart(data.url || 'site-audit');
     const timestampPart = new Date().toISOString().slice(0, 10);
-    downloadMarkdownFile(`site-audit-${domainPart}-${timestampPart}.md`, report);
+    downloadMarkdownFile(`site-audit-${domainPart}-${timestampPart}.md`, finalReport);
   }
 
   return (
@@ -255,9 +270,10 @@ export default function SiteAudit() {
           <button
             type="button"
             onClick={handleDownloadReport}
+            disabled={exportingReport}
             className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-50"
           >
-            Download .md Report
+            {exportingReport ? 'Preparing AI .md Report...' : 'Download .md Report'}
           </button>
         </div>
       )}
@@ -581,4 +597,118 @@ function buildSiteAuditReportMarkdown(result) {
   }
 
   return lines.join('\n').trim() + '\n';
+}
+
+function buildSiteAuditSummary(result) {
+  return {
+    url: result.url || '',
+    auditScore: formatMetric(result.auditScore),
+    crawledPages: formatMetric(result.crawledPages),
+    totals: {
+      pagesWithIssues: formatMetric(result.totals?.pagesWithIssues),
+      brokenPages: formatMetric(result.totals?.brokenPages),
+      brokenInternalLinks: formatMetric(result.totals?.brokenInternalLinks),
+      missingTitles: formatMetric(result.totals?.missingTitles),
+      missingMetaDescriptions: formatMetric(result.totals?.missingMetaDescriptions),
+      duplicateTitles: formatMetric(result.totals?.duplicateTitles),
+      thinContentPages: formatMetric(result.totals?.thinContentPages),
+    },
+    topIssues: Array.isArray(result.topIssues)
+      ? result.topIssues.slice(0, 20).map((issue) => ({
+          label: issue.label,
+          severity: issue.severity,
+          count: formatMetric(issue.count),
+          description: issue.description || '',
+        }))
+      : [],
+    affectedPages: Array.isArray(result.pages)
+      ? result.pages.slice(0, 25).map((page) => ({
+          url: page.url,
+          statusCode: page.statusCode,
+          noindex: !!page.noindex,
+          wordCount: formatMetric(page.wordCount),
+          titleLength: formatMetric(page.titleLength),
+          metaDescriptionLength: formatMetric(page.metaDescriptionLength),
+          imagesWithoutAlt: formatMetric(page.imagesWithoutAlt),
+          issueCount: Array.isArray(page.issues) ? page.issues.length : 0,
+          issues: Array.isArray(page.issues)
+            ? page.issues.slice(0, 8).map((issue) => ({
+                label: issue.label,
+                severity: issue.severity,
+              }))
+            : [],
+        }))
+      : [],
+  };
+}
+
+function prependAiGuidanceMarkdown(reportBody, guidanceResult, moduleLabel) {
+  const guidance = guidanceResult?.guidance || {};
+  const providerLabel = guidanceResult?.providerName
+    ? `${guidanceResult.providerName}${guidanceResult?.model ? ` (${guidanceResult.model})` : ''}`
+    : 'Fallback guidance';
+  const lines = [];
+
+  lines.push(`# ${moduleLabel} Report`);
+  lines.push('');
+  lines.push('## AI Chat Implementation Prompt');
+  lines.push('');
+  lines.push('```text');
+  lines.push(String(guidance.implementationPrompt || '').trim() || 'Use this audit report to produce a prioritized remediation plan with exact fixes and validation steps.');
+  lines.push('```');
+  lines.push('');
+  lines.push(`_AI guidance provider: ${providerLabel}_`);
+  lines.push('');
+
+  appendGuidanceList(lines, 'AI Suggestions', guidance.suggestions);
+  appendGuidanceList(lines, 'Priority Fixes', guidance.priorityFixes);
+  appendGuidanceList(lines, 'Quick Wins', guidance.quickWins);
+
+  if (guidanceResult?.warning) {
+    lines.push(`> Note: ${guidanceResult.warning}`);
+    lines.push('');
+  }
+
+  return `${lines.join('\n').trim()}\n\n${stripTopMarkdownTitle(reportBody)}`;
+}
+
+function prependGuidanceUnavailableMarkdown(reportBody, reason) {
+  const lines = [];
+  lines.push('# Site Audit Report');
+  lines.push('');
+  lines.push('## AI Chat Implementation Prompt');
+  lines.push('');
+  lines.push('```text');
+  lines.push('Use this site audit report to create a prioritized remediation plan: critical issues first, then high-impact on-page and technical fixes, followed by QA checks.');
+  lines.push('```');
+  lines.push('');
+  lines.push(`> AI guidance unavailable: ${reason}`);
+  lines.push('');
+  return `${lines.join('\n').trim()}\n\n${stripTopMarkdownTitle(reportBody)}`;
+}
+
+function appendGuidanceList(lines, title, items = []) {
+  const normalized = Array.isArray(items)
+    ? items.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
+
+  if (!normalized.length) {
+    return;
+  }
+
+  lines.push(`## ${title}`);
+  lines.push('');
+  for (const item of normalized) {
+    lines.push(`- ${item}`);
+  }
+  lines.push('');
+}
+
+function stripTopMarkdownTitle(text) {
+  const normalized = String(text || '').trim();
+  const lines = normalized.split('\n');
+  if (lines[0] && lines[0].startsWith('# ')) {
+    return lines.slice(1).join('\n').trimStart();
+  }
+  return normalized;
 }

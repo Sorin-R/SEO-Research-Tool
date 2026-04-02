@@ -6,6 +6,7 @@ import StatCard from '../components/StatCard';
 import {
   analyzeContent,
   deleteContentAnalysisHistoryItem,
+  generateAIReportGuidance,
   getContentAnalysisHistory,
   getContentAnalysisHistoryItem,
 } from '../services/api';
@@ -29,6 +30,7 @@ export default function ContentAnalyzer() {
   const [historyError, setHistoryError] = useState(null);
   const [loadingHistoryId, setLoadingHistoryId] = useState(null);
   const [deletingHistoryId, setDeletingHistoryId] = useState(null);
+  const [exportingReport, setExportingReport] = useState(false);
   const [storageHydrated, setStorageHydrated] = useState(false);
   const [restoreNotice, setRestoreNotice] = useState(null);
 
@@ -211,15 +213,28 @@ export default function ContentAnalyzer() {
     }
   }
 
-  function handleDownloadReport() {
+  async function handleDownloadReport() {
     if (!data) {
       return;
     }
 
-    const report = buildContentAnalyzerReportMarkdown(data);
+    setExportingReport(true);
+    const reportBody = buildContentAnalyzerReportMarkdown(data);
+    let finalReport = reportBody;
+
+    try {
+      const guidance = await generateAIReportGuidance('content-analyzer', buildContentAnalyzerSummary(data));
+      finalReport = prependAiGuidanceMarkdown(reportBody, guidance, 'Content Analyzer');
+    } catch (err) {
+      const fallbackMessage = String(err?.response?.data?.error || err?.message || 'AI guidance unavailable.');
+      finalReport = prependGuidanceUnavailableMarkdown(reportBody, fallbackMessage);
+    } finally {
+      setExportingReport(false);
+    }
+
     const keywordPart = sanitizeFilenamePart(data.keyword || keyword || 'content-analysis');
     const timestampPart = new Date().toISOString().slice(0, 10);
-    downloadMarkdownFile(`content-analyzer-${keywordPart}-${timestampPart}.md`, report);
+    downloadMarkdownFile(`content-analyzer-${keywordPart}-${timestampPart}.md`, finalReport);
   }
 
   return (
@@ -404,9 +419,10 @@ export default function ContentAnalyzer() {
             <button
               type="button"
               onClick={handleDownloadReport}
+              disabled={exportingReport}
               className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-50"
             >
-              Download .md Report
+              {exportingReport ? 'Preparing AI .md Report...' : 'Download .md Report'}
             </button>
           </div>
 
@@ -824,4 +840,113 @@ function escapeMarkdownTableCell(value) {
     .replace(/\|/g, '\\|')
     .replace(/\n/g, ' ')
     .trim();
+}
+
+function buildContentAnalyzerSummary(result) {
+  const collectChecks = (checks = []) => checks
+    .filter((check) => check.status && check.status !== 'pass')
+    .map((check) => ({
+      label: check.label,
+      status: check.status,
+      message: check.message,
+      suggestion: check.suggestion || '',
+    }));
+
+  return {
+    keyword: result.keyword || '',
+    url: result.url || '',
+    scores: {
+      seo: formatNumber(result.seoScore),
+      readability: formatNumber(result.readabilityScore),
+      pageTitle: formatNumber(result.pageTitleScore),
+      metaDescription: formatNumber(result.metaDescriptionScore),
+      content: formatNumber(result.contentScore),
+    },
+    metrics: {
+      wordCount: formatNumber(result.wordCount),
+      keywordDensity: formatNumber(result.keywordDensity),
+      internalLinks: formatNumber(result.internalLinkCount),
+      externalLinks: formatNumber(result.externalLinkCount),
+      imageCount: formatNumber(result.imageCount),
+    },
+    failedChecks: [
+      ...collectChecks(result.audit?.pageTitle?.checks || []),
+      ...collectChecks(result.audit?.metaDescription?.checks || []),
+      ...collectChecks(result.audit?.content?.checks || []),
+      ...collectChecks(result.audit?.readability?.checks || []),
+    ].slice(0, 24),
+    missingTopics: Array.isArray(result.missingTopics) ? result.missingTopics.slice(0, 20) : [],
+    suggestions: Array.isArray(result.suggestions) ? result.suggestions.slice(0, 20) : [],
+  };
+}
+
+function prependAiGuidanceMarkdown(reportBody, guidanceResult, moduleLabel) {
+  const guidance = guidanceResult?.guidance || {};
+  const providerLabel = guidanceResult?.providerName
+    ? `${guidanceResult.providerName}${guidanceResult?.model ? ` (${guidanceResult.model})` : ''}`
+    : 'Fallback guidance';
+  const lines = [];
+
+  lines.push(`# ${moduleLabel} Report`);
+  lines.push('');
+  lines.push('## AI Chat Implementation Prompt');
+  lines.push('');
+  lines.push('```text');
+  lines.push(String(guidance.implementationPrompt || '').trim() || 'Generate a step-by-step SEO implementation plan based on this report.');
+  lines.push('```');
+  lines.push('');
+  lines.push(`_AI guidance provider: ${providerLabel}_`);
+  lines.push('');
+
+  appendGuidanceList(lines, 'AI Suggestions', guidance.suggestions);
+  appendGuidanceList(lines, 'Priority Fixes', guidance.priorityFixes);
+  appendGuidanceList(lines, 'Quick Wins', guidance.quickWins);
+
+  if (guidanceResult?.warning) {
+    lines.push(`> Note: ${guidanceResult.warning}`);
+    lines.push('');
+  }
+
+  return `${lines.join('\n').trim()}\n\n${stripTopMarkdownTitle(reportBody)}`;
+}
+
+function prependGuidanceUnavailableMarkdown(reportBody, reason) {
+  const lines = [];
+  lines.push('# Content Analyzer Report');
+  lines.push('');
+  lines.push('## AI Chat Implementation Prompt');
+  lines.push('');
+  lines.push('```text');
+  lines.push('Use this report to create a prioritized SEO implementation plan with quick wins, high-impact fixes, exact content edits, and validation steps.');
+  lines.push('```');
+  lines.push('');
+  lines.push(`> AI guidance unavailable: ${reason}`);
+  lines.push('');
+  return `${lines.join('\n').trim()}\n\n${stripTopMarkdownTitle(reportBody)}`;
+}
+
+function appendGuidanceList(lines, title, items = []) {
+  const normalized = Array.isArray(items)
+    ? items.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
+
+  if (!normalized.length) {
+    return;
+  }
+
+  lines.push(`## ${title}`);
+  lines.push('');
+  for (const item of normalized) {
+    lines.push(`- ${item}`);
+  }
+  lines.push('');
+}
+
+function stripTopMarkdownTitle(text) {
+  const normalized = String(text || '').trim();
+  const lines = normalized.split('\n');
+  if (lines[0] && lines[0].startsWith('# ')) {
+    return lines.slice(1).join('\n').trimStart();
+  }
+  return normalized;
 }

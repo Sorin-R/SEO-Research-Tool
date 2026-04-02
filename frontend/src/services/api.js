@@ -636,6 +636,14 @@ export async function testAIProviderConnection(providerId) {
   return data;
 }
 
+export async function generateAIReportGuidance(moduleName, summary = {}) {
+  const { data } = await api.post('/ai-providers/report-guidance', {
+    moduleName,
+    summary,
+  });
+  return data;
+}
+
 // ---- Google Tools (GSC + GA4) ----
 
 export async function getGSCProviders() {

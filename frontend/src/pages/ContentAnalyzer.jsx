@@ -19,6 +19,7 @@ const DEFAULT_AI_CHAT_PROMPT = 'Apply the Improvement Suggestions from the repor
 
 export default function ContentAnalyzer() {
   const [keyword, setKeyword] = useState('');
+  const [secondaryKeywordsInput, setSecondaryKeywordsInput] = useState('');
   const [url, setUrl] = useState('');
   const [text, setText] = useState('');
   const [titleInput, setTitleInput] = useState('');
@@ -56,6 +57,7 @@ export default function ContentAnalyzer() {
       const parsed = JSON.parse(stored);
 
       if (typeof parsed.keyword === 'string') setKeyword(parsed.keyword);
+      if (typeof parsed.secondaryKeywordsInput === 'string') setSecondaryKeywordsInput(parsed.secondaryKeywordsInput);
       if (typeof parsed.url === 'string') setUrl(parsed.url);
       if (typeof parsed.text === 'string') setText(parsed.text);
       if (typeof parsed.titleInput === 'string') setTitleInput(parsed.titleInput);
@@ -142,6 +144,7 @@ export default function ContentAnalyzer() {
     if (
       !data &&
       !keyword.trim() &&
+      !secondaryKeywordsInput.trim() &&
       !url.trim() &&
       !text.trim() &&
       !titleInput.trim() &&
@@ -156,6 +159,7 @@ export default function ContentAnalyzer() {
         STORAGE_KEY,
         JSON.stringify({
           keyword,
+          secondaryKeywordsInput,
           url,
           text,
           titleInput,
@@ -169,7 +173,7 @@ export default function ContentAnalyzer() {
     } catch {
       // Ignore storage quota issues.
     }
-  }, [compareToSerp, data, keyword, metaDescriptionInput, mode, storageHydrated, text, titleInput, url]);
+  }, [compareToSerp, data, keyword, metaDescriptionInput, mode, secondaryKeywordsInput, storageHydrated, text, titleInput, url]);
 
   async function refreshHistory() {
     try {
@@ -260,11 +264,15 @@ export default function ContentAnalyzer() {
     }
 
     setExportingReport(true);
-    const reportBody = buildContentAnalyzerReportMarkdown(data);
+    const keywordPlan = buildReportKeywordPlan({
+      mainKeyword: data.keyword || keyword,
+      secondaryKeywordsInput,
+    });
+    const reportBody = buildContentAnalyzerReportMarkdown(data, keywordPlan);
     let finalReport = reportBody;
 
     try {
-      const guidance = await generateAIReportGuidance('content-analyzer', buildContentAnalyzerSummary(data));
+      const guidance = await generateAIReportGuidance('content-analyzer', buildContentAnalyzerSummary(data, keywordPlan));
       finalReport = prependAiGuidanceMarkdown(reportBody, guidance, 'Content Analyzer');
     } catch (err) {
       const fallbackMessage = String(err?.response?.data?.error || err?.message || 'AI guidance unavailable.');
@@ -356,6 +364,20 @@ export default function ContentAnalyzer() {
             placeholder="e.g., vegan cupcakes"
             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Secondary Keywords (for .md report)</label>
+          <textarea
+            value={secondaryKeywordsInput}
+            onChange={(event) => setSecondaryKeywordsInput(event.target.value)}
+            placeholder="One per line or comma-separated, e.g. frontend, react front end developer, backend for frontend"
+            rows={3}
+            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y"
+          />
+          <p className="mt-1 text-xs text-gray-500">
+            These will be added to the exported .md file as secondary keywords. Main keyword uses the scanned keyword.
+          </p>
         </div>
 
         <div className="flex gap-4">
@@ -911,7 +933,11 @@ function formatNumber(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function buildContentAnalyzerReportMarkdown(result) {
+function buildContentAnalyzerReportMarkdown(result, keywordPlan = {}) {
+  const mainKeyword = String(keywordPlan.mainKeyword || result.keyword || 'N/A').trim() || 'N/A';
+  const secondaryKeywords = Array.isArray(keywordPlan.secondaryKeywords)
+    ? keywordPlan.secondaryKeywords
+    : [];
   const generatedAt = new Date().toISOString();
   const sections = [];
 
@@ -922,6 +948,19 @@ function buildContentAnalyzerReportMarkdown(result) {
   sections.push(`Input mode: ${result.inputMode || 'N/A'}`);
   sections.push(`URL: ${result.url || 'N/A'}`);
   sections.push(`Compare to SERP: ${result.compareToSerp ? 'Yes' : 'No'}`);
+  sections.push('');
+
+  sections.push('## Keyword Plan');
+  sections.push('');
+  sections.push(`main_keyword: ${mainKeyword}`);
+  sections.push('secondary_keywords:');
+  if (secondaryKeywords.length > 0) {
+    for (const keyword of secondaryKeywords) {
+      sections.push(`- ${keyword}`);
+    }
+  } else {
+    sections.push('- N/A');
+  }
   sections.push('');
 
   sections.push('## Scores');
@@ -1028,7 +1067,7 @@ function escapeMarkdownTableCell(value) {
     .trim();
 }
 
-function buildContentAnalyzerSummary(result) {
+function buildContentAnalyzerSummary(result, keywordPlan = {}) {
   const collectChecks = (checks = []) => checks
     .filter((check) => check.status && check.status !== 'pass')
     .map((check) => ({
@@ -1040,6 +1079,12 @@ function buildContentAnalyzerSummary(result) {
 
   return {
     keyword: result.keyword || '',
+    keywordPlan: {
+      mainKeyword: String(keywordPlan.mainKeyword || result.keyword || '').trim(),
+      secondaryKeywords: Array.isArray(keywordPlan.secondaryKeywords)
+        ? keywordPlan.secondaryKeywords.slice(0, 50)
+        : [],
+    },
     url: result.url || '',
     scores: {
       seo: formatNumber(result.seoScore),
@@ -1064,6 +1109,38 @@ function buildContentAnalyzerSummary(result) {
     missingTopics: Array.isArray(result.missingTopics) ? result.missingTopics.slice(0, 20) : [],
     suggestions: Array.isArray(result.suggestions) ? result.suggestions.slice(0, 20) : [],
   };
+}
+
+function buildReportKeywordPlan({ mainKeyword, secondaryKeywordsInput }) {
+  const normalizedMainKeyword = String(mainKeyword || '').trim();
+  const parsedSecondaryKeywords = parseSecondaryKeywordsInput(secondaryKeywordsInput);
+  const mainKeywordLower = normalizedMainKeyword.toLowerCase();
+  const filteredSecondaryKeywords = parsedSecondaryKeywords.filter((item) => item.toLowerCase() !== mainKeywordLower);
+
+  return {
+    mainKeyword: normalizedMainKeyword,
+    secondaryKeywords: filteredSecondaryKeywords,
+  };
+}
+
+function parseSecondaryKeywordsInput(value) {
+  const rawItems = String(value || '')
+    .split(/[\n,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  const uniqueItems = [];
+  const seen = new Set();
+  for (const item of rawItems) {
+    const key = item.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    uniqueItems.push(item);
+  }
+
+  return uniqueItems.slice(0, 200);
 }
 
 function prependAiGuidanceMarkdown(reportBody, guidanceResult, moduleLabel) {

@@ -226,6 +226,53 @@ function parseIntegerMetric(value) {
 }
 
 function getGoogleAdsErrorMessage(err) {
+  const rawParts = [];
+
+  if (Array.isArray(err?.errors) && err.errors.length > 0) {
+    for (const errorItem of err.errors) {
+      if (errorItem?.message) {
+        rawParts.push(String(errorItem.message));
+      }
+    }
+  }
+
+  if (err?.details) {
+    rawParts.push(String(err.details));
+  }
+
+  if (err?.message) {
+    rawParts.push(String(err.message));
+  }
+
+  const rawMessage = rawParts.join(' | ').trim();
+  const normalized = rawMessage.toLowerCase();
+
+  if (normalized.includes('deleted_client')) {
+    return [
+      'Google OAuth client is deleted or disabled.',
+      'Create a new OAuth client in Google Cloud and generate a new refresh token.',
+      'Then update GOOGLE_ADS_CLIENT_ID, GOOGLE_ADS_CLIENT_SECRET, and GOOGLE_ADS_REFRESH_TOKEN.',
+    ].join(' ');
+  }
+
+  if (normalized.includes('invalid_client')) {
+    return [
+      'Google OAuth client is invalid.',
+      'Verify GOOGLE_ADS_CLIENT_ID and GOOGLE_ADS_CLIENT_SECRET, then generate a new refresh token.',
+    ].join(' ');
+  }
+
+  if (normalized.includes('invalid_grant') || normalized.includes('invalid_rapt')) {
+    return [
+      'Google refresh token is invalid or expired.',
+      'Generate a new refresh token and update GOOGLE_ADS_REFRESH_TOKEN.',
+    ].join(' ');
+  }
+
+  if (normalized.includes('no refresh token')) {
+    return 'Missing GOOGLE_ADS_REFRESH_TOKEN. Add it in backend environment settings and restart backend.';
+  }
+
   if (Array.isArray(err?.errors) && err.errors.length > 0) {
     return err.errors.map((error) => error.message).filter(Boolean).join(' | ');
   }

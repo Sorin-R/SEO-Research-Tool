@@ -400,12 +400,15 @@ export default function GSCProviderStatus() {
             </dl>
           </div>
 
+          <GoogleToolsDesktopSetupCard />
+
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-5">
             <h3 className="font-semibold text-blue-900">OAuth Notes</h3>
             <ul className="mt-3 space-y-2 text-sm text-blue-800">
               <li>Use OAuth credentials for the same Google Cloud project where Search Console and Analytics Data APIs are enabled.</li>
               <li>The Search Console property URL must be exact, for example `sc-domain:example.com`.</li>
               <li>GA4 Property ID is numeric (for example: `123456789`).</li>
+              <li>If you see `deleted_client`, the OAuth client was removed in Google Cloud. Create a new OAuth client and new refresh token.</li>
               <li>After saving credentials, switch provider ON to allow dashboard features to use it.</li>
             </ul>
           </div>
@@ -454,5 +457,38 @@ function StatusPill({ provider }) {
     <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800">
       Configured but off
     </span>
+  );
+}
+
+function GoogleToolsDesktopSetupCard() {
+  return (
+    <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-5">
+      <h3 className="font-semibold text-indigo-900">Desktop Setup</h3>
+      <div className="mt-3 space-y-3 text-sm text-indigo-900">
+        <p>
+          For the installed desktop app, save Google credentials in this file:
+        </p>
+        <code className="block rounded bg-indigo-100/70 px-2 py-1 text-xs text-indigo-900">
+          /Users/&lt;your-user&gt;/Library/Application Support/SEO Research Tool/.env
+        </code>
+
+        <p className="font-medium">Required keys for Google Ads keyword research:</p>
+        <code className="block whitespace-pre-wrap rounded bg-indigo-100/70 px-2 py-1 text-xs text-indigo-900">
+          GOOGLE_ADS_CLIENT_ID=...
+          {'\n'}GOOGLE_ADS_CLIENT_SECRET=...
+          {'\n'}GOOGLE_ADS_DEVELOPER_TOKEN=...
+          {'\n'}GOOGLE_ADS_REFRESH_TOKEN=...
+          {'\n'}GOOGLE_ADS_LOGIN_CUSTOMER_ID=...
+        </code>
+
+        <p className="font-medium">If you get `401: deleted_client`:</p>
+        <ol className="list-decimal pl-5 space-y-1">
+          <li>Create a new OAuth client in Google Cloud Credentials.</li>
+          <li>Add redirect URI: <code>https://developers.google.com/oauthplayground</code>.</li>
+          <li>Use OAuth Playground with scope <code>https://www.googleapis.com/auth/adwords</code> to generate a new refresh token.</li>
+          <li>Replace the values in the desktop <code>.env</code> file and restart the desktop app.</li>
+        </ol>
+      </div>
+    </div>
   );
 }

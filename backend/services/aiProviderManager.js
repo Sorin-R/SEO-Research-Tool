@@ -1115,7 +1115,7 @@ function buildReportGuidancePrompts(moduleName, summary) {
   return { systemPrompt, userPrompt };
 }
 
-async function requestProviderGuidanceText(provider, credentials = {}, prompts = {}) {
+async function requestProviderGuidanceText(provider, credentials = {}, prompts = {}, options = {}) {
   const model = String(provider.selectedModel || provider.defaultModel || credentials.MODEL || '').trim();
   if (!model) {
     throw createServiceError(`No model selected for ${provider.name}.`, 400);
@@ -1127,6 +1127,11 @@ async function requestProviderGuidanceText(provider, credentials = {}, prompts =
   const systemPrompt = String(prompts.systemPrompt || '').trim();
   const userPrompt = String(prompts.userPrompt || '').trim();
   const combinedPrompt = `${systemPrompt}\n\n${userPrompt}`.trim();
+  const maxTokens = toPositiveInteger(options.maxTokens, 1200);
+  const requestedTemperature = toNumber(options.temperature);
+  const temperature = requestedTemperature == null
+    ? 0.2
+    : Math.min(1.5, Math.max(0, requestedTemperature));
 
   if (requestMode !== 'vertex_oauth2' && requestMode !== 'gemini' && requestMode !== 'anthropic_messages' && !apiKey) {
     throw createServiceError(`${provider.name} API key is missing.`, 412);
@@ -1138,7 +1143,7 @@ async function requestProviderGuidanceText(provider, credentials = {}, prompts =
       endpoint,
       {
         contents: [{ role: 'user', parts: [{ text: combinedPrompt }] }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 1200 },
+        generationConfig: { temperature, maxOutputTokens: maxTokens },
       },
       {
         headers: { 'Content-Type': 'application/json' },
@@ -1162,7 +1167,7 @@ async function requestProviderGuidanceText(provider, credentials = {}, prompts =
       endpoint,
       {
         contents: [{ role: 'user', parts: [{ text: combinedPrompt }] }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 1200 },
+        generationConfig: { temperature, maxOutputTokens: maxTokens },
       },
       {
         headers: {
@@ -1182,8 +1187,8 @@ async function requestProviderGuidanceText(provider, credentials = {}, prompts =
       {
         model,
         system: systemPrompt,
-        max_tokens: 1200,
-        temperature: 0.2,
+        max_tokens: maxTokens,
+        temperature,
         messages: [{ role: 'user', content: userPrompt }],
       },
       {
@@ -1204,8 +1209,8 @@ async function requestProviderGuidanceText(provider, credentials = {}, prompts =
       `${baseUrl}/chat/completions`,
       {
         model,
-        temperature: 0.2,
-        max_tokens: 1200,
+        temperature,
+        max_tokens: maxTokens,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
@@ -1228,8 +1233,8 @@ async function requestProviderGuidanceText(provider, credentials = {}, prompts =
     {
       model,
       input: combinedPrompt,
-      max_output_tokens: 1200,
-      temperature: 0.2,
+      max_output_tokens: maxTokens,
+      temperature,
     },
     {
       headers: {
@@ -1296,6 +1301,68 @@ async function generateReportGuidance({ moduleName, summary = {} }) {
   };
 }
 
+async function runProviderPrompt({
+  providerId = null,
+  systemPrompt = '',
+  userPrompt = '',
+  maxTokens = 1200,
+  temperature = 0.2,
+} = {}) {
+  const details = await getProviderDetails();
+  const normalizedProviderId = String(providerId || '').trim();
+  const failures = [];
+  let candidates = [];
+
+  if (normalizedProviderId) {
+    const selected = details.find((provider) => provider.id === normalizedProviderId);
+    if (!selected) {
+      throw createServiceError(`Unknown AI provider: ${normalizedProviderId}`, 404);
+    }
+
+    if (!selected.configured) {
+      throw createServiceError(`${selected.name} is not configured.`, 412);
+    }
+
+    candidates = [selected];
+  } else {
+    candidates = details.filter((provider) => provider.active).sort(compareProviderPriority);
+
+    if (candidates.length === 0) {
+      throw createServiceError('No active AI provider available. Configure and enable at least one AI provider.', 412);
+    }
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const credentials = await getProviderCredentials(candidate.id);
+      const text = await requestProviderGuidanceText(
+        candidate,
+        credentials || {},
+        { systemPrompt, userPrompt },
+        { maxTokens, temperature }
+      );
+
+      return {
+        providerId: candidate.id,
+        providerName: candidate.name,
+        model: candidate.selectedModel || candidate.defaultModel || credentials?.MODEL || null,
+        text: String(text || '').trim(),
+        usedFallbackProvider: !normalizedProviderId && candidate.id !== candidates[0].id,
+        warning: failures.length > 0 ? `Some providers failed before success: ${failures.join(' | ')}` : null,
+      };
+    } catch (err) {
+      failures.push(`${candidate.name}: ${extractUpstreamErrorMessage(err)}`);
+
+      if (normalizedProviderId) {
+        const statusCode = Number(err?.statusCode || err?.response?.status || 502);
+        throw createServiceError(`${candidate.name} failed: ${extractUpstreamErrorMessage(err)}`, statusCode);
+      }
+    }
+  }
+
+  throw createServiceError(`All AI providers failed: ${failures.join(' | ')}`, 502);
+}
+
 module.exports = {
   AI_PROVIDERS,
   getStatus,
@@ -1308,6 +1375,7 @@ module.exports = {
   getProviderCredentials,
   testProviderConnection,
   generateReportGuidance,
+  runProviderPrompt,
   getKeywordAIRuntimeConfig,
   getAICredentialsMap,
   getAISettingsMap,

@@ -7,8 +7,10 @@ import {
   analyzeContent,
   deleteContentAnalysisHistoryItem,
   generateAIReportGuidance,
+  getAIProviders,
   getContentAnalysisHistory,
   getContentAnalysisHistoryItem,
+  sendContentAnalyzerAIChat,
 } from '../services/api';
 
 const STORAGE_KEY = 'seo-tool:content-analyzer:last-session';
@@ -31,6 +33,15 @@ export default function ContentAnalyzer() {
   const [loadingHistoryId, setLoadingHistoryId] = useState(null);
   const [deletingHistoryId, setDeletingHistoryId] = useState(null);
   const [exportingReport, setExportingReport] = useState(false);
+  const [aiProviders, setAiProviders] = useState([]);
+  const [selectedAiProvider, setSelectedAiProvider] = useState('');
+  const [aiChatInput, setAiChatInput] = useState('');
+  const [aiPagePath, setAiPagePath] = useState('');
+  const [aiReportPath, setAiReportPath] = useState('');
+  const [aiApplyChanges, setAiApplyChanges] = useState(false);
+  const [aiChatMessages, setAiChatMessages] = useState([]);
+  const [aiChatBusy, setAiChatBusy] = useState(false);
+  const [aiChatError, setAiChatError] = useState(null);
   const [storageHydrated, setStorageHydrated] = useState(false);
   const [restoreNotice, setRestoreNotice] = useState(null);
 
@@ -92,6 +103,36 @@ export default function ContentAnalyzer() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAiProviders() {
+      try {
+        const status = await getAIProviders();
+        if (cancelled) {
+          return;
+        }
+
+        const activeProviders = (status?.details || []).filter((provider) => provider.active);
+        setAiProviders(activeProviders);
+
+        if (!selectedAiProvider && activeProviders[0]?.id) {
+          setSelectedAiProvider(activeProviders[0].id);
+        }
+      } catch {
+        if (!cancelled) {
+          setAiProviders([]);
+        }
+      }
+    }
+
+    loadAiProviders();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAiProvider]);
 
   useEffect(() => {
     if (!storageHydrated) {
@@ -235,6 +276,81 @@ export default function ContentAnalyzer() {
     const keywordPart = sanitizeFilenamePart(data.keyword || keyword || 'content-analysis');
     const timestampPart = new Date().toISOString().slice(0, 10);
     downloadMarkdownFile(`content-analyzer-${keywordPart}-${timestampPart}.md`, finalReport);
+  }
+
+  async function handleAiChatSubmit(event) {
+    event.preventDefault();
+
+    const message = aiChatInput.trim();
+    if (!message || !data) {
+      return;
+    }
+
+    setAiChatBusy(true);
+    setAiChatError(null);
+    setAiChatMessages((current) => [
+      ...current,
+      {
+        role: 'user',
+        text: message,
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+    setAiChatInput('');
+
+    try {
+      const result = await sendContentAnalyzerAIChat({
+        message,
+        providerId: selectedAiProvider || undefined,
+        pagePath: aiPagePath.trim() || undefined,
+        reportPath: aiReportPath.trim() || undefined,
+        reportMarkdown: buildContentAnalyzerReportMarkdown(data),
+        applyChanges: aiApplyChanges,
+      });
+
+      const summaryLines = Array.isArray(result.changeSummary) && result.changeSummary.length > 0
+        ? result.changeSummary.map((item) => `- ${item}`).join('\n')
+        : '- No specific change summary returned.';
+      const appliedLine = result.applied
+        ? `Applied changes to: ${result.pagePath}`
+        : result.applyWarning
+          ? `Not applied: ${result.applyWarning}`
+          : 'No file changes applied.';
+      const backupLine = result.backupPath ? `Backup: ${result.backupPath}` : null;
+      const warningLine = result.warning ? `Warning: ${result.warning}` : null;
+
+      setAiChatMessages((current) => [
+        ...current,
+        {
+          role: 'assistant',
+          text: [
+            `${result.assistantReply || 'Completed.'}`,
+            '',
+            `Provider: ${result.providerName || 'N/A'}${result.model ? ` (${result.model})` : ''}`,
+            appliedLine,
+            backupLine,
+            warningLine,
+            '',
+            'Change Summary:',
+            summaryLines,
+          ].filter(Boolean).join('\n'),
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+    } catch (err) {
+      const errorMessage = String(err?.response?.data?.error || err?.message || 'AI chat failed.');
+      setAiChatError(errorMessage);
+      setAiChatMessages((current) => [
+        ...current,
+        {
+          role: 'assistant',
+          text: `Request failed: ${errorMessage}`,
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+    } finally {
+      setAiChatBusy(false);
+    }
   }
 
   return (
@@ -603,6 +719,114 @@ export default function ContentAnalyzer() {
               </div>
             </div>
           )}
+
+          <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+            <div>
+              <h3 className="font-semibold text-gray-900">AI Page Editor Chat</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                Use any active AI provider to review this analysis, read an optional desktop page path + optional .md report path, and apply changes directly to the page file.
+              </p>
+            </div>
+
+            {aiProviders.length === 0 ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                No active AI providers are available. Enable one in AI Providers first.
+              </div>
+            ) : (
+              <form onSubmit={handleAiChatSubmit} className="space-y-4">
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">AI Provider</label>
+                    <select
+                      value={selectedAiProvider}
+                      onChange={(event) => setSelectedAiProvider(event.target.value)}
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                      {aiProviders.map((provider) => (
+                        <option key={provider.id} value={provider.id}>
+                          {provider.name} ({provider.selectedModel || provider.defaultModel || 'default'})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Desktop Page Path (optional)</label>
+                    <input
+                      type="text"
+                      value={aiPagePath}
+                      onChange={(event) => setAiPagePath(event.target.value)}
+                      placeholder="/Users/you/site/index.html"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Existing .md Report Path (optional)</label>
+                  <input
+                    type="text"
+                    value={aiReportPath}
+                    onChange={(event) => setAiReportPath(event.target.value)}
+                    placeholder="/Users/you/Downloads/content-analyzer-report.md"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Instruction</label>
+                  <textarea
+                    value={aiChatInput}
+                    onChange={(event) => setAiChatInput(event.target.value)}
+                    rows={4}
+                    placeholder="Example: rewrite the title + meta description and improve first paragraph for the focus keyword."
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y"
+                  />
+                </div>
+
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={aiApplyChanges}
+                    onChange={(event) => setAiApplyChanges(event.target.checked)}
+                    className="accent-indigo-600"
+                  />
+                  Apply changes to the page file path (desktop runtime only)
+                </label>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    type="submit"
+                    disabled={aiChatBusy || !aiChatInput.trim()}
+                    className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {aiChatBusy ? 'Running AI...' : 'Send to AI'}
+                  </button>
+                  {aiChatError && <span className="text-xs text-red-600">{aiChatError}</span>}
+                </div>
+              </form>
+            )}
+
+            {aiChatMessages.length > 0 && (
+              <div className="space-y-3">
+                {aiChatMessages.map((entry, index) => (
+                  <div
+                    key={`${entry.role}-${entry.timestamp || index}-${index}`}
+                    className={`rounded-lg border px-4 py-3 text-sm ${
+                      entry.role === 'user'
+                        ? 'border-indigo-200 bg-indigo-50 text-indigo-900'
+                        : 'border-gray-200 bg-gray-50 text-gray-800'
+                    }`}
+                  >
+                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide opacity-70">
+                      {entry.role === 'user' ? 'You' : 'AI'}
+                    </div>
+                    <pre className="whitespace-pre-wrap font-sans">{entry.text}</pre>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

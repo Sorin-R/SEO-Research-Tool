@@ -517,6 +517,25 @@ export async function deleteContentAnalysisHistoryItem(id) {
   return data;
 }
 
+export async function sendContentAnalyzerAIChat({
+  message,
+  providerId,
+  pagePath,
+  reportPath,
+  reportMarkdown,
+  applyChanges = false,
+}) {
+  const { data } = await api.post('/analyze/ai-chat', {
+    message,
+    providerId,
+    pagePath,
+    reportPath,
+    reportMarkdown,
+    applyChanges,
+  });
+  return data;
+}
+
 // ---- Trends ----
 
 function normalizeTrendOptions(options = {}) {

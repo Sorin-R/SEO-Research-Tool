@@ -140,6 +140,53 @@ async function retryForUpdatedPageContent({
   };
 }
 
+async function retryForPlainUpdatedPageContent({
+  providerId,
+  originalRequest,
+  originalPageContent,
+  reportContent,
+}) {
+  const systemPrompt = [
+    'You are an SEO page editor.',
+    'Return ONLY the complete updated page content.',
+    'Rules:',
+    '- Do not return JSON.',
+    '- Do not add explanations.',
+    '- Preserve valid page structure.',
+    '- Apply SEO improvements using the report + request.',
+  ].join('\n');
+
+  const userPrompt = JSON.stringify(
+    {
+      request: originalRequest,
+      originalPageContent,
+      reportMarkdown: reportContent,
+    },
+    null,
+    2
+  );
+
+  const repaired = await aiProviderManager.runProviderPrompt({
+    providerId: String(providerId || '').trim() || null,
+    systemPrompt,
+    userPrompt,
+    maxTokens: 3600,
+    temperature: 0.1,
+  });
+
+  const rawText = String(repaired?.text || '').trim();
+  if (!rawText) {
+    return '';
+  }
+
+  const codeBlock = extractLongestCodeBlock(rawText);
+  if (codeBlock) {
+    return normalizeLineEndings(codeBlock);
+  }
+
+  return normalizeLineEndings(rawText);
+}
+
 function requireAbsoluteFilePath(value, fieldName) {
   const normalized = String(value || '').trim();
   if (!normalized) {
@@ -407,6 +454,29 @@ router.post('/ai-chat', async (req, res) => {
         }
       } catch (retryError) {
         console.warn('[Route /analyze/ai-chat] Retry formatter failed:', retryError.message);
+      }
+    }
+
+    if (!updatedPageContent) {
+      try {
+        const plainContent = await retryForPlainUpdatedPageContent({
+          providerId: String(providerId || '').trim() || null,
+          originalRequest: userMessage,
+          originalPageContent: pageContent,
+          reportContent,
+        });
+
+        if (plainContent) {
+          updatedPageContent = plainContent;
+          if (!assistantReply) {
+            assistantReply = 'Applied changes from plain content fallback.';
+          }
+          if (changeSummary.length === 0) {
+            changeSummary = ['Applied fallback page rewrite using report guidance.'];
+          }
+        }
+      } catch (fallbackError) {
+        console.warn('[Route /analyze/ai-chat] Plain fallback failed:', fallbackError.message);
       }
     }
 

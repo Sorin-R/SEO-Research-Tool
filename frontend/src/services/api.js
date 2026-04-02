@@ -523,7 +523,7 @@ export async function sendContentAnalyzerAIChat({
   pagePath,
   reportPath,
   reportMarkdown,
-  applyChanges = false,
+  applyChanges = true,
 }) {
   const { data } = await api.post('/analyze/ai-chat', {
     message,

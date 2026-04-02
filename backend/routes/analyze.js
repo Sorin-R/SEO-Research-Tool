@@ -191,7 +191,7 @@ router.delete('/history/:id', async (req, res) => {
 
 /**
  * POST /api/analyze/ai-chat
- * Use AI provider chat with optional desktop page/report file access.
+ * Use AI provider chat with required desktop page/report file access.
  */
 router.post('/ai-chat', async (req, res) => {
   const {
@@ -199,8 +199,6 @@ router.post('/ai-chat', async (req, res) => {
     providerId,
     pagePath,
     reportPath,
-    reportMarkdown,
-    applyChanges,
   } = req.body || {};
 
   const userMessage = String(message || '').trim();
@@ -211,9 +209,17 @@ router.post('/ai-chat', async (req, res) => {
   try {
     const normalizedPagePath = requireAbsoluteFilePath(pagePath, 'pagePath');
     const normalizedReportPath = requireAbsoluteFilePath(reportPath, 'reportPath');
-    const shouldApplyChanges = applyChanges === true;
+    const shouldApplyChanges = true;
 
-    if ((normalizedPagePath || normalizedReportPath) && !isDesktopRuntime()) {
+    if (!normalizedPagePath) {
+      return res.status(400).json({ error: 'pagePath is required and must be an absolute path.' });
+    }
+
+    if (!normalizedReportPath) {
+      return res.status(400).json({ error: 'reportPath is required and must be an absolute path.' });
+    }
+
+    if (!isDesktopRuntime()) {
       return res.status(400).json({
         error: 'Local file path access is available only in desktop runtime.',
       });
@@ -225,7 +231,11 @@ router.post('/ai-chat', async (req, res) => {
     const reportFromPath = normalizedReportPath
       ? await readTextFileSafe(normalizedReportPath, 'reportPath')
       : null;
-    const reportContent = String(reportMarkdown || '').trim() || reportFromPath || '';
+    const reportContent = String(reportFromPath || '').trim();
+
+    if (!reportContent) {
+      return res.status(400).json({ error: 'Existing .md report file is empty or unreadable.' });
+    }
 
     const systemPrompt = [
       'You are an SEO implementation assistant editing page content.',
@@ -277,9 +287,7 @@ router.post('/ai-chat', async (req, res) => {
     let applyWarning = null;
 
     if (shouldApplyChanges) {
-      if (!normalizedPagePath) {
-        applyWarning = 'applyChanges=true but no pagePath was provided.';
-      } else if (!updatedPageContent) {
+      if (!updatedPageContent) {
         applyWarning = 'AI response did not include "updatedPageContent"; no file changes were written.';
       } else if (typeof pageContent === 'string' && updatedPageContent !== pageContent) {
         backupPath = `${normalizedPagePath}.bak-${Date.now()}`;

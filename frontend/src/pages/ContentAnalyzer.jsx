@@ -15,6 +15,7 @@ import {
 
 const STORAGE_KEY = 'seo-tool:content-analyzer:last-session';
 const HISTORY_LIMIT = 10;
+const DEFAULT_AI_CHAT_PROMPT = 'Apply the Improvement Suggestions from the report and update the page for better SEO title, meta description, first paragraph keyword usage, readability, and internal linking while keeping valid page structure.';
 
 export default function ContentAnalyzer() {
   const [keyword, setKeyword] = useState('');
@@ -35,12 +36,11 @@ export default function ContentAnalyzer() {
   const [exportingReport, setExportingReport] = useState(false);
   const [aiProviders, setAiProviders] = useState([]);
   const [selectedAiProvider, setSelectedAiProvider] = useState('');
-  const [aiChatInput, setAiChatInput] = useState('');
+  const [aiChatInput, setAiChatInput] = useState(DEFAULT_AI_CHAT_PROMPT);
   const [aiPagePath, setAiPagePath] = useState('');
   const [aiReportPath, setAiReportPath] = useState('');
-  const [aiApplyChanges, setAiApplyChanges] = useState(false);
-  const [aiChatMessages, setAiChatMessages] = useState([]);
   const [aiChatBusy, setAiChatBusy] = useState(false);
+  const [aiChatNotice, setAiChatNotice] = useState(null);
   const [aiChatError, setAiChatError] = useState(null);
   const [storageHydrated, setStorageHydrated] = useState(false);
   const [restoreNotice, setRestoreNotice] = useState(null);
@@ -282,72 +282,51 @@ export default function ContentAnalyzer() {
     event.preventDefault();
 
     const message = aiChatInput.trim();
+    const pagePath = aiPagePath.trim();
+    const reportPath = aiReportPath.trim();
     if (!message || !data) {
       return;
     }
 
+    if (!pagePath) {
+      setAiChatError('Desktop Page Path is required.');
+      return;
+    }
+
+    if (!reportPath) {
+      setAiChatError('Existing .md Report Path is required.');
+      return;
+    }
+
     setAiChatBusy(true);
+    setAiChatNotice(null);
     setAiChatError(null);
-    setAiChatMessages((current) => [
-      ...current,
-      {
-        role: 'user',
-        text: message,
-        timestamp: new Date().toISOString(),
-      },
-    ]);
-    setAiChatInput('');
 
     try {
       const result = await sendContentAnalyzerAIChat({
         message,
         providerId: selectedAiProvider || undefined,
-        pagePath: aiPagePath.trim() || undefined,
-        reportPath: aiReportPath.trim() || undefined,
-        reportMarkdown: buildContentAnalyzerReportMarkdown(data),
-        applyChanges: aiApplyChanges,
+        pagePath,
+        reportPath,
+        applyChanges: true,
       });
 
-      const summaryLines = Array.isArray(result.changeSummary) && result.changeSummary.length > 0
-        ? result.changeSummary.map((item) => `- ${item}`).join('\n')
-        : '- No specific change summary returned.';
-      const appliedLine = result.applied
-        ? `Applied changes to: ${result.pagePath}`
-        : result.applyWarning
-          ? `Not applied: ${result.applyWarning}`
-          : 'No file changes applied.';
-      const backupLine = result.backupPath ? `Backup: ${result.backupPath}` : null;
-      const warningLine = result.warning ? `Warning: ${result.warning}` : null;
+      const providerLabel = result.providerName
+        ? `${result.providerName}${result.model ? ` (${result.model})` : ''}`
+        : 'AI provider';
 
-      setAiChatMessages((current) => [
-        ...current,
-        {
-          role: 'assistant',
-          text: [
-            `${result.assistantReply || 'Completed.'}`,
-            '',
-            `Provider: ${result.providerName || 'N/A'}${result.model ? ` (${result.model})` : ''}`,
-            appliedLine,
-            backupLine,
-            warningLine,
-            '',
-            'Change Summary:',
-            summaryLines,
-          ].filter(Boolean).join('\n'),
-          timestamp: new Date().toISOString(),
-        },
-      ]);
+      if (result.applied) {
+        setAiChatNotice(
+          result.backupPath
+            ? `Changes applied to ${result.pagePath}. Backup created: ${result.backupPath}. Provider: ${providerLabel}.`
+            : `Changes applied to ${result.pagePath}. Provider: ${providerLabel}.`
+        );
+      } else {
+        setAiChatNotice(result.applyWarning || 'AI completed, but no file changes were needed.');
+      }
     } catch (err) {
       const errorMessage = String(err?.response?.data?.error || err?.message || 'AI chat failed.');
       setAiChatError(errorMessage);
-      setAiChatMessages((current) => [
-        ...current,
-        {
-          role: 'assistant',
-          text: `Request failed: ${errorMessage}`,
-          timestamp: new Date().toISOString(),
-        },
-      ]);
     } finally {
       setAiChatBusy(false);
     }
@@ -724,7 +703,7 @@ export default function ContentAnalyzer() {
             <div>
               <h3 className="font-semibold text-gray-900">AI Page Editor Chat</h3>
               <p className="text-sm text-gray-500 mt-1">
-                Use any active AI provider to review this analysis, read an optional desktop page path + optional .md report path, and apply changes directly to the page file.
+                Use any active AI provider to read the existing report file and apply changes directly to the desktop page file.
               </p>
             </div>
 
@@ -751,24 +730,26 @@ export default function ContentAnalyzer() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Desktop Page Path (optional)</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Desktop Page Path (Required)</label>
                     <input
                       type="text"
                       value={aiPagePath}
                       onChange={(event) => setAiPagePath(event.target.value)}
                       placeholder="/Users/you/site/index.html"
+                      required
                       className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Existing .md Report Path (optional)</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Existing .md Report Path (Required)</label>
                   <input
                     type="text"
                     value={aiReportPath}
                     onChange={(event) => setAiReportPath(event.target.value)}
                     placeholder="/Users/you/Downloads/content-analyzer-report.md"
+                    required
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
@@ -779,52 +760,26 @@ export default function ContentAnalyzer() {
                     value={aiChatInput}
                     onChange={(event) => setAiChatInput(event.target.value)}
                     rows={4}
-                    placeholder="Example: rewrite the title + meta description and improve first paragraph for the focus keyword."
+                    placeholder={DEFAULT_AI_CHAT_PROMPT}
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y"
                   />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Default prompt uses Improvement Suggestions. Edit it only if you need a different action.
+                  </p>
                 </div>
-
-                <label className="flex items-center gap-2 text-sm text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={aiApplyChanges}
-                    onChange={(event) => setAiApplyChanges(event.target.checked)}
-                    className="accent-indigo-600"
-                  />
-                  Apply changes to the page file path (desktop runtime only)
-                </label>
 
                 <div className="flex items-center gap-3">
                   <button
                     type="submit"
-                    disabled={aiChatBusy || !aiChatInput.trim()}
+                    disabled={aiChatBusy || !aiChatInput.trim() || !aiPagePath.trim() || !aiReportPath.trim()}
                     className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {aiChatBusy ? 'Running AI...' : 'Send to AI'}
+                    {aiChatBusy ? 'Applying Changes...' : 'Apply to Page'}
                   </button>
                   {aiChatError && <span className="text-xs text-red-600">{aiChatError}</span>}
                 </div>
+                {aiChatNotice && <div className="text-xs text-emerald-700">{aiChatNotice}</div>}
               </form>
-            )}
-
-            {aiChatMessages.length > 0 && (
-              <div className="space-y-3">
-                {aiChatMessages.map((entry, index) => (
-                  <div
-                    key={`${entry.role}-${entry.timestamp || index}-${index}`}
-                    className={`rounded-lg border px-4 py-3 text-sm ${
-                      entry.role === 'user'
-                        ? 'border-indigo-200 bg-indigo-50 text-indigo-900'
-                        : 'border-gray-200 bg-gray-50 text-gray-800'
-                    }`}
-                  >
-                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide opacity-70">
-                      {entry.role === 'user' ? 'You' : 'AI'}
-                    </div>
-                    <pre className="whitespace-pre-wrap font-sans">{entry.text}</pre>
-                  </div>
-                ))}
-              </div>
             )}
           </div>
         </div>

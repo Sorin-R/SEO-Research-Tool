@@ -19,6 +19,24 @@ let localAgentProcess = null;
 let shuttingDown = false;
 
 function resolveAppRoot() {
+  const candidates = [
+    path.resolve(__dirname, '..'),
+    process.cwd(),
+    app.getAppPath(),
+    path.resolve(app.getAppPath(), '..'),
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      const backendEntry = path.join(candidate, 'backend', 'server.js');
+      if (fs.existsSync(backendEntry)) {
+        return candidate;
+      }
+    } catch {
+      // ignore and continue
+    }
+  }
+
   return app.getAppPath();
 }
 

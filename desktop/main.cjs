@@ -80,6 +80,40 @@ function resolveWindowIconPath() {
   ]);
 }
 
+function resolveLocalSerpChromePath() {
+  const explicit = String(process.env.LOCAL_SERP_AGENT_CHROME_PATH || '').trim();
+  if (explicit && fs.existsSync(explicit)) {
+    return explicit;
+  }
+
+  const candidates = process.platform === 'darwin'
+    ? [
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        '/Applications/Chromium.app/Contents/MacOS/Chromium',
+        '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
+      ]
+    : process.platform === 'win32'
+      ? [
+          'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+          'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+          'C:\\Program Files\\Chromium\\Application\\chrome.exe',
+        ]
+      : [
+          '/usr/bin/google-chrome',
+          '/usr/bin/google-chrome-stable',
+          '/usr/bin/chromium',
+          '/usr/bin/chromium-browser',
+        ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return '';
+}
+
 function applyRuntimeAppIcon() {
   const iconPath = resolveDockIconPath();
   if (!iconPath) {
@@ -192,16 +226,22 @@ function startBackendProcess() {
 function startLocalAgentProcess() {
   const localAgentScript = resolveDesktopPath('backend', 'scripts', 'localSerpAgent.js');
   const localProfileDir = path.join(app.getPath('userData'), 'local-serp-agent-profile');
+  const resolvedChromePath = resolveLocalSerpChromePath();
+  const localAgentEnv = {
+    LOCAL_SERP_BACKEND_URL: BACKEND_API_URL,
+    LOCAL_SERP_AGENT_TOKEN: AGENT_TOKEN,
+    LOCAL_SERP_AGENT_ID: `${app.getName().replace(/\s+/g, '-')}-desktop-agent`,
+    LOCAL_SERP_AGENT_HEADLESS: 'new',
+    LOCAL_SERP_AGENT_USER_DATA_DIR: localProfileDir,
+  };
+
+  if (resolvedChromePath) {
+    localAgentEnv.LOCAL_SERP_AGENT_CHROME_PATH = resolvedChromePath;
+  }
+
   localAgentProcess = spawnNodeProcess(
     localAgentScript,
-    {
-      LOCAL_SERP_BACKEND_URL: BACKEND_API_URL,
-      LOCAL_SERP_AGENT_TOKEN: AGENT_TOKEN,
-      LOCAL_SERP_AGENT_ID: `${app.getName().replace(/\s+/g, '-')}-desktop-agent`,
-      LOCAL_SERP_AGENT_HEADLESS: 'new',
-      LOCAL_SERP_AGENT_USER_DATA_DIR: localProfileDir,
-      LOCAL_SERP_AGENT_CHROME_PATH: process.execPath,
-    },
+    localAgentEnv,
     '[LocalAgent]'
   );
 

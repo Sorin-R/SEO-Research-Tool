@@ -16,6 +16,12 @@ const USER_AGENT = String(
   || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
 ).trim();
 const CHROME_EXECUTABLE_PATH = String(process.env.LOCAL_SERP_AGENT_CHROME_PATH || '').trim();
+const USE_VALENTIN_LOCATION_HELPER = String(process.env.LOCAL_SERP_AGENT_USE_VALENTIN || 'true').trim().toLowerCase() !== 'false';
+const VALENTIN_BASE_URL = String(process.env.LOCAL_SERP_AGENT_VALENTIN_BASE_URL || 'https://valentin.app').replace(/\/+$/, '');
+const VALENTIN_GEOCODE_TIMEOUT_MS = Number.parseInt(process.env.LOCAL_SERP_AGENT_VALENTIN_TIMEOUT_MS || '8000', 10);
+const VALENTIN_GEOCODE_CACHE_TTL_MS = Number.parseInt(process.env.LOCAL_SERP_AGENT_VALENTIN_CACHE_TTL_MS || '900000', 10);
+
+const valentinGeocodeCache = new Map();
 
 let agentState = {
   status: 'idle',
@@ -94,7 +100,105 @@ function normalizeSearchDomain(value, engine) {
   return raw || 'google.com';
 }
 
-function buildSearchUrl({ keyword, engine, searchDomain, country, location }) {
+function normalizeLanguageParams(country) {
+  if (country === 'GB') {
+    return { gl: 'uk', hl: 'en', geocodeGl: 'GB' };
+  }
+
+  return { gl: 'us', hl: 'en', geocodeGl: 'US' };
+}
+
+function toFiniteNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function roundCoordinate(value) {
+  const finite = toFiniteNumber(value);
+  if (finite == null) {
+    return null;
+  }
+  return Math.floor(finite * 1e7) / 1e7;
+}
+
+function generateValentinUule(latitude, longitude) {
+  const lat = Math.round(1e7 * latitude);
+  const lng = Math.round(1e7 * longitude);
+  const timestamp = String(Math.floor(Date.now() * 1000));
+  const radius = 150 * 620;
+  const payload = [
+    'role:', 1,
+    '\nproducer:', 12,
+    '\nprovenance:', 6,
+    '\ntimestamp:', timestamp,
+    '\nlatlng{\nlatitude_e7:', lat,
+    '\nlongitude_e7:', lng,
+    '\n}\nradius:', radius,
+  ].join('');
+
+  return `a ${Buffer.from(payload, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_')}`;
+}
+
+function getCachedValentinGeocode(cacheKey) {
+  const current = valentinGeocodeCache.get(cacheKey);
+  if (!current) {
+    return null;
+  }
+
+  if ((Date.now() - current.savedAt) > VALENTIN_GEOCODE_CACHE_TTL_MS) {
+    valentinGeocodeCache.delete(cacheKey);
+    return null;
+  }
+
+  return current.value;
+}
+
+async function geocodeLocationViaValentin(location, country) {
+  const normalizedLocation = normalizeLocation(location);
+  if (!normalizedLocation || !USE_VALENTIN_LOCATION_HELPER) {
+    return null;
+  }
+
+  const language = normalizeLanguageParams(country);
+  const cacheKey = `${language.geocodeGl}:${normalizedLocation.toLowerCase()}`;
+  const cached = getCachedValentinGeocode(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const response = await axios.get(`${VALENTIN_BASE_URL}/geocode`, {
+    params: {
+      address: normalizedLocation.toLowerCase(),
+      hl: language.hl,
+      gl: language.geocodeGl,
+    },
+    timeout: VALENTIN_GEOCODE_TIMEOUT_MS,
+  });
+
+  const firstResult = response?.data?.results?.[0];
+  const latitude = roundCoordinate(firstResult?.geometry?.location?.lat);
+  const longitude = roundCoordinate(firstResult?.geometry?.location?.lng);
+
+  if (latitude == null || longitude == null) {
+    return null;
+  }
+
+  const resolved = {
+    latitude,
+    longitude,
+    formattedAddress: String(firstResult?.formatted_address || normalizedLocation).trim() || normalizedLocation,
+    source: 'valentin-app-geocode',
+  };
+
+  valentinGeocodeCache.set(cacheKey, {
+    savedAt: Date.now(),
+    value: resolved,
+  });
+
+  return resolved;
+}
+
+async function buildSearchUrl({ keyword, engine, searchDomain, country, location }) {
   const normalizedKeyword = normalizeKeyword(keyword);
   const normalizedLocation = normalizeLocation(location);
   const normalizedDomain = normalizeSearchDomain(searchDomain, engine);
@@ -112,23 +216,41 @@ function buildSearchUrl({ keyword, engine, searchDomain, country, location }) {
     if (normalizedLocation) {
       url.searchParams.set('loc', normalizedLocation);
     }
-    return url.toString();
+    return {
+      url: url.toString(),
+      locationContext: null,
+    };
   }
 
+  const language = normalizeLanguageParams(country);
   const url = new URL(`https://${normalizedDomain}/search`);
   url.searchParams.set('q', normalizedKeyword);
   url.searchParams.set('num', '10');
-  if (country === 'GB') {
-    url.searchParams.set('gl', 'uk');
-    url.searchParams.set('hl', 'en');
-  } else {
-    url.searchParams.set('gl', 'us');
-    url.searchParams.set('hl', 'en');
-  }
+  url.searchParams.set('gl', language.gl);
+  url.searchParams.set('hl', language.hl);
+  url.searchParams.set('ie', 'utf-8');
+  url.searchParams.set('oe', 'utf-8');
+  url.searchParams.set('pws', '0');
+
+  let locationContext = null;
   if (normalizedLocation) {
+    try {
+      locationContext = await geocodeLocationViaValentin(normalizedLocation, country);
+    } catch (error) {
+      console.warn(`[LocalAgent] Valentin geocode failed for "${normalizedLocation}": ${error.message}`);
+    }
+  }
+
+  if (locationContext?.latitude != null && locationContext?.longitude != null) {
+    url.searchParams.set('uule', generateValentinUule(locationContext.latitude, locationContext.longitude));
+  } else if (normalizedLocation) {
     url.searchParams.set('near', normalizedLocation);
   }
-  return url.toString();
+
+  return {
+    url: url.toString(),
+    locationContext,
+  };
 }
 
 function shouldHandleGoogleConsent(pageUrl) {
@@ -466,13 +588,14 @@ async function captureSerpLocally(payload) {
     throw new Error('LOCAL_SERP_AGENT_CHROME_PATH is required when using puppeteer-core.');
   }
 
-  const searchUrl = buildSearchUrl({
+  const searchTarget = await buildSearchUrl({
     keyword: payload.keyword,
     engine: payload.engine,
     searchDomain: payload.searchDomain,
     country: payload.country,
     location: payload.location,
   });
+  const searchUrl = searchTarget.url;
 
   const launchOptions = {
     headless: resolveHeadlessMode(),
@@ -524,18 +647,20 @@ async function captureSerpLocally(payload) {
             quality: 60,
           });
           const blockedImageBase64 = Buffer.from(blockedScreenshotBuffer).toString('base64');
-          return {
-            results: [],
-            screenshotUrl: currentUrl,
-            screenshotImageDataUrl: `data:image/jpeg;base64,${blockedImageBase64}`,
-            blockedByEngine: true,
-            debug: {
-              capturedUrl: currentUrl,
-              attempt,
-              blockReason: 'captcha-or-consent',
-            },
-          };
-        }
+        return {
+          results: [],
+          screenshotUrl: currentUrl,
+          screenshotImageDataUrl: `data:image/jpeg;base64,${blockedImageBase64}`,
+          blockedByEngine: true,
+          debug: {
+            capturedUrl: currentUrl,
+            attempt,
+            blockReason: 'captcha-or-consent',
+            locationContext: searchTarget.locationContext || null,
+            usedValentinLocationHelper: Boolean(searchTarget.locationContext),
+          },
+        };
+      }
 
         await waitForResults(page, payload.engine);
         await sleep(1200);
@@ -569,6 +694,8 @@ async function captureSerpLocally(payload) {
           debug: {
             capturedUrl: finalUrl,
             attempt,
+            locationContext: searchTarget.locationContext || null,
+            usedValentinLocationHelper: Boolean(searchTarget.locationContext),
           },
         };
       } catch (error) {

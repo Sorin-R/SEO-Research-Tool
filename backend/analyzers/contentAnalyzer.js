@@ -9,7 +9,9 @@ const MIN_WORD_COUNT = 300;
 const MAX_PARAGRAPH_WORDS = 150;
 const MAX_SECTION_WORDS = 300;
 const LONG_SENTENCE_WORDS = 20;
+const MIN_LONG_SENTENCE_PERCENTAGE = 10;
 const MAX_LONG_SENTENCE_PERCENTAGE = 25;
+const WARN_LONG_SENTENCE_PERCENTAGE = 35;
 const MIN_TRANSITION_PERCENTAGE = 30;
 const MAX_PASSIVE_VOICE_PERCENTAGE = 10;
 
@@ -650,8 +652,8 @@ function buildReadabilityChecks(metrics) {
       id: 'readability-long-sentences',
       label: 'Long sentences',
       status: getLongSentenceStatus(metrics.longSentencePercentage),
-      message: `${metrics.longSentencePercentage}% of the sentences contain more than ${LONG_SENTENCE_WORDS} words, which is ${metrics.longSentencePercentage <= MAX_LONG_SENTENCE_PERCENTAGE ? 'less than or equal to' : 'above'} the recommended maximum of ${MAX_LONG_SENTENCE_PERCENTAGE}%.`,
-      suggestion: `Keep the percentage of sentences over ${LONG_SENTENCE_WORDS} words below ${MAX_LONG_SENTENCE_PERCENTAGE}%.`,
+      message: `${metrics.longSentencePercentage}% of the sentences contain more than ${LONG_SENTENCE_WORDS} words. Target range is ${MIN_LONG_SENTENCE_PERCENTAGE}% to ${MAX_LONG_SENTENCE_PERCENTAGE}% (warn up to ${WARN_LONG_SENTENCE_PERCENTAGE}%).`,
+      suggestion: `Keep the percentage of sentences over ${LONG_SENTENCE_WORDS} words between ${MIN_LONG_SENTENCE_PERCENTAGE}% and ${MAX_LONG_SENTENCE_PERCENTAGE}%.`,
       weight: 20,
     }),
     createCheck({
@@ -1054,11 +1056,11 @@ function getParagraphLengthStatus(longParagraphCount) {
 }
 
 function getLongSentenceStatus(value) {
-  if (value <= MAX_LONG_SENTENCE_PERCENTAGE) {
+  if (value >= MIN_LONG_SENTENCE_PERCENTAGE && value <= MAX_LONG_SENTENCE_PERCENTAGE) {
     return 'pass';
   }
 
-  if (value <= 35) {
+  if (value <= WARN_LONG_SENTENCE_PERCENTAGE) {
     return 'warn';
   }
 

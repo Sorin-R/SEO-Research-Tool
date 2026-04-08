@@ -21,7 +21,6 @@ import {
   getTrackedWebsites,
   manualTrackRank,
   markAlertsRead,
-  runManualJob,
   SELECTED_WEBSITE_STORAGE_KEY,
   trackKeyword,
   updateRankTrackerSchedule,
@@ -64,6 +63,7 @@ export default function RankTracker() {
   const [selectedKeywordIds, setSelectedKeywordIds] = useState(new Set());
   const [checkingKeywordId, setCheckingKeywordId] = useState(null);
   const [fullJobRunning, setFullJobRunning] = useState(false);
+  const [fullJobProgress, setFullJobProgress] = useState(null);
   const [activeTab, setActiveTab] = useState('rankings');
   const [trendsSummary, setTrendsSummary] = useState(null);
   const [jobHistoryList, setJobHistoryList] = useState([]);
@@ -376,7 +376,7 @@ export default function RankTracker() {
   }
 
   async function handleCheckNowKeyword(keywordItem) {
-    if (!selectedWebsiteId || checkingKeywordId) return;
+    if (!selectedWebsiteId || checkingKeywordId || fullJobRunning) return;
     const website = websites.find((w) => String(w.id) === String(selectedWebsiteId));
     if (!website) return;
     setCheckingKeywordId(keywordItem.id);
@@ -398,17 +398,69 @@ export default function RankTracker() {
   }
 
   async function handleRunFullJob() {
+    if (!selectedWebsiteId || fullJobRunning) return;
+    const website = websites.find((w) => String(w.id) === String(selectedWebsiteId));
+    if (!website) return;
+    const queue = keywordsWithRank
+      .filter((kw) => (
+        kw.website_id == null || String(kw.website_id) === String(selectedWebsiteId)
+      ));
+    if (queue.length === 0) {
+      setRestoreNotice(`No keywords to check for ${getTrackingTargetLabel(website)}.`);
+      return;
+    }
+
     setFullJobRunning(true);
     setError(null);
+    setRestoreNotice(null);
     try {
-      const result = await runManualJob();
+      let found = 0;
+      let notFound = 0;
+      let failed = 0;
+
+      for (let index = 0; index < queue.length; index += 1) {
+        const keywordItem = queue[index];
+        setCheckingKeywordId(keywordItem.id);
+        setFullJobProgress({
+          current: index + 1,
+          total: queue.length,
+          keyword: keywordItem.keyword,
+        });
+
+        try {
+          const result = await manualTrackRank(
+            keywordItem.id,
+            keywordItem.keyword,
+            website.target_url || website.domain,
+            website.id,
+            website.country
+          );
+
+          if (result.position != null) found += 1;
+          else notFound += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+
       await reloadRankings(selectedWebsiteId);
+      if (selectedId) {
+        await reloadHistory(selectedId, selectedWebsiteId, { silent: false });
+      }
       setRestoreNotice(
-        `Job complete. Checked ${result.processedKeywords} keywords across ${result.processedWebsites} websites. ` +
-        `Found: ${result.matched}, Failed: ${result.failed || 0}.`
+        `Full check complete for ${getTrackingTargetLabel(website)}. ` +
+        `Checked ${queue.length} keywords. Found: ${found}, Not found: ${notFound}, Failed: ${failed}.`
       );
-    } catch (err) { setError(err.response?.data?.error || err.message); }
-    finally { setFullJobRunning(false); }
+      if (failed > 0) {
+        setError(`${failed} keyword check(s) failed during the full run. Please retry those keywords.`);
+      }
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+    } finally {
+      setCheckingKeywordId(null);
+      setFullJobProgress(null);
+      setFullJobRunning(false);
+    }
   }
 
   async function handleManualRefresh() {
@@ -742,8 +794,17 @@ export default function RankTracker() {
             </button>
             <button type="button" onClick={handleRunFullJob} disabled={!selectedWebsite || fullJobRunning}
               className="rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-medium text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50 disabled:opacity-60">
-              {fullJobRunning ? 'Running...' : 'Run Full Check'}
+              {fullJobRunning && fullJobProgress
+                ? `Running ${fullJobProgress.current}/${fullJobProgress.total}`
+                : fullJobRunning
+                  ? 'Running...'
+                  : 'Run Full Check'}
             </button>
+            {fullJobRunning && fullJobProgress && (
+              <span className="text-xs text-gray-500">
+                Checking: {fullJobProgress.keyword}
+              </span>
+            )}
             <button type="button" onClick={() => handleExport('csv')}
               className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-50">Export CSV</button>
             <button type="button" onClick={() => handleExport('json')}
@@ -799,7 +860,7 @@ export default function RankTracker() {
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         <button onClick={(e) => { e.stopPropagation(); handleCheckNowKeyword(kw); }}
-                          disabled={checkingKeywordId === kw.id || !selectedWebsite}
+                          disabled={fullJobRunning || checkingKeywordId === kw.id || !selectedWebsite}
                           className="text-xs px-2 py-1 rounded border border-indigo-200 text-indigo-600 hover:bg-indigo-50 disabled:opacity-50"
                           title="Check position now">
                           {checkingKeywordId === kw.id ? '...' : 'Check'}
